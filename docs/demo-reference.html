@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Rookie Agent: demo học thao tác đối chiếu trên web</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&display=swap">
+<style>
+:root{
+  --bg:#EDF0F3; --surface:#FFFFFF; --ink:#12202E; --muted:#566676; --line:#D3DAE1; --soft:#F4F6F8;
+  --bank:#0B5C6B; --bank-ink:#FFFFFF; --bank-soft:#E3F1F3;
+  --panel:#1C1B3A; --panel-surface:#27264B; --panel-ink:#EFEDFF; --panel-muted:#B1AEDD; --panel-line:#3A3866;
+  --accent:#8F82FF; --accent-ink:#14132B;
+  --ok:#1E8E5A; --ok-soft:#DDF3E7; --wait:#B36F05; --wait-soft:#FBEBCB; --bad:#C43A3A; --bad-soft:#FAE1E1; --rec:#E5484D;
+  box-sizing:border-box; padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    color-scheme:dark;
+    --bg:#0D1317; --surface:#151D23; --ink:#E6EDF2; --muted:#94A4B2; --line:#2B3741; --soft:#1B252D;
+    --bank:#0E4A56; --bank-ink:#F2FBFC; --bank-soft:#16323A;
+    --panel:#15142C; --panel-surface:#201F40; --panel-ink:#EFEDFF; --panel-muted:#A9A6D6; --panel-line:#34325C;
+    --ok:#4CC38A; --ok-soft:#143325; --wait:#F0B341; --wait-soft:#3A2C0C; --bad:#F07178; --bad-soft:#3A1719;
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --bg:#0D1317; --surface:#151D23; --ink:#E6EDF2; --muted:#94A4B2; --line:#2B3741; --soft:#1B252D;
+  --bank:#0E4A56; --bank-ink:#F2FBFC; --bank-soft:#16323A;
+  --panel:#15142C; --panel-surface:#201F40; --panel-ink:#EFEDFF; --panel-muted:#A9A6D6; --panel-line:#34325C;
+  --ok:#4CC38A; --ok-soft:#143325; --wait:#F0B341; --wait-soft:#3A2C0C; --bad:#F07178; --bad-soft:#3A1719;
+}
+*,*::before,*::after{box-sizing:inherit}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:"Be Vietnam Pro",system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;font-size:15px;line-height:1.5}
+button,select,input{font:inherit;color:inherit}
+button{cursor:pointer}
+button:disabled{cursor:not-allowed;opacity:.5}
+:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+.wrap{max-width:1180px;margin:0 auto;padding:20px 16px 40px}
+
+.intro h1{font-size:clamp(22px,3.4vw,32px);line-height:1.2;margin:0 0 6px;font-weight:700;letter-spacing:-.01em}
+.intro p{margin:0;color:var(--muted);max-width:70ch}
+.stages{list-style:none;display:flex;flex-wrap:wrap;gap:8px;padding:0;margin:16px 0 18px;counter-reset:st}
+.stages li{counter-increment:st;display:flex;align-items:center;gap:8px;padding:6px 14px 6px 6px;border:1px solid var(--line);border-radius:999px;background:var(--surface);color:var(--muted);font-weight:500}
+.stages li::before{content:counter(st);display:grid;place-items:center;width:24px;height:24px;border-radius:50%;background:var(--soft);font-size:13px;font-weight:600}
+.stages li.on{color:var(--ink);border-color:var(--accent)}
+.stages li.on::before{background:var(--accent);color:var(--accent-ink)}
+.stages li.done::before{background:var(--ok);color:#fff;content:"✓"}
+
+.stage{display:grid;grid-template-columns:minmax(0,1.45fr) minmax(320px,1fr);gap:16px;align-items:start}
+@media (max-width:860px){.stage{grid-template-columns:1fr}}
+
+/* Trình duyệt giả lập */
+.browser{border:1px solid var(--line);border-radius:14px;overflow:hidden;background:var(--surface)}
+.chrome{display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:8px 12px;background:var(--soft);border-bottom:1px solid var(--line)}
+.url{flex:1 1 180px;min-width:0;padding:5px 12px;border-radius:999px;background:var(--surface);border:1px solid var(--line);color:var(--muted);font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.recbadge{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:999px;background:var(--bad-soft);color:var(--bad);font-weight:600;font-size:13px}
+.recbadge::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--rec);animation:pulse 1.1s infinite}
+.runbadge{display:inline-flex;padding:3px 10px;border-radius:999px;background:var(--panel);color:var(--panel-ink);font-weight:600;font-size:13px}
+@keyframes pulse{50%{opacity:.25}}
+.switch{display:inline-flex;align-items:center;gap:6px;font-size:13px;color:var(--muted)}
+.bank-head{display:flex;flex-wrap:wrap;justify-content:space-between;gap:6px 16px;padding:12px 16px;background:var(--bank);color:var(--bank-ink)}
+.bank-head span{opacity:.85;font-size:13px}
+.tabs{display:flex;gap:4px;padding:10px 16px 0;border-bottom:1px solid var(--line)}
+.tabs button{border:1px solid transparent;border-bottom:0;background:none;padding:8px 14px;border-radius:8px 8px 0 0;font-weight:500;color:var(--muted)}
+.tabs button[aria-selected="true"]{background:var(--bank-soft);color:var(--ink);border-color:var(--line);font-weight:600}
+.source{padding:10px 16px 0;color:var(--muted);font-size:13px}
+.filters{display:flex;flex-wrap:wrap;align-items:flex-end;gap:12px;padding:12px 16px}
+.field{display:grid;gap:4px}
+.field label{font-size:13px;color:var(--muted)}
+.field select{padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--surface);min-width:160px}
+.b-primary{padding:9px 18px;border-radius:8px;border:1px solid var(--bank);background:var(--bank);color:var(--bank-ink);font-weight:600}
+.result{padding:0 16px 16px;min-height:150px}
+.empty{padding:28px 12px;text-align:center;color:var(--muted);border:1px dashed var(--line);border-radius:10px}
+.tscroll{overflow-x:auto;border:1px solid var(--line);border-radius:10px}
+table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums}
+th,td{padding:8px 12px;text-align:left;border-bottom:1px solid var(--line);white-space:nowrap}
+th{font-size:13px;color:var(--muted);font-weight:600;background:var(--soft)}
+tr:last-child td{border-bottom:0}
+td.num,th.num{text-align:right}
+.agent-focus{outline:3px solid var(--accent)!important;outline-offset:3px;border-radius:8px}
+
+/* Extension */
+.ext{background:var(--panel);color:var(--panel-ink);border-radius:14px;padding:14px;display:grid;gap:12px}
+.ext-head{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.ext-head strong{font-size:17px}
+.ext-head span{color:var(--panel-muted);font-size:13px}
+.blk{background:var(--panel-surface);border:1px solid var(--panel-line);border-radius:12px;padding:12px}
+.blk h2{margin:0 0 4px;font-size:15px;font-weight:600}
+.blk p{margin:0 0 10px;color:var(--panel-muted);font-size:13.5px}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.e-btn{padding:8px 14px;border-radius:8px;border:1px solid var(--panel-line);background:transparent;color:var(--panel-ink);font-weight:600}
+.e-btn.main{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.e-btn.stop{background:var(--rec);border-color:var(--rec);color:#fff}
+.note{font-size:13px;color:var(--panel-muted);margin-top:8px}
+.note.ok{color:#7EE0AE}.note.bad{color:#FF9AA0}
+.list{list-style:none;margin:10px 0 0;padding:0;display:grid;gap:6px;max-height:210px;overflow:auto}
+.list li{display:grid;gap:2px;padding:7px 10px;border-radius:8px;background:var(--panel);border:1px solid var(--panel-line);font-size:13.5px}
+.list code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;color:var(--panel-muted);word-break:break-all}
+.steps{max-height:none}
+.steps li{grid-template-columns:1fr auto;align-items:center;gap:4px 8px}
+.steps li .st{grid-column:1/-1;font-size:12.5px;color:var(--panel-muted)}
+.steps li.run{border-color:var(--accent)}
+.steps li.pause{border-color:#F0B341}
+.steps li.pause .st{color:#F0B341}
+.steps li.done{border-color:#3FAE7C}
+.steps li.done .st{color:#7EE0AE}
+.steps li.fail{border-color:#FF9AA0}
+.steps select{padding:3px 6px;border-radius:6px;border:1px solid var(--panel-line);background:var(--panel-surface);color:var(--panel-ink);font-size:12.5px}
+.inputs{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px}
+.inputs label{display:grid;gap:3px;font-size:12.5px;color:var(--panel-muted)}
+.inputs select,.inputs input{padding:7px 8px;border-radius:8px;border:1px solid var(--panel-line);background:var(--panel);color:var(--panel-ink);min-width:0;width:100%}
+.gate{margin-top:10px;padding:12px;border-radius:10px;background:var(--panel);border:2px solid #F0B341}
+.gate h3{margin:0 0 6px;font-size:14.5px}
+.gate .tscroll{border-color:var(--panel-line);margin:8px 0}
+.gate th{background:var(--panel-surface);color:var(--panel-muted)}
+.gate th,.gate td{border-color:var(--panel-line);padding:6px 8px;font-size:13px}
+.gate tr.ig td{color:var(--panel-muted)}
+.log li{grid-template-columns:auto 1fr;gap:8px;align-items:baseline}
+.log time{color:var(--panel-muted);font-size:12px;font-variant-numeric:tabular-nums}
+.sum{margin-top:10px;padding:10px;border-radius:10px;background:var(--panel);border:1px solid var(--panel-line);font-size:13.5px}
+.sum b{color:#7EE0AE}
+[hidden]{display:none!important}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;scroll-behavior:auto!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="intro">
+    <h1>Rookie Agent học thao tác đối chiếu ngay trên web</h1>
+    <p>Mọi thứ ở đây là mô phỏng chạy trong trình duyệt của bạn: hệ thống nghiệp vụ, extension và dữ liệu đều là giả lập. Hãy đi lần lượt qua bốn bước.</p>
+    <ol class="stages" id="stages">
+      <li data-s="record" class="on">Ghi thao tác</li>
+      <li data-s="learn">Học thành workflow</li>
+      <li data-s="run">Chạy có kiểm soát</li>
+      <li data-s="log">Xem nhật ký</li>
+    </ol>
+  </header>
+
+  <main class="stage">
+    <section class="browser" aria-label="Hệ thống nghiệp vụ giả lập">
+      <div class="chrome">
+        <span class="url">doichieu.nganhang.mau/bao-cao</span>
+        <span class="recbadge" id="recbadge" hidden>Đang ghi</span>
+        <span class="runbadge" id="runbadge" hidden>Agent đang chạy</span>
+        <label class="switch"><input type="checkbox" id="ui-toggle"> Giao diện mới</label>
+      </div>
+      <div class="bank" id="bank"></div>
+    </section>
+
+    <aside class="ext" aria-label="Extension giả lập">
+      <div class="ext-head"><strong>Rookie Agent</strong><span id="ver">chưa có agent</span></div>
+
+      <div class="blk" id="sec-record">
+        <h2>1. Ghi thao tác</h2>
+        <p>Bấm “Bắt đầu ghi” rồi làm như thường ngày: mở Báo cáo A, chọn ngày, bấm Tìm kiếm; làm tương tự với Báo cáo B. Nên ghi vài lần với ngày khác nhau.</p>
+        <div class="row">
+          <button class="e-btn main" id="btn-rec" type="button">Bắt đầu ghi</button>
+          <button class="e-btn" id="btn-auto" type="button">Làm mẫu giúp tôi</button>
+        </div>
+        <div class="note" id="rec-count">Chưa có lần ghi nào.</div>
+        <ol class="list" id="events" aria-live="polite"></ol>
+      </div>
+
+      <div class="blk" id="sec-learn">
+        <h2>2. Học thành workflow</h2>
+        <p>Trợ lý so sánh các lần ghi: phần giống nhau thành bước cố định, phần khác nhau thành tham số.</p>
+        <button class="e-btn main" id="btn-learn" type="button" disabled>Học từ các lần ghi</button>
+        <div class="note" id="learn-out" aria-live="polite">Cần ít nhất một lần ghi.</div>
+      </div>
+
+      <div class="blk" id="sec-run">
+        <h2>3. Chạy có kiểm soát</h2>
+        <p id="run-hint">Chưa có workflow. Hãy ghi và học trước.</p>
+        <div id="run-body" hidden>
+          <div class="inputs">
+            <label>Ngày cần đối chiếu<select id="in-date"></select></label>
+            <label>Bỏ qua lệch dưới (đồng)<input id="in-th" type="number" min="0" step="100" value="1000"></label>
+          </div>
+          <div class="row">
+            <button class="e-btn main" id="btn-run" type="button">Chạy agent</button>
+            <button class="e-btn stop" id="btn-stop" type="button" hidden>Dừng khẩn</button>
+          </div>
+          <ol class="list steps" id="steps"></ol>
+          <div class="gate" id="gate" hidden aria-live="assertive"></div>
+        </div>
+      </div>
+
+      <div class="blk" id="sec-log">
+        <h2>4. Nhật ký</h2>
+        <p>Mỗi bước agent làm đều được ghi lại để kiểm tra sau.</p>
+        <ul class="list log" id="log" aria-live="polite"></ul>
+        <div class="sum" id="sum" hidden></div>
+      </div>
+    </aside>
+  </main>
+</div>
+
+<script>
+(function(){
+'use strict';
+const DATES=['09/11/2026','10/11/2026','11/11/2026','12/11/2026'];
+const $=id=>document.getElementById(id);
+const bank=$('bank');
+const reduce=window.matchMedia&&window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+const money=n=>n.toLocaleString('vi-VN')+' đ';
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+/* ---------- Dữ liệu giả lập ---------- */
+function rng(seed){let s=seed;return()=>(s=(s*1664525+1013904223)%4294967296)/4294967296;}
+const DATA=DATES.map((_,di)=>{
+  const r=rng(1000+di*77),A=[],B=[];
+  for(let i=1;i<=8;i++){
+    const id='GD'+(di+1)+String(i).padStart(3,'0');
+    const acct=String(Math.floor(r()*9000000000)+1000000000);
+    const amt=(Math.floor(r()*900)+100)*50000;
+    A.push({id,acct,amt});B.push({id,acct,amt});
+  }
+  B[1].amt+=500; B[4].amt-=250000; B.splice(6,1);
+  if(di%2===0)B.push({id:'GD'+(di+1)+'901',acct:String(Math.floor(r()*9000000000)+1000000000),amt:1200000});
+  return {A,B};
+});
+
+/* ---------- Trạng thái ---------- */
+const S={tab:'A',date:{A:DATES[0],B:DATES[0]},shown:{A:null,B:null},ui:false,
+  rec:null,sessions:[],wf:null,version:0,running:false,abort:false,gateResolve:null};
+
+/* ---------- Hệ thống nghiệp vụ giả lập ---------- */
+function ids(){return S.ui?{ta:'nav-1',tb:'nav-2',date:'ctl_date_7',btn:'btnQuery_x9'}:{ta:'tab-a',tb:'tab-b',date:'f-date',btn:'btn-search'};}
+function renderBank(){
+  const k=ids(),t=S.tab;
+  const btn='<button type="button" class="b-primary" id="'+k.btn+'"'+(S.ui?'':' name="search"')+' data-rec="search">'+(S.ui?'Tra cứu':'Tìm kiếm')+'</button>';
+  const field='<div class="field"><label for="'+k.date+'">Ngày báo cáo</label><select id="'+k.date+'" name="ngay" data-rec="date">'+
+    DATES.map(d=>'<option'+(d===S.date[t]?' selected':'')+'>'+d+'</option>').join('')+'</select></div>';
+  const sh=S.shown[t];let res;
+  if(sh==='loading')res='<div class="empty">Đang tải báo cáo…</div>';
+  else if(!sh)res='<div class="empty">Chọn ngày rồi bấm '+(S.ui?'Tra cứu':'Tìm kiếm')+' để xem báo cáo.</div>';
+  else res='<div class="tscroll"><table id="tbl-report" data-tab="'+t+'" data-date="'+sh.date+'"><thead><tr><th>Mã giao dịch</th><th>Tài khoản</th><th class="num">Số tiền</th></tr></thead><tbody>'+
+    sh.rows.map(r=>'<tr data-id="'+r.id+'" data-v="'+r.amt+'"><td>'+r.id+'</td><td>••••'+r.acct.slice(-4)+'</td><td class="num">'+money(r.amt)+'</td></tr>').join('')+'</tbody></table></div>';
+  bank.innerHTML='<div class="bank-head"><strong>Hệ thống đối chiếu</strong><span>GDV mẫu, chi nhánh giả lập</span></div>'+
+    '<div class="tabs" role="tablist">'+
+    '<button type="button" role="tab" id="'+k.ta+'" aria-selected="'+(t==='A')+'" data-rec="tab" data-tab="A">Báo cáo A</button>'+
+    '<button type="button" role="tab" id="'+k.tb+'" aria-selected="'+(t==='B')+'" data-rec="tab" data-tab="B">Báo cáo B</button></div>'+
+    '<div class="source">Nguồn: '+(t==='A'?'hệ thống lõi':'cổng thanh toán')+'</div>'+
+    '<div class="filters">'+(S.ui?btn+field:field+btn)+'</div>'+
+    '<div class="result">'+res+'</div>';
+}
+function selectorsOf(el,kind){
+  const out=[];
+  if(el.id)out.push('#'+el.id);
+  if(el.getAttribute('name'))out.push(el.tagName.toLowerCase()+'[name='+el.getAttribute('name')+']');
+  if(kind==='date')out.push('label=Ngày báo cáo');else out.push('text='+el.textContent.trim());
+  return out;
+}
+function record(kind,el,extra){
+  if(!S.rec)return;
+  const ev=Object.assign({kind,tab:S.tab,selectors:selectorsOf(el,kind),label:kind==='date'?'Ngày báo cáo':el.textContent.trim()},extra||{});
+  S.rec.events.push(ev);renderEvents(S.rec.events);
+}
+bank.addEventListener('click',e=>{
+  const el=e.target.closest('[data-rec]');if(!el)return;
+  if(el.dataset.rec==='tab'){record('tab',el,{to:el.dataset.tab});S.tab=el.dataset.tab;renderBank();}
+  else if(el.dataset.rec==='search'){
+    record('search',el);const t=S.tab,d=S.date[t];S.shown[t]='loading';renderBank();
+    setTimeout(()=>{S.shown[t]={date:d,rows:DATA[DATES.indexOf(d)][t]};if(S.tab===t)renderBank();},350);
+  }
+});
+bank.addEventListener('change',e=>{
+  const el=e.target.closest('[data-rec="date"]');if(!el)return;
+  S.date[S.tab]=el.value;record('date',el,{value:el.value});
+});
+$('ui-toggle').addEventListener('change',e=>{S.ui=e.target.checked;renderBank();
+  log(S.ui?'Hệ thống nghiệp vụ đổi sang giao diện mới (id và tên nút thay đổi).':'Hệ thống nghiệp vụ quay về giao diện cũ.');});
+
+/* ---------- Bước 1: Ghi ---------- */
+function renderEvents(evs){
+  $('events').innerHTML=evs.map(ev=>{
+    const what=ev.kind==='tab'?'Bấm “'+esc(ev.label)+'”':ev.kind==='search'?'Bấm “'+esc(ev.label)+'”':'Chọn Ngày báo cáo = {ngay}';
+    return '<li><span>'+what+'</span><code>'+esc(ev.selectors.join('  |  '))+'</code></li>';}).join('');
+  const l=$('events');l.scrollTop=l.scrollHeight;
+}
+function setRec(on){
+  $('recbadge').hidden=!on;$('btn-rec').textContent=on?'Dừng ghi':'Bắt đầu ghi';
+  $('btn-rec').classList.toggle('stop',on);$('btn-rec').classList.toggle('main',!on);
+}
+function startRec(){S.rec={events:[],t0:performance.now()};$('events').innerHTML='';setRec(true);}
+function stopRec(){
+  if(!S.rec)return;const r=S.rec;S.rec=null;setRec(false);
+  if(!r.events.length){$('rec-count').textContent='Lần ghi vừa rồi không có thao tác nào nên đã bỏ qua.';return;}
+  r.ms=performance.now()-r.t0;S.sessions.push(r);
+  $('rec-count').textContent='Đã ghi '+S.sessions.length+' lần. Giá trị ngày được lưu thành tham số {ngay}, không lưu giá trị thật.';
+  $('btn-learn').disabled=false;$('learn-out').textContent='Sẵn sàng học từ '+S.sessions.length+' lần ghi.';$('learn-out').className='note';
+  stage('learn');
+}
+$('btn-rec').addEventListener('click',()=>{if(S.running)return;S.rec?stopRec():startRec();});
+function byTab(t){return bank.querySelector('[data-rec="tab"][data-tab="'+t+'"]');}
+async function flash(el,ms){if(!el)return;el.classList.add('agent-focus');await sleep(ms);if(el.isConnected)el.classList.remove('agent-focus');}
+async function autoSession(){
+  if(S.running||S.rec)return;
+  $('btn-auto').disabled=true;$('btn-rec').disabled=true;
+  const d=DATES[S.sessions.length%DATES.length];startRec();
+  for(const t of ['A','B']){
+    let el=byTab(t);await flash(el,reduce?80:380);el.click();await sleep(250);
+    el=bank.querySelector('[data-rec="date"]');await flash(el,reduce?80:380);el.value=d;el.dispatchEvent(new Event('change',{bubbles:true}));await sleep(200);
+    el=bank.querySelector('[data-rec="search"]');await flash(el,reduce?80:380);el.click();await sleep(650);
+  }
+  stopRec();$('btn-auto').disabled=false;$('btn-rec').disabled=false;
+}
+$('btn-auto').addEventListener('click',autoSession);
+
+/* ---------- Bước 2: Học ---------- */
+function learn(){
+  const order=[],sel={A:{},B:{}};
+  for(const s of S.sessions)for(const ev of s.events){
+    if(ev.kind==='search'&&!order.includes(ev.tab))order.push(ev.tab);
+    if(ev.kind==='tab'&&!sel[ev.to].tab)sel[ev.to].tab=ev.selectors;
+    if(ev.kind==='date'&&!sel[ev.tab].date)sel[ev.tab].date=ev.selectors;
+    if(ev.kind==='search'&&!sel[ev.tab].search)sel[ev.tab].search=ev.selectors;
+  }
+  if(!(order.includes('A')&&order.includes('B')))
+    return {error:'Các lần ghi chưa đủ: cần bấm Tìm kiếm ở cả Báo cáo A và Báo cáo B. Hãy ghi thêm một lần đầy đủ.'};
+  const def={tab:t=>['#tab-'+t.toLowerCase(),'text=Báo cáo '+t],date:['#f-date','select[name=ngay]','label=Ngày báo cáo']};
+  const steps=[];
+  for(const t of order){
+    steps.push({kind:'tab',tab:t,name:'Mở Báo cáo '+t,selectors:sel[t].tab||def.tab(t),risk:'read',mode:'auto'});
+    steps.push({kind:'date',tab:t,name:'Chọn ngày {ngay}',selectors:sel[t].date||def.date,risk:'read',mode:'auto'});
+    steps.push({kind:'search',tab:t,name:'Bấm Tìm kiếm',selectors:sel[t].search,risk:'read',mode:'auto'});
+    steps.push({kind:'extract',tab:t,name:'Lấy bảng báo cáo '+t,selectors:['#tbl-report'],risk:'read',mode:'auto'});
+  }
+  steps.push({kind:'compare',name:'Đối chiếu hai báo cáo',selectors:[],risk:'read',mode:'review'});
+  steps.push({kind:'save',name:'Lưu biên bản đối chiếu',selectors:[],risk:'write',mode:'approve'});
+  const vals=new Set();S.sessions.forEach(s=>s.events.forEach(ev=>{if(ev.kind==='date')vals.add(ev.value);}));
+  return {steps,vals:vals.size};
+}
+$('btn-learn').addEventListener('click',async()=>{
+  if(S.running)return;const out=$('learn-out');
+  $('btn-learn').disabled=true;out.className='note';out.textContent='Đang so sánh '+S.sessions.length+' lần ghi…';
+  await sleep(reduce?100:1100);
+  const r=learn();$('btn-learn').disabled=false;
+  if(r.error){out.className='note bad';out.textContent=r.error;return;}
+  S.wf=r.steps;S.version+=1;$('ver').textContent='agent v'+S.version;
+  const p=r.vals>=2?'Ngày khác nhau giữa các lần ghi nên được nhận là tham số {ngay}.':
+    'Mới thấy một giá trị ngày. Trợ lý tạm coi ngày là tham số; nên ghi thêm lần với ngày khác để chắc chắn.';
+  out.className='note ok';out.textContent='Đã sinh workflow '+r.steps.length+' bước từ '+S.sessions.length+' lần ghi. '+p+' Hai bước cuối do trợ lý đề xuất thêm.';
+  log('Sinh workflow v'+S.version+' gồm '+r.steps.length+' bước từ '+S.sessions.length+' lần ghi.');
+  $('run-hint').textContent='Chọn ngày, chỉnh chế độ từng bước nếu muốn, rồi chạy. Bước ghi dữ liệu luôn cần duyệt.';
+  $('run-body').hidden=false;$('in-date').innerHTML=DATES.map(d=>'<option>'+d+'</option>').join('');$('in-date').value=DATES[3];
+  renderSteps();stage('run');
+});
+
+/* ---------- Bước 3: Chạy ---------- */
+const MODE={auto:'tự chạy',review:'dừng xem',approve:'chờ duyệt'};
+function renderSteps(){
+  $('steps').innerHTML=S.wf.map((s,i)=>'<li data-i="'+i+'"><span>'+(i+1)+'. '+esc(s.name)+'</span>'+
+    '<select aria-label="Chế độ của bước '+(i+1)+'" data-i="'+i+'">'+Object.keys(MODE).map(m=>
+      '<option value="'+m+'"'+(m===s.mode?' selected':'')+(s.risk==='write'&&m!=='approve'?' disabled':'')+'>'+MODE[m]+'</option>').join('')+'</select>'+
+    '<span class="st">'+(s.risk==='write'?'bước ghi dữ liệu, bắt buộc duyệt':'chưa chạy')+'</span></li>').join('');
+}
+$('steps').addEventListener('change',e=>{const i=e.target.dataset.i;if(i!==undefined&&!S.running)S.wf[i].mode=e.target.value;});
+function setStep(i,cls,text){const li=$('steps').querySelector('li[data-i="'+i+'"]');if(!li)return;li.className=cls;li.querySelector('.st').textContent=text;
+  if(window.matchMedia('(max-width:860px)').matches===false)li.scrollIntoView({block:'nearest'});}
+function q(sel){
+  if(sel.indexOf('text=')===0){const t=sel.slice(5);return Array.from(bank.querySelectorAll('button')).find(b=>b.textContent.trim()===t)||null;}
+  if(sel.indexOf('label=')===0){const l=Array.from(bank.querySelectorAll('label')).find(x=>x.textContent.trim()===sel.slice(6));return l?document.getElementById(l.htmlFor):null;}
+  try{return bank.querySelector(sel);}catch(_){return null;}
+}
+function resolve(step){
+  for(let i=0;i<step.selectors.length;i++){const el=q(step.selectors[i]);if(el)return {el,how:i===0?'primary':'fallback',sel:step.selectors[i]};}
+  if(step.kind==='search'){const el=bank.querySelector('.filters button');if(el)return {el,how:'llm',conf:0.82,sel:'#'+el.id};}
+  return null;
+}
+function gate(title,body,buttons){
+  const g=$('gate');g.hidden=false;
+  g.innerHTML='<h3>'+title+'</h3>'+body+'<div class="row">'+buttons.map((b,i)=>'<button type="button" class="e-btn'+(i===0?' main':'')+'" data-v="'+b[0]+'">'+b[1]+'</button>').join('')+'</div>';
+  g.scrollIntoView({block:'nearest',behavior:reduce?'auto':'smooth'});
+  const first=g.querySelector('button');if(first)first.focus({preventScroll:true});
+  return new Promise(res=>{S.gateResolve=v=>{S.gateResolve=null;g.hidden=true;g.innerHTML='';res(v);};});
+}
+$('gate').addEventListener('click',e=>{const b=e.target.closest('button[data-v]');if(b&&S.gateResolve)S.gateResolve(b.dataset.v);});
+$('btn-stop').addEventListener('click',()=>{S.abort=true;if(S.gateResolve)S.gateResolve('stop');});
+function compare(A,B,th){
+  const mb=new Map(B.map(r=>[r.id,r])),out=[];
+  for(const a of A){const b=mb.get(a.id);
+    if(!b){out.push({id:a.id,type:'Thiếu ở báo cáo B',a:a.amt,b:null,ig:false,cause:'Cần kiểm tra'});continue;}
+    mb.delete(a.id);const d=b.amt-a.amt;
+    if(d!==0){const ig=Math.abs(d)<th;out.push({id:a.id,type:'Lệch số tiền',a:a.amt,b:b.amt,d,ig,cause:ig?'Làm tròn, bỏ qua theo rule':'Cần kiểm tra'});}}
+  mb.forEach(b=>out.push({id:b.id,type:'Thiếu ở báo cáo A',a:null,b:b.amt,ig:false,cause:'Cần kiểm tra'}));
+  return out;
+}
+function diffTable(d){
+  if(!d.length)return '<p class="note ok">Hai báo cáo khớp hoàn toàn.</p>';
+  return '<div class="tscroll"><table><thead><tr><th>Mã</th><th>Loại</th><th class="num">A</th><th class="num">B</th><th>Nguyên nhân dự đoán</th></tr></thead><tbody>'+
+    d.map(r=>'<tr'+(r.ig?' class="ig"':'')+'><td>'+r.id+'</td><td>'+r.type+'</td><td class="num">'+(r.a==null?'':money(r.a))+'</td><td class="num">'+(r.b==null?'':money(r.b))+'</td><td>'+r.cause+'</td></tr>').join('')+'</tbody></table></div>';
+}
+async function run(){
+  if(S.running||!S.wf)return;if(S.rec)stopRec();
+  S.running=true;S.abort=false;$('btn-run').hidden=true;$('btn-stop').hidden=false;$('runbadge').hidden=false;
+  $('btn-rec').disabled=true;$('btn-auto').disabled=true;$('btn-learn').disabled=true;$('sum').hidden=true;
+  $('steps').querySelectorAll('select').forEach(s=>s.disabled=true);
+  const date=$('in-date').value,th=Math.max(0,Number($('in-th').value)||0),data={},heals=[];let waitMs=0,diffs=null,ended='xong';
+  const t0=performance.now(),pace=reduce?120:650;
+  S.wf.forEach((s,i)=>setStep(i,'',s.risk==='write'?'bước ghi dữ liệu, bắt buộc duyệt':'chưa chạy'));
+  log('Bắt đầu chạy agent v'+S.version+' cho ngày '+date+', bỏ qua lệch dưới '+money(th)+'.');
+  if(window.matchMedia('(max-width:860px)').matches)bank.scrollIntoView({block:'start',behavior:reduce?'auto':'smooth'});
+  for(let i=0;i<S.wf.length;i++){
+    if(S.abort){ended='dừng khẩn';break;}
+    const s=S.wf[i];
+    if(s.mode==='approve'){
+      setStep(i,'pause','chờ GDV duyệt');const w=performance.now();
+      const v=await gate('Duyệt trước khi chạy bước '+(i+1),'<p class="note">'+esc(s.name)+(s.kind==='save'&&diffs?': lưu '+diffs.filter(x=>!x.ig).length+' dòng cần kiểm tra cho ngày '+date+'.':'.')+'</p>',[['ok','Duyệt'],['no','Từ chối']]);
+      waitMs+=performance.now()-w;
+      if(v!=='ok'){setStep(i,'fail',v==='stop'?'dừng khẩn':'GDV từ chối');log('Bước '+(i+1)+' không được duyệt: '+(v==='stop'?'dừng khẩn.':'GDV từ chối.'));ended=v==='stop'?'dừng khẩn':'GDV từ chối';break;}
+      log('GDV duyệt bước '+(i+1)+' ('+s.name+').');
+    }
+    setStep(i,'run','đang chạy');let note='xong';
+    if(s.kind==='tab'||s.kind==='date'||s.kind==='search'){
+      const r=resolve(s);
+      if(!r){setStep(i,'fail','không tìm thấy phần tử');log('Bước '+(i+1)+': không tìm thấy phần tử, dừng và hỏi GDV.');ended='không tìm thấy phần tử';break;}
+      if(r.how==='fallback'){note='xong, dùng selector dự phòng';heals.push({i,sel:r.sel});log('Bước '+(i+1)+': selector chính không khớp, dùng selector dự phòng '+r.sel+'.');}
+      if(r.how==='llm'){
+        note='xong, tự sửa bằng LLM (mô phỏng)';heals.push({i,sel:r.sel});
+        log('Bước '+(i+1)+': mọi selector đều không khớp. LLM (mô phỏng) tìm thấy nút “'+r.el.textContent.trim()+'” trong khung lọc, độ tin cậy 0,82.');
+      }
+      await flash(r.el,pace*0.7);
+      if(s.kind==='tab')r.el.click();
+      else if(s.kind==='date'){r.el.value=date;r.el.dispatchEvent(new Event('change',{bubbles:true}));}
+      else{r.el.click();await sleep(450);}
+      await sleep(pace*0.3);
+    }else if(s.kind==='extract'){
+      const tb=bank.querySelector('#tbl-report');
+      if(!tb||tb.dataset.tab!==s.tab){setStep(i,'fail','không thấy bảng');log('Bước '+(i+1)+': không thấy bảng báo cáo '+s.tab+'.');ended='không thấy bảng';break;}
+      await flash(tb,pace*0.7);
+      data[s.tab]=Array.from(tb.querySelectorAll('tbody tr')).map(tr=>({id:tr.dataset.id,amt:Number(tr.dataset.v)}));
+      note='xong, '+data[s.tab].length+' dòng';
+    }else if(s.kind==='compare'){
+      await sleep(pace);diffs=compare(data.A||[],data.B||[],th);
+      const need=diffs.filter(x=>!x.ig).length;note='xong, '+diffs.length+' dòng lệch, '+need+' cần kiểm tra';
+      log('Đối chiếu tại máy: '+(data.A||[]).length+' dòng A, '+(data.B||[]).length+' dòng B, '+diffs.length+' dòng lệch ('+need+' cần kiểm tra).');
+    }else if(s.kind==='save'){await sleep(pace);note='đã lưu biên bản (mô phỏng)';log('Đã lưu biên bản đối chiếu ngày '+date+' (mô phỏng, không ghi vào đâu).');}
+    if(s.mode==='review'){
+      setStep(i,'pause','chờ GDV xem kết quả');const w=performance.now();
+      const body=s.kind==='compare'?diffTable(diffs)+'<p class="note">Nguyên nhân là dự đoán theo rule; phần giải thích bằng LLM trong demo này là mô phỏng.</p>':'<p class="note">'+esc(s.name)+': '+note+'.</p>';
+      const v=await gate('Xem kết quả bước '+(i+1),body,[['ok','Đi tiếp'],['no','Dừng ở đây']]);
+      waitMs+=performance.now()-w;
+      if(v!=='ok'){setStep(i,'done',note);log('GDV dừng sau bước '+(i+1)+'.');ended=v==='stop'?'dừng khẩn':'GDV dừng sau khi xem';break;}
+      log('GDV xem kết quả bước '+(i+1)+' và cho đi tiếp.');
+    }
+    setStep(i,'done',note);
+    if(s.mode==='auto'&&s.kind!=='compare'&&s.kind!=='save'&&note==='xong')log('Bước '+(i+1)+' ('+s.name.replace('{ngay}',date)+'): xong.');
+  }
+  const total=performance.now()-t0,agentMs=total-waitMs;
+  const man=S.sessions.reduce((a,s)=>a+s.ms,0)/S.sessions.length;
+  log('Kết thúc: '+ended+'. Agent chạy '+(agentMs/1000).toFixed(1).replace('.',',')+' giây, chờ GDV '+(waitMs/1000).toFixed(1).replace('.',',')+' giây.');
+  let h='Kết quả: <b>'+ended+'</b>. Agent chạy '+(agentMs/1000).toFixed(1).replace('.',',')+' giây (không tính '+(waitMs/1000).toFixed(1).replace('.',',')+' giây chờ GDV). Một lần làm mẫu mất trung bình '+(man/1000).toFixed(1).replace('.',',')+' giây.';
+  if(heals.length)h+='<div class="note">Agent đã tự sửa '+heals.length+' bước vì giao diện đổi. Cập nhật selector mới vào workflow?</div><div class="row" style="margin-top:8px"><button type="button" class="e-btn main" id="btn-accept">Chấp nhận cập nhật</button></div>';
+  $('sum').innerHTML=h;$('sum').hidden=false;
+  const acc=$('btn-accept');
+  if(acc)acc.addEventListener('click',()=>{heals.forEach(x=>{const st=S.wf[x.i];st.selectors=[x.sel].concat(st.selectors.filter(y=>y!==x.sel));});
+    S.version+=1;$('ver').textContent='agent v'+S.version;log('GDV chấp nhận cập nhật selector. Workflow lên v'+S.version+'.');acc.disabled=true;acc.textContent='Đã cập nhật';});
+  S.running=false;$('btn-run').hidden=false;$('btn-stop').hidden=true;$('runbadge').hidden=true;
+  $('btn-rec').disabled=false;$('btn-auto').disabled=false;$('btn-learn').disabled=false;
+  $('steps').querySelectorAll('select').forEach(s=>s.disabled=false);
+  stage('log');
+}
+$('btn-run').addEventListener('click',run);
+
+/* ---------- Bước 4: Nhật ký ---------- */
+function log(text){
+  const li=document.createElement('li'),d=new Date();
+  li.innerHTML='<time>'+d.toLocaleTimeString('vi-VN',{hour12:false})+'</time><span>'+esc(text)+'</span>';
+  const l=$('log');l.appendChild(li);l.scrollTop=l.scrollHeight;
+}
+const ORDER=['record','learn','run','log'];
+function stage(s){const k=ORDER.indexOf(s);
+  $('stages').querySelectorAll('li').forEach((li,i)=>{li.classList.toggle('on',i===k);li.classList.toggle('done',i<k);});}
+
+renderBank();
+})();
+</script>
+</body>
+</html>
