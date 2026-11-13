@@ -12,7 +12,9 @@ windows-agent/  Windows agent (Python): recorder, runner Java qua Java Access Br
 server/         FastAPI (Python): ingest, learner, kho agent, audit, sandbox runner
 mock-site/      Hệ thống web giả lập: Báo cáo A, B, CIF, chuyển tiền, phê duyệt
 mock-java/      Ứng dụng Java Swing giả lập TPSS (CIF, chuyển tiền, phê duyệt) cho hướng B
-schemas/        JSON Schema của event và workflow (hợp đồng giữa các phần)
+schemas/        JSON Schema của event và workflow (hợp đồng giữa các phần), kèm mẫu hợp lệ và mẫu sai
+config/         Bảng phân loại trường nhập, dùng chung cho extension và Windows agent
+scripts/        Script đóng gói
 tests/e2e/   Test Playwright chạy extension thật trên mock site
 docs/        design.md, tasks.md, demo-reference.html
 ```
@@ -36,12 +38,16 @@ cd extension; npm install; npm run build; npm test
 # e2e
 cd tests/e2e; npm install; npx playwright install chromium; npx playwright test
 
-# mock Java (có từ Task 1.8; cần JDK 8 trở lên, không dùng Maven/Gradle)
-cd mock-java; javac --release 8 -d out (Get-ChildItem -Recurse src -Filter *.java).FullName
-java -cp out mocktpss.Main
+# mock Java (cần JDK 8 trở lên, không dùng Maven/Gradle): build, đóng jar và chạy SelfTest
+.\mock-java\build.ps1
+java -jar mock-java\mock-tpss.jar
 
-# windows agent (có từ Task 1.9; dùng chung venv ở server/.venv)
-cd windows-agent; pytest
+# windows agent (dùng chung venv ở server/.venv; khi chạy chỉ cần thư viện chuẩn)
+cd windows-agent; pip install -r requirements-dev.txt; pytest
+python -m rookie_agent status
+
+# đóng gói hướng B để mang vào máy nội bộ (xem windows-agent/README.md)
+.\scripts\package-path-b.ps1
 ```
 
 Nếu lệnh nào chưa đúng với repo hiện tại thì sửa lệnh trong file này khi bạn phát hiện.

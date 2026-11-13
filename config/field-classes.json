@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "description": "Bảng phân loại trường nhập, dùng chung cho extension (hướng A) và Windows agent (hướng B). Xem docs/design.md mục 4.2. Luật được thử theo thứ tự, luật đầu tiên khớp với nhãn (đã chuyển chữ thường) sẽ thắng. Không khớp luật nào thì coi là nhạy cảm.",
+  "default": { "kind": "sensitive", "value_class": "unclassified" },
+  "ignore_roles": ["password text"],
+  "ignore_input_types": ["password"],
+  "rules": [
+    { "kind": "ignore", "pattern": "mật khẩu|password|passcode|otp|mã pin|\\bpin\\b|mã xác thực|mã bảo mật" },
+    { "kind": "sensitive", "value_class": "username", "pattern": "tên đăng nhập|username|user name|mã nhân viên" },
+    { "kind": "sensitive", "value_class": "cif_number", "pattern": "\\bcif\\b|mã khách hàng" },
+    { "kind": "sensitive", "value_class": "id_number", "pattern": "cccd|cmnd|căn cước|chứng minh|hộ chiếu|passport|giấy tờ" },
+    { "kind": "sensitive", "value_class": "account_number", "pattern": "tài khoản|account|\\bstk\\b|số thẻ|card" },
+    { "kind": "sensitive", "value_class": "phone", "pattern": "điện thoại|phone|di động" },
+    { "kind": "sensitive", "value_class": "birth_date", "pattern": "ngày sinh|birth" },
+    { "kind": "sensitive", "value_class": "customer_name", "pattern": "họ và tên|họ tên|tên khách hàng|tên người|người thụ hưởng|customer name|full name" },
+    { "kind": "sensitive", "value_class": "amount", "pattern": "số tiền|amount|số dư|balance|hạn mức" },
+    { "kind": "sensitive", "value_class": "free_text", "pattern": "nội dung|ghi chú|diễn giải|địa chỉ|email|note|address" },
+    { "kind": "plain", "pattern": "ngày|date|kỳ báo cáo|loại|trạng thái|chi nhánh|đơn vị|nguồn" }
+  ]
+}

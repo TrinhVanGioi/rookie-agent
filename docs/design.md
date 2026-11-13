@@ -111,7 +111,21 @@ Extension không chạy được trong tab IE mode, và giao diện bên trong a
 
 **Dự phòng.** Nếu ứng dụng dùng component tự viết không có tên accessible, nạp một Java agent nhỏ vào JVM của applet (tham số runtime trong Java Control Panel) để nghe sự kiện bằng `AWTEventListener`. Chỉ làm khi spike trên hệ thống thật (task 1.7) cho thấy JAB không đủ.
 
-**Ngôn ngữ.** PoC viết Windows agent bằng Python. Bản triển khai thật cân nhắc C#/.NET để đóng gói gọn.
+**Cách bắt sự kiện (đã kiểm chứng trên mock Swing, JDK 21 64-bit).**
+
+| Thao tác | Tín hiệu từ Java Access Bridge | Event |
+| --- | --- | --- |
+| Gõ vào ô nhập | Đổi nội dung text khi ô đang có focus; ghi ra khi ô mất focus, trước mỗi click, và khi Dừng | `input` |
+| Bấm chuột vào nút, menu | Sự kiện click chuột | `click` |
+| Chuyển tab | Tab chuyển sang trạng thái `selected` | `click` |
+| Tích ô chọn, nút radio | Đổi trạng thái `checked` | `click` |
+| Chọn dòng trong bảng | Đổi vùng chọn của bảng; lưu số thứ tự dòng | `select` |
+
+Ứng dụng tự xoá form sau khi gửi không bị ghi nhầm thành thao tác nhập, vì lúc đó ô không có focus.
+
+**Giới hạn của Java Access Bridge.** Bấm nút bằng bàn phím (Enter, phím cách, phím tắt) không sinh sự kiện nào, nên chưa ghi được. Nếu GDV quen thao tác bằng bàn phím thì phải dùng Java agent dự phòng bên dưới.
+
+**Ngôn ngữ.** PoC viết Windows agent bằng Python, khi chạy chỉ dùng thư viện chuẩn (gọi DLL của Java Access Bridge bằng `ctypes`) để không phải mang thêm gói nào vào máy nội bộ. Bản triển khai thật cân nhắc C#/.NET để đóng gói gọn.
 
 ## 4. Định dạng dữ liệu
 
