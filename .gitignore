@@ -7,3 +7,7 @@ dist/
 test-results/
 playwright-report/
 .vscode/
+mock-java/out/
+*.jar
+windows-agent/install/*.json
+windows-agent/install/*.bat
