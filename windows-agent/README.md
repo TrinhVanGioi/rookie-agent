@@ -21,7 +21,7 @@ Máy nội bộ cần có sẵn:
 | Python 3.10 trở lên | **Cùng bitness với JRE của ứng dụng Java.** Applet trong IE mode thường dùng JRE 32-bit, khi đó phải dùng Python 32-bit. |
 | JRE hoặc JDK 8 trở lên | Chính là JRE mà ứng dụng đang dùng. Trong thư mục `bin` của nó có `jabswitch.exe` và `WindowsAccessBridge-32.dll` hoặc `-64.dll`. |
 
-Agent chỉ dùng thư viện chuẩn của Python khi chạy, không cần `pip install`. Chạy test thì cần `pytest` và `jsonschema` (`requirements-dev.txt`).
+Agent chỉ dùng thư viện chuẩn của Python khi chạy, không cần `pip install`. Máy chủ (để học workflow) cần bốn thư viện, đã có sẵn trong thư mục `wheels\` của gói; thư viện phải đúng phiên bản và 32/64-bit với Python ở máy nội bộ, nên đóng gói bằng `.\scripts\package-path-b.ps1 -PythonVersion 3.10 -Platform win32` nếu cần. Chạy test thì cần `pytest` và `jsonschema` (`requirements-dev.txt`).
 
 ## Chạy trên máy nội bộ
 
@@ -78,6 +78,21 @@ Lệnh này đăng ký agent làm Native Messaging host cho Edge và Chrome củ
 | Enter trong một ô (cần agent Java) | `submit` | Không lưu gì của ô. Chạy lại bằng hành động Enter của ô. |
 
 Bảng phân loại trường nằm ở `config\field-classes.json`, dùng chung với extension. Trường chưa có trong bảng được coi là nhạy cảm.
+
+## Thử với một màn hình thật (ví dụ vấn tin tài khoản)
+
+Dùng **môi trường thử và tài khoản thử**, không dùng số liệu thật. Mỗi bước sau chạy trong PowerShell, thư mục `windows-agent\`.
+
+1. **Cài Python** cùng loại với Java đang chạy ứng dụng: mở ứng dụng, vào Task Manager, tab Details; nếu tiến trình Java (`jp2launcher.exe`, `javaw.exe`) có chữ `*32` thì dùng Python 32-bit.
+2. **Bật Java Access Bridge** bằng `jabswitch.exe -enable` của đúng JRE đó (thư mục `bin` của JRE), rồi đóng hẳn trình duyệt hoặc ứng dụng và mở lại. Nếu DLL không tự tìm thấy: `$env:ROOKIE_JAB_DLL = "...\bin\WindowsAccessBridge-32.dll"`.
+3. **Kiểm tra:** `python -m rookie_agent status`. Phải thấy "sẵn sàng" và danh sách cửa sổ Java. Không thấy cửa sổ nào nghĩa là ứng dụng không phải Java hoặc bridge chưa bật.
+4. **Xem các ô có tên không:** mở màn hình vấn tin, `python -m rookie_agent tree --window "<một phần tiêu đề>" > tree.txt`. Cuối file ghi số thành phần không có tên.
+5. **Ghi một lần:** `python -m rookie_agent record --window "<tiêu đề>" --out vantin1.json`. Làm đúng việc vấn tin (nhập số tài khoản thử, bấm Tra cứu hoặc Enter), rồi quay lại cửa sổ lệnh bấm Enter để dừng. Mở `vantin1.json`, tìm số tài khoản vừa gõ: **không được có**. Phải thấy các sự kiện `input` có `value_class` và `click` hoặc `submit`.
+6. **Nếu bạn dùng Enter** thay vì bấm nút mà không thấy bước gửi trong file: bật agent Java (mục dưới), mở lại ứng dụng, ghi lại.
+7. **Ghi ba lần** với ba tài khoản thử khác nhau (`vantin1.json` đến `vantin3.json`).
+8. **Học (cần máy chủ):** `pip install --no-index --find-links ..\wheels -r ..\server\requirements-run.txt`, rồi `cd ..\server; python -m uvicorn app.main:app --port 8000`. Ở cửa sổ khác: `python -m rookie_agent upload --server http://localhost:8000 --file vantin1.json` (làm cho cả ba file, ghi lại mã phiên in ra), rồi `python -m rookie_agent learn --server http://localhost:8000 --id van-tin-tai-khoan --sessions <mã1> <mã2> <mã3>`. Kết quả liệt kê các bước, thông tin cần nhập, và mức rủi ro của từng bước.
+
+**Chưa chạy lại được trên ứng dụng thật:** chạy thử chỉ cho phép trên mock (quy tắc PoC: dữ liệu giả lập), và Chạy chỉ cho workflow đã duyệt. Nên hiện chỉ làm được bước 1 đến 8.
 
 ## Ghi cả thao tác bằng bàn phím
 

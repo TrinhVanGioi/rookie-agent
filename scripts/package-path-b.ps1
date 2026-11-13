@@ -1,9 +1,16 @@
 # Build one zip with everything path B needs on an offline machine:
-# the Windows agent, the shared config and schemas, and the Swing mock.
+# the Windows agent, the server (to learn workflows) with its Python wheels, the shared config and
+# schemas, the Java recording helper and the Swing mock.
 #
-#   .\scripts\package-path-b.ps1        ->  dist\rookie-agent-path-b.zip
+#   .\scripts\package-path-b.ps1                                  ->  dist\rookie-agent-path-b.zip
+#   .\scripts\package-path-b.ps1 -PythonVersion 3.10 -Platform win32   for a 32-bit Python 3.10 on the target
 #
-# The agent uses only the Python standard library at run time, so no wheels are needed.
+# The wheels must match the Python that will be installed on the target machine (version and 32/64 bit).
+# The agent itself uses only the Python standard library; the wheels are for the server.
+param(
+    [string]$PythonVersion = "3.12",
+    [string]$Platform = "win_amd64"
+)
 $ErrorActionPreference = "Stop"
 $repo = Split-Path -Parent $PSScriptRoot
 $dist = Join-Path $repo "dist"
@@ -20,6 +27,19 @@ New-Item -ItemType Directory -Force $stage | Out-Null
 foreach ($folder in @("windows-agent", "config", "schemas")) {
     Copy-Item -Recurse (Join-Path $repo $folder) (Join-Path $stage $folder)
 }
+# The server, without its virtual environment, database and tests
+$serverTarget = Join-Path $stage "server"
+New-Item -ItemType Directory -Force $serverTarget | Out-Null
+Copy-Item -Recurse (Join-Path $repo "server\app") (Join-Path $serverTarget "app")
+Copy-Item (Join-Path $repo "server\requirements-run.txt") $serverTarget
+
+# Python wheels for the server, for the target's Python
+$wheels = Join-Path $stage "wheels"
+$python = Join-Path $repo "server\.venv\Scripts\python.exe"
+if (-not (Test-Path $python)) { $python = "python" }
+& $python -m pip download --quiet --dest $wheels --only-binary=:all: --python-version $PythonVersion --platform $Platform -r (Join-Path $serverTarget "requirements-run.txt")
+if ($LASTEXITCODE -ne 0) { throw "pip download failed: wheels for Python $PythonVersion / $Platform" }
+
 New-Item -ItemType Directory -Force (Join-Path $stage "java-agent") | Out-Null
 Copy-Item (Join-Path $repo "java-agent\rookie-java-agent.jar") (Join-Path $stage "java-agent")
 New-Item -ItemType Directory -Force (Join-Path $stage "mock-java") | Out-Null
@@ -33,11 +53,22 @@ Get-ChildItem (Join-Path $stage "windows-agent\install") -Include *.json, *.bat 
     Remove-Item -Force
 
 if (Test-Path $zip) { Remove-Item -Force $zip }
+Add-Type -AssemblyName System.IO.Compression
 Add-Type -AssemblyName System.IO.Compression.FileSystem
+# Windows PowerShell 5.1 writes "\" in the names of ZipFile.CreateFromDirectory entries, which breaks the zip
+# format for many tools. Add the entries one by one with "/".
 # A freshly built jar can be held briefly by a virus scanner, so retry a few times.
 for ($attempt = 1; ; $attempt++) {
     try {
-        [System.IO.Compression.ZipFile]::CreateFromDirectory($stage, $zip, "Optimal", $true)
+        $archive = [System.IO.Compression.ZipFile]::Open($zip, "Create")
+        try {
+            foreach ($file in Get-ChildItem -Recurse -File -Force $stage) {
+                $name = "rookie-agent-path-b/" + $file.FullName.Substring($stage.Length + 1).Replace("\", "/")
+                [void][System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile($archive, $file.FullName, $name, "Optimal")
+            }
+        } finally {
+            $archive.Dispose()
+        }
         break
     } catch [System.IO.IOException] {
         if ($attempt -ge 5) { throw }
