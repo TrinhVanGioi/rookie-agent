@@ -144,3 +144,16 @@ def test_combo_box_reset_by_the_application_is_not_recorded():
     rec = recorder()
     rec.option_selected(element("combo box", "Loại tiền"), "VND", focused=False)
     assert rec.stop() == []
+
+
+def test_a_press_reported_twice_is_one_click():
+    now = [0.0]
+    rec = Recorder(session_id="s-test", clock=lambda: "2026-11-12T09:15:03.000Z", monotonic=lambda: now[0])
+    button = element("push button", "Gửi duyệt", 9)
+    rec.clicked(button)   # focus gained while pressed
+    now[0] = 0.05
+    rec.clicked(button)   # state change to pressed
+    now[0] = 2.0
+    rec.clicked(button)   # a real second press, later
+    rec.clicked(element("push button", "Tải lại", 3))  # another button right after: not a duplicate
+    assert [e["target"]["label"] for e in rec.stop()] == ["Gửi duyệt", "Gửi duyệt", "Tải lại"]

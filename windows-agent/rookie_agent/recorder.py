@@ -11,6 +11,7 @@ on the GDV's machine, before anything leaves the process:
 
 from __future__ import annotations
 
+import time
 import uuid
 from collections.abc import Callable
 from datetime import datetime, timezone
@@ -21,8 +22,11 @@ from rookie_agent.selectors import Element, selectors_for
 SCHEMA_VERSION = 1
 
 TEXT_ROLES = frozenset({"text"})
-# Reported through mouse clicks.
+# Reported when the component enters the "pressed" state (mouse down or a key press). Java Access Bridge
+# does not deliver mouse-click events for these, so the pressed state is the only reliable signal.
 CLICK_ROLES = frozenset({"push button", "menu", "menu item", "hyperlink"})
+# The bridge can report one press twice (focus gained while pressed, then the state change).
+PRESS_DEBOUNCE_SECONDS = 0.5
 # Reported through their checked state, so keyboard use is recorded too.
 TOGGLE_ROLES = frozenset({"check box", "radio button", "toggle button"})
 TAB_ROLE = "page tab"
@@ -35,9 +39,16 @@ def _now() -> str:
 
 
 class Recorder:
-    def __init__(self, session_id: str | None = None, clock: Callable[[], str] = _now) -> None:
+    def __init__(
+        self,
+        session_id: str | None = None,
+        clock: Callable[[], str] = _now,
+        monotonic: Callable[[], float] = time.monotonic,
+    ) -> None:
         self.session_id = session_id or f"s-{uuid.uuid4().hex[:12]}"
         self._clock = clock
+        self._monotonic = monotonic
+        self._last_press: tuple[str, float] | None = None
         self._events: list[dict] = []
         # Edited text fields waiting to be written out, in the order they were first edited.
         self._dirty: dict[str, tuple[Element, str]] = {}
@@ -101,10 +112,17 @@ class Recorder:
     # ---- clicks and selections ----------------------------------------------------
 
     def clicked(self, element: Element) -> None:
-        """A mouse click. Text fields, panels and labels are not actions."""
-        if element.role in CLICK_ROLES:
-            self._flush_all()
-            self._emit("click", element)
+        """A button, menu item or link was pressed. Text fields, panels and labels are not actions."""
+        if element.role not in CLICK_ROLES:
+            return
+        now = self._monotonic()
+        if self._last_press is not None:
+            key, at = self._last_press
+            if key == element.key and now - at < PRESS_DEBOUNCE_SECONDS:
+                return  # the same press, reported a second time
+        self._last_press = (element.key, now)
+        self._flush_all()
+        self._emit("click", element)
 
     def toggled(self, element: Element) -> None:
         """A check box, radio button or toggle button changed its checked state."""

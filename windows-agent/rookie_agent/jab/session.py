@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from typing import Any, TypeVar
 
 from rookie_agent.jab import bridge as jab
-from rookie_agent.recorder import COMBO_ROLE, TABLE_ROLE, TAB_ROLE, TEXT_ROLES, TOGGLE_ROLES, Recorder
+from rookie_agent.recorder import CLICK_ROLES, COMBO_ROLE, TABLE_ROLE, TAB_ROLE, TEXT_ROLES, TOGGLE_ROLES, Recorder
 from rookie_agent.selectors import Element, Step, parse_path_selector, parse_role_selector
 
 T = TypeVar("T")
@@ -142,11 +142,26 @@ class JabSession(threading.Thread):
             if element is not None:
                 recorder.clicked(element)
 
+        def on_focus_gained(recorder: Recorder, vm: int, source: int) -> None:
+            # The first time the bridge sees a button, a press arrives as "focus gained" with the
+            # button already pressed; later presses arrive as a state change (below).
+            info = bridge.info(vm, source)
+            if info is None or info.role_en_US not in CLICK_ROLES:
+                return
+            if "pressed" in info.states_en_US.split(","):
+                element = self._element(bridge, vm, source)
+                if element is not None:
+                    recorder.clicked(element)
+
         def on_state(recorder: Recorder, vm: int, source: int, old: str | None, new: str | None) -> None:
             info = bridge.info(vm, source)
             if info is None:
                 return
-            if info.role_en_US == TAB_ROLE and new == "selected":
+            if info.role_en_US in CLICK_ROLES and new == "pressed":
+                element = self._element(bridge, vm, source)
+                if element is not None:
+                    recorder.clicked(element)
+            elif info.role_en_US == TAB_ROLE and new == "selected":
                 element = self._element(bridge, vm, source)
                 if element is not None:
                     recorder.tab_selected(element)
@@ -195,7 +210,8 @@ class JabSession(threading.Thread):
 
         bridge.on("text_change", guarded(on_text))
         bridge.on("focus_lost", guarded(on_focus_lost))
-        bridge.on("mouse_clicked", guarded(on_click))
+        bridge.on("mouse_clicked", guarded(on_click))  # not delivered by the JREs tried so far; harmless
+        bridge.on("focus_gained", guarded(on_focus_gained))
         bridge.on("state_change", guarded(on_state))
         bridge.on("selection_change", guarded(on_selection))
 
