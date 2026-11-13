@@ -9,8 +9,11 @@ Hiện có: kiểm tra bridge, in cây thành phần, ghi thao tác ra file JSON
 Ở máy ngoài, chạy một lệnh để đóng gói:
 
 ```powershell
-.\scripts\package-path-b.ps1      # tạo dist\rookie-agent-path-b.zip
+.\scripts\package-path-b.ps1                      # tạo dist\rookie-agent-path-b.zip
+.\scripts\package-path-b.ps1 -Password <mật khẩu>   # zip có mật khẩu (máy đóng gói cần 7-Zip)
 ```
+
+Zip có mật khẩu mở được bằng Windows Explorer (Extract All) hoặc 7-Zip. Thêm `-Encryption AES256` nếu muốn mã hoá mạnh hơn, khi đó máy đích cần 7-Zip hoặc WinRAR. Mật khẩu chỉ gõ ở dòng lệnh, không lưu trong repo.
 
 File zip gồm `windows-agent\`, `config\`, `schemas\` và `mock-java\mock-tpss.jar`. Copy file này vào máy nội bộ rồi giải nén, giữ nguyên cấu trúc thư mục.
 
