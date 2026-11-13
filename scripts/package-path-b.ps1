@@ -7,21 +7,24 @@
 #
 # The wheels must match the Python that will be installed on the target machine (version and 32/64 bit).
 # The agent itself uses only the Python standard library; the wheels are for the server.
-#   .\scripts\package-path-b.ps1 -Password <pass>                 zip with a password (needs 7-Zip)
+#   .\scripts\package-path-b.ps1 -Format 7z -Password <pass>      dist\rookie-agent-path-b.7z, AES-256, file names hidden
+#   .\scripts\package-path-b.ps1 -Password <pass>                 zip with a password (needs 7-Zip to build)
 #
-# -Encryption ZipCrypto (default) opens with the Extract All of Windows Explorer; AES256 is stronger but needs
-# 7-Zip or WinRAR on the target. The password is only given on the command line, never stored in the repo.
+# 7z needs 7-Zip (or a tool that reads .7z) on the target. For a zip, -Encryption ZipCrypto (default) opens with the
+# Extract All of Windows Explorer; AES256 is stronger but needs 7-Zip or WinRAR on the target.
+# The password is only given on the command line, never stored in the repo.
 param(
     [string]$PythonVersion = "3.12",
     [string]$Platform = "win_amd64",
     [string]$Password = "",
+    [ValidateSet("zip", "7z")][string]$Format = "zip",
     [ValidateSet("ZipCrypto", "AES256")][string]$Encryption = "ZipCrypto"
 )
 $ErrorActionPreference = "Stop"
 $repo = Split-Path -Parent $PSScriptRoot
 $dist = Join-Path $repo "dist"
 $stage = Join-Path $dist "rookie-agent-path-b"
-$zip = Join-Path $dist "rookie-agent-path-b.zip"
+$zip = Join-Path $dist "rookie-agent-path-b.$Format"
 
 & (Join-Path $repo "mock-java\build.ps1")
 & (Join-Path $repo "java-agent\build.ps1")
@@ -60,15 +63,22 @@ Get-ChildItem (Join-Path $stage "windows-agent\install") -Include *.json, *.bat 
 
 if (Test-Path $zip) { Remove-Item -Force $zip }
 
-if ($Password) {
+if ($Password -or $Format -eq "7z") {
     $sevenZip = @("C:\Program Files\7-Zip\7z.exe", "C:\Program Files (x86)\7-Zip\7z.exe") | Where-Object { Test-Path $_ } | Select-Object -First 1
     if (-not $sevenZip) { $sevenZip = (Get-Command 7z -ErrorAction SilentlyContinue).Source }
-    if (-not $sevenZip) { throw "Dat mat khau can 7-Zip (7z.exe). Cai 7-Zip hoac chay khong co -Password." }
+    if (-not $sevenZip) { throw "Can 7-Zip (7z.exe) de tao file 7z hoac file co mat khau." }
+    $options = @("-t$Format", "-mx=5", "-bso0", "-bsp0")
+    if ($Password) {
+        $options += "-p$Password"
+        if ($Format -eq "7z") { $options += "-mhe=on" }   # also hides the file names
+        else { $options += "-mem=$Encryption" }
+    }
     # The folder itself is added, so the entries start with rookie-agent-path-b/ and use "/".
-    & $sevenZip a -tzip "-p$Password" "-mem=$Encryption" -mx=5 -bso0 -bsp0 $zip $stage
+    & $sevenZip a @options $zip $stage
     if ($LASTEXITCODE -ne 0) { throw "7-Zip failed" }
-    & $sevenZip t "-p$Password" -bso0 -bsp0 $zip
-    if ($LASTEXITCODE -ne 0) { throw "The password-protected zip did not pass its own test" }
+    $check = @("t", "-bso0", "-bsp0"); if ($Password) { $check += "-p$Password" }
+    & $sevenZip @check $zip
+    if ($LASTEXITCODE -ne 0) { throw "The archive did not pass its own test" }
 } else {
     Add-Type -AssemblyName System.IO.Compression
     Add-Type -AssemblyName System.IO.Compression.FileSystem
@@ -95,4 +105,5 @@ if ($Password) {
     }
 }
 Remove-Item -Recurse -Force $stage
-Write-Host "Da tao $zip$(if ($Password) { " (co mat khau, $Encryption)" })"
+$how = if (-not $Password) { "" } elseif ($Format -eq "7z") { " (co mat khau, AES-256, an ca ten file)" } else { " (co mat khau, $Encryption)" }
+Write-Host "Da tao $zip$how"
