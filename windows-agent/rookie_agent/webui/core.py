@@ -23,7 +23,7 @@ DEFAULT_SERVER = "http://localhost:8000"
 
 ACTION_WORDS = {
     "click": "Bấm", "input": "Nhập vào", "select": "Chọn ở", "submit": "Nhấn Enter ở", "navigate": "Mở màn hình",
-    "fill": "Nhập vào", "read_value": "Đọc giá trị ở", "wait_for": "Chờ",
+    "fill": "Nhập vào", "goto": "Mở màn hình", "read_value": "Đọc giá trị ở", "wait_for": "Chờ",
 }
 RISK_WORDS = {"read": "chỉ xem", "write": "ghi dữ liệu, luôn hỏi trước khi làm", "money": "liên quan tiền, luôn hỏi trước khi làm"}
 MODE_WORDS = {"auto": "tự chạy", "review": "dừng cho bạn xem", "approve": "chờ bạn duyệt"}

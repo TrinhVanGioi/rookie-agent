@@ -1,4 +1,5 @@
 import { defineConfig } from "@playwright/test";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -26,6 +27,7 @@ export default defineConfig({
     {
       command: `"${python}" -m uvicorn app.main:app --port 8000`,
       cwd: path.join(repoRoot, "server"),
+      env: { ROOKIE_DB: path.join(os.tmpdir(), "rookie-e2e.db") },
       url: `${SERVER_URL}/health`,
       reuseExistingServer: true,
     },

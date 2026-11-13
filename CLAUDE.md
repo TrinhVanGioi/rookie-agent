@@ -7,7 +7,7 @@ Hệ thống để agent học thao tác của giao dịch viên (GDV) qua vài 
 ## Cấu trúc repo
 
 ```
-extension/      Chrome extension Manifest V3 (TypeScript): recorder, runner web (hướng A), side panel
+extension/      Chrome/Edge extension Manifest V3 (TypeScript): recorder web và side panel Ghi, Học (hướng A; runner web chưa làm); cài thử xem extension/README.md
 windows-agent/  Windows agent (Python): recorder, runner Java qua Java Access Bridge (hướng B), Native Messaging host
 server/         FastAPI (Python): ingest, learner, kho agent, audit, sandbox runner
 mock-site/      Hệ thống web giả lập: Báo cáo A, B, CIF, chuyển tiền, phê duyệt

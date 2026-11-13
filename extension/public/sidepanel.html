@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rookie Agent</title>
+<link rel="stylesheet" href="panel.css">
+</head>
+<body>
+<main>
+  <header><h1>Rookie Agent</h1><span class="chip" id="host"></span></header>
+
+  <section>
+    <h2>1. Ghi</h2>
+    <p class="sub">Mở trang cần ghi ở thẻ đang chọn. Bấm Bắt đầu ghi, làm việc như bình thường, xong bấm Dừng ghi. Ghi 3 lần với khách khác nhau.</p>
+    <label class="field" for="rname">Tên bản ghi (không bắt buộc)</label>
+    <input type="text" id="rname" placeholder="Ví dụ: vấn tin lần 1">
+    <div class="row"><button class="primary" id="record">Bắt đầu ghi</button><span id="recstate"></span></div>
+    <div id="recmsg"></div>
+    <div id="recordings"></div>
+  </section>
+
+  <section>
+    <h2>2. Học</h2>
+    <p class="sub">Chọn các bản ghi cùng một việc, đặt tên, bấm Học. Agent cho bạn xem các bước nó hiểu được.</p>
+    <label class="field" for="server">Máy chủ học</label>
+    <div class="row"><input type="text" id="server" class="grow"><button id="serverCheck">Kiểm tra</button></div>
+    <div id="servermsg"></div>
+    <label class="field" for="title">Tên việc</label>
+    <input type="text" id="title" placeholder="Ví dụ: Vấn tin tài khoản">
+    <div class="row"><button class="primary" id="learn">Học</button></div>
+    <div id="learnmsg"></div>
+  </section>
+</main>
+<script src="sidepanel.js" type="module"></script>
+</body>
+</html>

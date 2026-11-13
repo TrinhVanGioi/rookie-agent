@@ -50,6 +50,16 @@ if (-not (Test-Path $python)) { $python = "python" }
 & $python -m pip download --quiet --dest $wheels --only-binary=:all: --python-version $PythonVersion --platform $Platform -r (Join-Path $serverTarget "requirements-run.txt")
 if ($LASTEXITCODE -ne 0) { throw "pip download failed: wheels for Python $PythonVersion / $Platform" }
 
+# The browser extension (path A), built, ready to load unpacked
+$extension = Join-Path $repo "extension"
+Push-Location $extension
+if (-not (Test-Path "node_modules")) { npm install --silent }
+npm run build --silent
+if ($LASTEXITCODE -ne 0) { Pop-Location; throw "The extension did not build" }
+Pop-Location
+New-Item -ItemType Directory -Force (Join-Path $stage "extension") | Out-Null
+Copy-Item (Join-Path $extension "dist\*") (Join-Path $stage "extension") -Recurse -Exclude "*.map"
+
 # Python that runs without installing anything: 64-bit for the server and the agent, 32-bit for the agent when the Java is
 # 32-bit. The wheels are unpacked into the 64-bit one, so the server starts with no pip. The agent uses only the
 # standard library, so the 32-bit one needs nothing else.
