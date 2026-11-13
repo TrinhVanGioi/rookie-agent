@@ -15,6 +15,7 @@
 # The password is only given on the command line, never stored in the repo.
 param(
     [string]$PythonVersion = "3.12",
+    [string]$EmbedVersion = "3.12.10",   # the exact Python the bundled runtimes use; must match $PythonVersion
     [string]$Platform = "win_amd64",
     [string]$Password = "",
     [ValidateSet("zip", "7z")][string]$Format = "zip",
@@ -48,6 +49,31 @@ $python = Join-Path $repo "server\.venv\Scripts\python.exe"
 if (-not (Test-Path $python)) { $python = "python" }
 & $python -m pip download --quiet --dest $wheels --only-binary=:all: --python-version $PythonVersion --platform $Platform -r (Join-Path $serverTarget "requirements-run.txt")
 if ($LASTEXITCODE -ne 0) { throw "pip download failed: wheels for Python $PythonVersion / $Platform" }
+
+# Python that runs without installing anything: 64-bit for the server and the agent, 32-bit for the agent when the Java is
+# 32-bit. The wheels are unpacked into the 64-bit one, so the server starts with no pip. The agent uses only the
+# standard library, so the 32-bit one needs nothing else.
+$cache = Join-Path $dist "cache"
+New-Item -ItemType Directory -Force $cache | Out-Null
+foreach ($pair in @(@("py64", "amd64"), @("py32", "win32"))) {
+    $file = "python-$EmbedVersion-embed-$($pair[1]).zip"
+    $local = Join-Path $cache $file
+    if (-not (Test-Path $local)) { Invoke-WebRequest "https://www.python.org/ftp/python/$EmbedVersion/$file" -OutFile $local }
+    $target = Join-Path $stage "runtime\$($pair[0])"
+    Expand-Archive $local $target
+    $pth = Get-ChildItem $target -Filter "python*._pth" | Select-Object -First 1
+    $lines = @("..\..\windows-agent")
+    if ($pair[0] -eq "py64") { $lines += @("..\..\server", "Lib\site-packages") }
+    Add-Content -Path $pth.FullName -Value $lines -Encoding ascii
+}
+$site = Join-Path $stage "runtime\py64\Lib\site-packages"
+New-Item -ItemType Directory -Force $site | Out-Null
+foreach ($wheel in Get-ChildItem $wheels -Filter *.whl) {
+    & $python -m zipfile -e $wheel.FullName $site
+    if ($LASTEXITCODE -ne 0) { throw "Could not unpack $($wheel.Name)" }
+}
+Remove-Item -Recurse -Force $wheels
+Copy-Item (Join-Path $repo "windows-agent\install\Cai-dat.cmd") $stage
 
 New-Item -ItemType Directory -Force (Join-Path $stage "java-agent") | Out-Null
 Copy-Item (Join-Path $repo "java-agent\rookie-java-agent.jar") (Join-Path $stage "java-agent")

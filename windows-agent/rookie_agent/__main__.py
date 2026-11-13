@@ -13,6 +13,7 @@
     python -m rookie_agent run --server URL --id NAME [--input k=v ...]
                                                run the approved workflow here, asking before risky steps
     python -m rookie_agent host                Native Messaging host (started by the browser)
+    python -m rookie_agent web [--port N]      the local page (check this PC, record, learn); what the desktop icon starts
 """
 
 from __future__ import annotations
@@ -211,6 +212,12 @@ def cmd_host(_: argparse.Namespace) -> None:
     main()
 
 
+def cmd_web(args: argparse.Namespace) -> None:
+    from rookie_agent.webui.server import main as web_main
+
+    web_main(args.port, open_browser=not args.no_browser, auto_bits=args.auto_bits)
+
+
 def main() -> None:
     # The browser passes the extension origin as an argument when it starts the host.
     if len(sys.argv) > 1 and sys.argv[1].startswith(("chrome-extension://", "moz-extension://")):
@@ -257,6 +264,11 @@ def main() -> None:
     run.add_argument("--window", default="", help="một phần tiêu đề cửa sổ")
     run.set_defaults(run=cmd_run)
     commands.add_parser("host", help="chạy Native Messaging host").set_defaults(run=cmd_host)
+    web = commands.add_parser("web", help="mở trang quản lý trên máy này")
+    web.add_argument("--port", type=int, default=8765)
+    web.add_argument("--no-browser", action="store_true", help="không tự mở trình duyệt")
+    web.add_argument("--auto-bits", action="store_true", help="tự chuyển sang Python cùng bit với Java")
+    web.set_defaults(run=cmd_web)
     args = parser.parse_args()
     args.run(args)
 

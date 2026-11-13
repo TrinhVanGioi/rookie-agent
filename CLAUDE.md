@@ -49,6 +49,7 @@ java -jar mock-java\mock-tpss.jar
 # windows agent (dùng chung venv ở server/.venv; khi chạy chỉ cần thư viện chuẩn)
 cd windows-agent; pip install -r requirements-dev.txt; pytest
 python -m rookie_agent status
+python -m rookie_agent web   # trang quản lý tại http://localhost:8765 (Kiểm tra máy, Ghi, Học)
 
 # đóng gói hướng B để mang vào máy nội bộ (xem windows-agent/README.md)
 .\scripts\package-path-b.ps1

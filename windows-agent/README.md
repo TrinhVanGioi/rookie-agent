@@ -69,6 +69,20 @@ Mỗi dòng là `vai trò [tên]`. Dòng có `<-- KHÔNG CÓ TÊN` là ô nhập
 
 Lệnh này đăng ký agent làm Native Messaging host cho Edge và Chrome của người dùng hiện tại. Phần side panel gọi host sẽ có ở task 1.4 và 1.9.
 
+## Trang quản lý và biểu tượng trên màn hình nền
+
+Cách dễ nhất để thử trên máy nội bộ, không cần gõ lệnh và không cần cài Python:
+
+1. Giải nén gói. Bấm đúp `Cai-dat.cmd` để tạo biểu tượng **Rookie Agent** trên màn hình nền.
+2. Mở màn hình ứng dụng cần ghi, rồi bấm biểu tượng. Trình duyệt mở trang `http://localhost:8765`.
+3. Trang có ba mục: **Kiểm tra máy** (nói bằng chữ thường chỗ nào chưa ổn, có nút Bật cầu nối), **Ghi** (chọn cửa sổ, Bắt đầu ghi, Dừng ghi), **Học** (chọn các bản ghi, đặt tên, bấm Học, xem các bước agent hiểu).
+
+Gói có sẵn Python 64-bit và 32-bit (`runtime\py64`, `runtime\py32`). Biểu tượng tự chọn bản cùng số bit với Java đang chạy, vì Java Access Bridge 32-bit và 64-bit không dùng lẫn được. Python 64-bit đã gồm sẵn thư viện máy chủ; mục Học có nút **Bật máy chủ trên máy này**.
+
+Trang chỉ nhận kết nối từ chính máy đó (`127.0.0.1`), từ chối Host lạ và yêu cầu POST không có header riêng. Các bản ghi lưu ở `%LOCALAPPDATA%\RookieAgent\sessions`, không có giá trị nhạy cảm. Nút **Tạo file chẩn đoán** tạo `chan-doan.json` để gửi lại nhóm phát triển.
+
+Chạy tay (trong thư mục `windows-agent`): `python -m rookie_agent web [--port 8765] [--no-browser] [--auto-bits]`. Chạy lại từ trang chưa làm: Duyệt và Chạy (dùng dòng lệnh `promote`, `run`).
+
 ## Những gì được ghi
 
 | Thao tác | Sự kiện | Ghi chú |

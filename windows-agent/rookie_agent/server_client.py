@@ -49,8 +49,14 @@ class ServerClient:
         body = {"schema_version": 1, "engine": engine, "session_id": session_id, "events": events}
         return self._call("POST", "/sessions", body)
 
-    def learn(self, workflow_id: str, session_ids: list[str]) -> dict[str, Any]:
-        return self._call("POST", "/workflows/learn", {"workflow_id": workflow_id, "session_ids": session_ids})
+    def learn(self, workflow_id: str | None, session_ids: list[str], title: str | None = None) -> dict[str, Any]:
+        """Give the id, or the teller's own `title` and the server makes the id from it."""
+        body: dict[str, Any] = {"session_ids": session_ids}
+        if workflow_id:
+            body["workflow_id"] = workflow_id
+        if title:
+            body["title"] = title
+        return self._call("POST", "/workflows/learn", body)
 
     def _verified(self, reply: dict[str, Any]) -> dict[str, Any]:
         """Refuse a workflow whose content does not match the digest the server sent with it."""

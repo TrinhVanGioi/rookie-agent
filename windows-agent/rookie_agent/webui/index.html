@@ -1,0 +1,252 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rookie Agent</title>
+<style>
+  :root {
+    --bg: #f4f5f7; --card: #ffffff; --text: #1d2330; --muted: #5d6677; --line: #dfe3ea;
+    --accent: #1f5fd1; --accent-text: #ffffff; --ok: #1b7a43; --warn: #9a6200; --bad: #b3261e;
+    --ok-bg: #e5f4ea; --warn-bg: #fff3d6; --bad-bg: #fde8e6; --rec: #c62828;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #14171d; --card: #1d222b; --text: #e8ebf1; --muted: #9aa4b5; --line: #323a47;
+      --accent: #6ea0ff; --accent-text: #0c1220; --ok: #6fd39a; --warn: #f0c36a; --bad: #ff8f87;
+      --ok-bg: #16301f; --warn-bg: #3a2e12; --bad-bg: #3b1d1b;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.5 "Segoe UI", system-ui, sans-serif; }
+  main { max-width: 860px; margin: 0 auto; padding: 24px 16px 64px; }
+  header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
+  h1 { font-size: 22px; margin: 0; }
+  .chip { font-size: 13px; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 2px 10px; }
+  section { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 20px; margin-bottom: 16px; }
+  h2 { font-size: 18px; margin: 0 0 4px; }
+  .sub { color: var(--muted); margin: 0 0 14px; }
+  button { font: inherit; padding: 8px 16px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: var(--text); cursor: pointer; }
+  button.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+  button.stop { background: var(--rec); color: #fff; border-color: var(--rec); }
+  button:disabled { opacity: .5; cursor: default; }
+  input[type=text], select { font: inherit; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--text); width: 100%; }
+  label.field { display: block; margin: 10px 0 4px; color: var(--muted); font-size: 14px; }
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 10px 0; }
+  .grow { flex: 1; min-width: 200px; }
+  ul.items { list-style: none; margin: 10px 0; padding: 0; }
+  ul.items li { display: flex; gap: 12px; padding: 10px 12px; border-radius: 8px; margin-bottom: 6px; align-items: flex-start; }
+  li.ok { background: var(--ok-bg); } li.warn { background: var(--warn-bg); } li.bad { background: var(--bad-bg); }
+  .mark { font-weight: 700; width: 20px; text-align: center; flex: none; }
+  li.ok .mark { color: var(--ok); } li.warn .mark { color: var(--warn); } li.bad .mark { color: var(--bad); }
+  .detail { color: var(--muted); font-size: 14px; }
+  .msg { padding: 10px 12px; border-radius: 8px; margin: 10px 0; }
+  .msg.ok { background: var(--ok-bg); } .msg.bad { background: var(--bad-bg); }
+  .recdot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: var(--rec); margin-right: 8px; animation: pulse 2s ease-in-out infinite; }
+  @keyframes pulse { 50% { opacity: .35; } }
+  @media (prefers-reduced-motion: reduce) { .recdot { animation: none; } }
+  table { width: 100%; border-collapse: collapse; margin: 8px 0; }
+  td, th { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--line); font-size: 15px; vertical-align: top; }
+  ol.steps { padding-left: 22px; margin: 8px 0; } ol.steps li { margin: 4px 0; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <header><h1>Rookie Agent</h1><span class="chip" id="bits"></span></header>
+
+  <section>
+    <h2>1. Kiểm tra máy</h2>
+    <p class="sub">Mở màn hình cần ghi trước, chờ thấy đủ các ô nhập, rồi bấm Kiểm tra.</p>
+    <div class="row"><button class="primary" id="check">Kiểm tra</button><span class="detail" id="checking"></span></div>
+    <ul class="items" id="items"></ul>
+  </section>
+
+  <section>
+    <h2>2. Ghi</h2>
+    <p class="sub">Làm việc như bình thường trên ứng dụng. Mỗi lần ghi nên làm cùng một việc, với khách khác nhau. Ghi 3 lần.</p>
+    <div class="row">
+      <div class="grow"><label class="field" for="window">Cửa sổ ứng dụng</label><select id="window"></select></div>
+      <div class="grow"><label class="field" for="rname">Tên bản ghi (không bắt buộc)</label><input type="text" id="rname" placeholder="Ví dụ: vấn tin lần 1"></div>
+    </div>
+    <div class="row"><button class="primary" id="record">Bắt đầu ghi</button><span id="recstate"></span></div>
+    <div id="recmsg"></div>
+    <table id="recordings" hidden>
+      <thead><tr><th></th><th>Bản ghi</th><th>Các bước</th><th></th></tr></thead><tbody></tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>3. Học</h2>
+    <p class="sub">Chọn các bản ghi cùng một việc ở trên, đặt tên, rồi bấm Học. Agent sẽ cho bạn xem các bước nó hiểu được.</p>
+    <label class="field" for="server">Máy chủ học</label>
+    <div class="row">
+      <input type="text" id="server" class="grow">
+      <button id="serverCheck">Kiểm tra kết nối</button>
+      <button id="serverStart" hidden>Bật máy chủ trên máy này</button>
+    </div>
+    <div id="servermsg"></div>
+    <label class="field" for="title">Tên việc</label>
+    <input type="text" id="title" placeholder="Ví dụ: Vấn tin tài khoản">
+    <div class="row"><button class="primary" id="learn">Học</button></div>
+    <div id="learnmsg"></div>
+  </section>
+
+  <section>
+    <h2>Khi cần gửi lại cho nhóm phát triển</h2>
+    <p class="sub">Tạo một file nhỏ chỉ có kết quả kiểm tra và tên các bước. Không có giá trị bạn đã nhập.</p>
+    <div class="row"><button id="diag">Tạo file chẩn đoán</button><span id="diagmsg"></span></div>
+  </section>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+async function api(method, path, body) {
+  const options = { method, headers: { "X-Rookie": "1", "Content-Type": "application/json" } };
+  if (method === "POST") options.body = JSON.stringify(body || {});
+  const reply = await fetch(path, options);
+  const data = await reply.json();
+  if (!reply.ok) throw new Error(data.error || "Có lỗi.");
+  return data;
+}
+function say(target, text, kind) {
+  const box = $(target); box.textContent = "";
+  if (!text) return;
+  const div = document.createElement("div"); div.className = "msg " + (kind || "ok"); div.textContent = text; box.append(div);
+}
+function el(tag, text, className) { const e = document.createElement(tag); if (text !== undefined) e.textContent = text; if (className) e.className = className; return e; }
+
+let recording = false, wantedBits = 0;
+
+async function runCheck() {
+  $("checking").textContent = "Đang kiểm tra...";
+  try {
+    const report = await api("GET", "/api/check");
+    wantedBits = report.wanted_bits;
+    const list = $("items"); list.textContent = "";
+    for (const item of report.items) {
+      const li = el("li", undefined, item.level);
+      li.append(el("span", item.level === "ok" ? "✓" : item.level === "warn" ? "!" : "✕", "mark"));
+      const body = el("div"); body.append(el("div", item.title));
+      if (item.detail) body.append(el("div", item.detail, "detail"));
+      if (item.action === "enable_bridge") {
+        const button = el("button", "Bật cầu nối"); button.style.marginTop = "6px";
+        button.onclick = async () => { try { const r = await api("POST", "/api/enable-bridge"); button.disabled = true; body.append(el("div", r.done.join(" ") + " " + r.next, "detail")); } catch (e) { body.append(el("div", e.message, "detail")); } };
+        body.append(button);
+      }
+      if (item.action === "switch_bits") {
+        const button = el("button", "Chuyển sang bản " + report.wanted_bits + "-bit"); button.style.marginTop = "6px";
+        button.onclick = () => switchBits(button);
+        body.append(button);
+      }
+      li.append(body); list.append(li);
+    }
+    $("checking").textContent = report.summary === "ok" ? "Máy đã sẵn sàng." : "";
+    loadWindows();
+  } catch (e) { $("checking").textContent = e.message; }
+}
+
+async function switchBits(button) {
+  button.disabled = true; button.textContent = "Đang chuyển...";
+  try { await api("POST", "/api/switch-bits"); } catch (e) { button.textContent = e.message; return; }
+  for (let i = 0; i < 40; i++) {
+    await new Promise((r) => setTimeout(r, 750));
+    try { const s = await api("GET", "/api/state"); if (s.bits === wantedBits) { location.reload(); return; } } catch (e) { /* the page restarts for a moment */ }
+  }
+  button.textContent = "Chưa chuyển được. Đóng cửa sổ này và bấm lại biểu tượng Rookie Agent.";
+}
+
+async function loadWindows() {
+  const select = $("window"); select.textContent = "";
+  try {
+    const data = await api("GET", "/api/windows");
+    if (!data.windows.length) select.append(new Option("(chưa thấy cửa sổ Java nào)", ""));
+    for (const title of data.windows) select.append(new Option(title, title));
+  } catch (e) { select.append(new Option("(không đọc được)", "")); }
+}
+
+async function loadRecordings() {
+  const data = await api("GET", "/api/recordings");
+  const body = $("recordings").querySelector("tbody"); body.textContent = "";
+  $("recordings").hidden = !data.recordings.length;
+  for (const row of data.recordings) {
+    const tr = el("tr");
+    const pick = el("input"); pick.type = "checkbox"; pick.dataset.id = row.id; pick.checked = !row.uploaded;
+    tr.append(el("td")); tr.firstChild.append(pick);
+    const name = el("td", (row.name || "Bản ghi") + " — " + row.saved_at);
+    if (row.uploaded) name.append(el("div", "Đã gửi lên máy chủ", "detail"));
+    tr.append(name);
+    const steps = el("td"); const list = el("ol", undefined, "steps");
+    row.steps.forEach((s) => list.append(el("li", s)));
+    steps.append(list);
+    steps.append(el("div", row.typed_fields + " ô đã nhập, giá trị được lưu: " + row.typed_values_kept, "detail"));
+    tr.append(steps);
+    const del = el("button", "Xóa"); del.onclick = async () => { await api("POST", "/api/recordings/delete", { id: row.id }); loadRecordings(); };
+    tr.append(el("td")); tr.lastChild.append(del);
+    body.append(tr);
+  }
+}
+
+$("record").onclick = async () => {
+  const button = $("record"); button.disabled = true; say("recmsg", "");
+  try {
+    if (!recording) {
+      await api("POST", "/api/record/start", { window: $("window").value });
+      recording = true; button.textContent = "Dừng ghi"; button.className = "stop";
+      $("recstate").textContent = ""; $("recstate").append(el("span", undefined, "recdot"), document.createTextNode("Đang ghi. Làm việc trên ứng dụng, xong thì bấm Dừng ghi."));
+    } else {
+      const r = await api("POST", "/api/record/stop", { name: $("rname").value });
+      recording = false; button.textContent = "Bắt đầu ghi"; button.className = "primary"; $("recstate").textContent = ""; $("rname").value = "";
+      say("recmsg", "Đã ghi " + r.events + " thao tác. Các ô nhập: " + r.typed_fields + ", giá trị được lưu: " + r.typed_values_kept + ".", "ok");
+      loadRecordings();
+    }
+  } catch (e) { say("recmsg", e.message, "bad"); }
+  button.disabled = false;
+};
+
+async function serverCheck() {
+  try {
+    const r = await api("POST", "/api/server/check", { url: $("server").value });
+    say("servermsg", r.message, r.ok ? "ok" : "bad"); $("serverStart").hidden = r.ok;
+  } catch (e) { say("servermsg", e.message, "bad"); }
+}
+$("serverCheck").onclick = serverCheck;
+$("serverStart").onclick = async () => {
+  say("servermsg", "Đang bật máy chủ...", "ok");
+  try { const r = await api("POST", "/api/server/start"); $("server").value = r.url; say("servermsg", r.message, r.ok ? "ok" : "bad"); $("serverStart").hidden = r.ok; }
+  catch (e) { say("servermsg", e.message, "bad"); }
+};
+
+$("learn").onclick = async () => {
+  const ids = [...document.querySelectorAll("#recordings input[type=checkbox]:checked")].map((c) => c.dataset.id);
+  const button = $("learn"); button.disabled = true; say("learnmsg", "Đang học...", "ok");
+  try {
+    const r = await api("POST", "/api/learn", { ids, title: $("title").value });
+    const box = $("learnmsg"); box.textContent = "";
+    const msg = el("div", undefined, "msg ok"); msg.append(el("div", "Đã học việc «" + r.title + "». Agent hiểu các bước sau:"));
+    const list = el("ol", undefined, "steps");
+    r.steps.forEach((s) => { const li = el("li", s.text); li.append(el("div", "Mức rủi ro: " + s.risk + ". Khi chạy: " + s.mode + ".", "detail")); list.append(li); });
+    msg.append(list);
+    msg.append(el("div", r.inputs.length ? "Thông tin thay đổi mỗi lần: " + r.inputs.join(", ") : "Không có thông tin nào thay đổi giữa các lần ghi.", "detail"));
+    r.warnings.forEach((w) => msg.append(el("div", "Lưu ý: " + w, "detail")));
+    box.append(msg); loadRecordings();
+  } catch (e) { say("learnmsg", e.message, "bad"); }
+  button.disabled = false;
+};
+
+$("diag").onclick = async () => {
+  try { const r = await api("POST", "/api/diagnostics"); say("diagmsg", "", ""); $("diagmsg").textContent = "Đã tạo file: " + r.path; }
+  catch (e) { $("diagmsg").textContent = e.message; }
+};
+$("check").onclick = runCheck;
+
+(async () => {
+  const state = await api("GET", "/api/state");
+  $("bits").textContent = "Agent " + state.bits + "-bit · bản " + state.version;
+  $("server").value = state.server;
+  recording = state.recording;
+  if (recording) { $("record").textContent = "Dừng ghi"; $("record").className = "stop"; }
+  loadRecordings(); runCheck(); serverCheck();
+})();
+</script>
+</body>
+</html>
