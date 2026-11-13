@@ -28,6 +28,10 @@ pip install -r requirements.txt -r ..\mock-site\requirements.txt
 pytest
 uvicorn app.main:app --reload --port 8000
 
+# LLM nội bộ (tuỳ chọn; không đặt thì server dùng RuleBasedClient, chạy offline)
+$env:ROOKIE_LLM_BASE_URL = "http://node:port/v1"; $env:ROOKIE_LLM_MODEL = "<tên model đang serve>"
+cd server; python -m app.llm.check
+
 # mock site (dùng chung venv ở server/.venv, đã kích hoạt ở trên)
 cd mock-site; pytest
 uvicorn app:app --reload --port 8001

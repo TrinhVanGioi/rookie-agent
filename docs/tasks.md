@@ -28,7 +28,7 @@ Hai hướng (xem `docs/design.md` mục 1): **A** là extension cho web trên C
 
 | Task | Việc | Nghiệm thu |
 | --- | --- | --- |
-| 2.1 | Interface `LLMClient` và `RuleBasedClient` chạy offline | Test dùng `RuleBasedClient`, không cần mạng |
+| 2.1 | Interface `LLMClient` (`explain`, `locate`), `RuleBasedClient` chạy offline, `OpenAICompatClient` cho LLM nội bộ có API tương thích OpenAI (ví dụ vLLM), tự rơi về luật khi model lỗi hoặc trả sai định dạng | Test dùng `RuleBasedClient`, không cần mạng; test `OpenAICompatClient` bằng endpoint giả; dữ liệu còn dãy số dài chưa che bị từ chối trước khi gửi |
 | 2.2 | Learner dạng luật: chuẩn hoá, căn chỉnh các phiên, nhận tham số, gán `risk` bằng luật và bảng cấu hình rủi ro theo ứng dụng (endpoint cho web, màn hình và nhãn nút cho Java), sinh `read_value` khi giá trị đọc ở bước trước được dùng lại ở bước sau, sinh workflow đúng schema | Từ 3 phiên ghi mẫu (fixture) sinh ra workflow có tham số `ngay`; phiên chỉ có 1 giá trị ngày vẫn sinh được nhưng có cảnh báo; bước gọi API ghi được gắn `write`; từ fixture "tra CIF rồi lập lệnh chuyển tiền" (web và Java) sinh ra workflow có bước chuyển tiền gắn `money` và `approve`; bước thay đổi dữ liệu chưa có trong bảng cấu hình được gắn `write` |
 | 2.3 | API workflow: lưu version, trạng thái `draft` / `tested` / `approved`, lấy bản đã duyệt mới nhất | Test chuyển trạng thái hợp lệ và chặn chuyển trạng thái sai; không phát được bản chưa `approved` |
 | 2.4 | Sandbox ở server: chạy thử workflow bằng Playwright trên mock site | Workflow `draft` chạy thử được và trả kết quả; chạy thử xong mới cho phép chuyển sang `tested` |
@@ -46,7 +46,7 @@ Hai hướng (xem `docs/design.md` mục 1): **A** là extension cho web trên C
 | --- | --- | --- |
 | 3.1 | Bước đối chiếu chạy trong Runner: ghép theo khoá, tìm lệch số và dòng thiếu, ngưỡng bỏ qua nhập bằng tham số, xuất bảng lệch | Với dữ liệu mock, tìm đúng toàn bộ dòng lệch cố ý; lệch dưới ngưỡng được đánh dấu bỏ qua |
 | 3.2 | Giải thích lệch qua `LLMClient.explain(rows)` chỉ nhận dòng lệch đã che; `RuleBasedClient` trả nguyên nhân theo luật | Test xác nhận dữ liệu gửi vào `explain` không chứa giá trị nhạy cảm chưa che |
-| 3.3 | Self-healing: selector dự phòng, rồi `LLMClient.locate(screenshot, description)`, ngưỡng tin cậy, dừng và hỏi GDV; đề xuất cập nhật workflow | Bật "giao diện mới" thì workflow vẫn chạy xong; độ tin cậy thấp thì dừng; chấp nhận đề xuất thì workflow lên version mới |
+| 3.3 | Self-healing: selector dự phòng, rồi `LLMClient.locate(description, candidates, screenshot)`, ngưỡng tin cậy, dừng và hỏi GDV; đề xuất cập nhật workflow | Bật "giao diện mới" thì workflow vẫn chạy xong; độ tin cậy thấp thì dừng; chấp nhận đề xuất thì workflow lên version mới |
 | 3.4 | Kho agent: version, điểm (tỷ lệ chạy đúng, số bước sửa tay, thời gian tiết kiệm), clone, phạm vi chia sẻ riêng tư / nhóm / đơn vị | Người dùng thứ hai clone agent và sửa rule mà bản gốc không đổi; agent riêng tư không hiện với người khác |
 | 3.5 | Audit: log từng bước kèm ảnh đã che; đệm khi mất kết nối và đẩy lên khi có mạng; dashboard xem log | Ngắt kết nối giữa chừng thì log được đệm rồi đẩy đủ khi có lại; dashboard hiện đúng người chạy, version, kết quả |
 | 3.6 | Kịch bản demo 8 bước (`docs/design.md` mục 10) và script đo bốn chỉ số (mục 11) | Script chạy hết kịch bản và in bốn chỉ số |
@@ -57,7 +57,7 @@ Task 3.3 (self-healing bằng `LLMClient.locate`) chỉ áp dụng cho hướng 
 
 ## Phần để sau PoC
 
-- `LLMClient` thật (LLM đặt trong vùng mạng nội bộ); đánh giá độ chính xác của Learner và self-healing bằng LLM.
+- Đánh giá độ chính xác của LLM nội bộ (Learner, giải thích lệch, self-healing) trên bộ mẫu; self-healing bằng ảnh nếu model nhận được ảnh.
 - Quy trình thật đầu tiên (đối chiếu cuối ngày, hành trình chuyển tiền ngoại tệ) và kết nối hệ thống thật.
 - Hướng B: self-healing bằng ảnh và LLM; Java agent dự phòng (`AWTEventListener`) nếu spike 1.7 cho thấy Java Access Bridge không đủ; kiểm thử trên applet thật trong IE mode; đóng gói Windows agent bằng C#/.NET.
 - Nhánh có điều kiện trong workflow (ví dụ CIF đã tồn tại hay chưa).
