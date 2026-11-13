@@ -4,6 +4,8 @@ Ghi lại thao tác trên trang web để agent học. Bản thử này có hai 
 
 ## Cài thử (Edge hoặc Chrome, không cần Store)
 
+Trong gói, bấm đúp `Cai-dat.cmd`: nó chép extension vào `%LOCALAPPDATA%\RookieAgent\extension`, tạo biểu tượng trên màn hình nền, mở `chrome://extensions` và chép sẵn đường dẫn thư mục vào clipboard. Bạn chỉ còn bật Chế độ nhà phát triển, bấm Tải tiện ích đã giải nén, dán đường dẫn. Cách làm tay:
+
 1. Mở `edge://extensions` (Chrome: `chrome://extensions`), bật **Chế độ nhà phát triển**.
 2. Bấm **Tải tiện ích đã giải nén** và chọn thư mục `extension` (trong gói, hoặc `extension\dist` khi tự build).
 3. Bấm biểu tượng Rookie Agent trên thanh công cụ. Khung bên phải mở ra.
