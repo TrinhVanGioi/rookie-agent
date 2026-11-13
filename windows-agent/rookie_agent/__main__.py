@@ -3,6 +3,15 @@
     python -m rookie_agent status              is the bridge working, which Java windows are open
     python -m rookie_agent tree [--window X]   dump the component tree (the spike for task 1.7)
     python -m rookie_agent record --out FILE   record until Enter is pressed, write the events
+    python -m rookie_agent upload --server URL --file FILE
+                                               send a recorded session to the server
+    python -m rookie_agent learn --server URL --id NAME --sessions ID ID ID
+                                               ask the server to learn a workflow (draft)
+    python -m rookie_agent sandbox --server URL --id NAME --version N [--input k=v ...]
+                                               run a draft on the Swing mock; a pass allows `tested`
+    python -m rookie_agent promote --server URL --id NAME --version N --to tested|approved
+    python -m rookie_agent run --server URL --id NAME [--input k=v ...]
+                                               run the approved workflow here, asking before risky steps
     python -m rookie_agent host                Native Messaging host (started by the browser)
 """
 
@@ -96,6 +105,101 @@ def cmd_record(args: argparse.Namespace) -> None:
     print(f"Đã ghi {len(events)} sự kiện vào {args.out}")
 
 
+def _inputs(pairs: list[str]) -> dict[str, str]:
+    result: dict[str, str] = {}
+    for pair in pairs or []:
+        name, separator, value = pair.partition("=")
+        if not separator or not name:
+            sys.exit(f"Lỗi: --input phải có dạng ten=gia_tri, nhận được {pair!r}")
+        result[name] = value
+    return result
+
+
+def _server(args: argparse.Namespace):
+    from rookie_agent.server_client import ServerClient
+
+    return ServerClient(args.server)
+
+
+def _guard(action):
+    """Run a server action and turn ServerError into a plain message."""
+    from rookie_agent.server_client import ServerError
+
+    try:
+        return action()
+    except ServerError as error:
+        sys.exit(f"Lỗi: {error}")
+
+
+def cmd_upload(args: argparse.Namespace) -> None:
+    document = json.loads(Path(args.file).read_text(encoding="utf-8"))
+    reply = _guard(lambda: _server(args).post_session(document["session_id"], document["engine"], document["events"]))
+    print(f"Đã gửi phiên {reply['session_id']} ({reply['event_count']} sự kiện).")
+
+
+def cmd_learn(args: argparse.Namespace) -> None:
+    reply = _guard(lambda: _server(args).learn(args.id, args.sessions))
+    workflow = reply["workflow"]
+    print(f"Đã học workflow {workflow['id']} bản {workflow['version']} (trạng thái {workflow['status']}).")
+    print("Tham số:", ", ".join(item["name"] for item in workflow["inputs"]) or "(không có)")
+    for step in workflow["steps"]:
+        label = (step.get("target") or {}).get("label") or step["id"]
+        print(f"  {step['id']}: {step['action']} «{label}» rủi ro={step['risk']} chế độ={step['mode']}")
+    for warning in reply["warnings"]:
+        print("CẢNH BÁO:", warning)
+
+
+def cmd_sandbox(args: argparse.Namespace) -> None:
+    from rookie_agent.sandbox import sandbox_and_report
+
+    result = _guard(lambda: sandbox_and_report(_server(args), args.id, args.version, _inputs(args.input), args.role))
+    print(f"Kết quả chạy thử: {result['status']} - {result['message']}")
+    sys.exit(0 if result["status"] == "finished" else 1)
+
+
+def cmd_promote(args: argparse.Namespace) -> None:
+    reply = _guard(lambda: _server(args).set_status(args.id, args.version, args.to))
+    print(f"Workflow {args.id} bản {args.version} giờ ở trạng thái {reply['workflow']['status']}.")
+
+
+def cmd_run(args: argparse.Namespace) -> None:
+    import threading
+
+    from rookie_agent.controllers import ConsoleController
+    from rookie_agent.jab.driver import JabDriver
+    from rookie_agent.runner import run_workflow
+
+    reply = _guard(lambda: _server(args).approved_workflow(args.id))
+    workflow = reply["workflow"]
+    print(f"Chạy workflow {workflow['id']} bản {workflow['version']}. Bấm Ctrl+C để Dừng khẩn.")
+    session = _open_session()
+    stop = threading.Event()
+    try:
+        hwnd, title = session.wait_for_window(args.window, timeout=10)
+        print(f"Cửa sổ: {title}")
+        runner = threading.Thread(
+            target=lambda: results.append(
+                run_workflow(workflow, _inputs(args.input), JabDriver(session, hwnd), ConsoleController(), stop)
+            ),
+            daemon=True,
+        )
+        results: list[dict] = []
+        runner.start()
+        while runner.is_alive():
+            try:
+                runner.join(0.2)
+            except KeyboardInterrupt:
+                stop.set()
+                print("DỪNG KHẨN: agent dừng ở điểm kiểm soát gần nhất.")
+        result = results[0] if results else {"status": "failed", "message": "Runner không trả kết quả."}
+    except Exception as error:
+        sys.exit(f"Lỗi: {error}")
+    finally:
+        session.close()
+    print(f"Kết quả: {result['status']} - {result['message']}")
+    sys.exit(0 if result["status"] == "finished" else 1)
+
+
 def cmd_host(_: argparse.Namespace) -> None:
     from rookie_agent.native_host import main
 
@@ -119,6 +223,34 @@ def main() -> None:
     record.add_argument("--window", default="", help="một phần tiêu đề cửa sổ")
     record.add_argument("--out", required=True, help="file JSON kết quả")
     record.set_defaults(run=cmd_record)
+    upload = commands.add_parser("upload", help="gửi một phiên ghi lên máy chủ")
+    upload.add_argument("--server", required=True)
+    upload.add_argument("--file", required=True)
+    upload.set_defaults(run=cmd_upload)
+    learn = commands.add_parser("learn", help="học workflow từ các phiên đã gửi")
+    learn.add_argument("--server", required=True)
+    learn.add_argument("--id", required=True)
+    learn.add_argument("--sessions", nargs="+", required=True)
+    learn.set_defaults(run=cmd_learn)
+    sandbox = commands.add_parser("sandbox", help="chạy thử bản nháp trên mock Swing")
+    sandbox.add_argument("--server", required=True)
+    sandbox.add_argument("--id", required=True)
+    sandbox.add_argument("--version", type=int, required=True)
+    sandbox.add_argument("--input", action="append", default=[], help="ten=gia_tri (giá trị synthetic)")
+    sandbox.add_argument("--role", choices=["maker", "checker"], default="maker")
+    sandbox.set_defaults(run=cmd_sandbox)
+    promote = commands.add_parser("promote", help="chuyển trạng thái workflow")
+    promote.add_argument("--server", required=True)
+    promote.add_argument("--id", required=True)
+    promote.add_argument("--version", type=int, required=True)
+    promote.add_argument("--to", choices=["tested", "approved"], required=True)
+    promote.set_defaults(run=cmd_promote)
+    run = commands.add_parser("run", help="chạy workflow đã duyệt trên máy này")
+    run.add_argument("--server", required=True)
+    run.add_argument("--id", required=True)
+    run.add_argument("--input", action="append", default=[], help="ten=gia_tri")
+    run.add_argument("--window", default="", help="một phần tiêu đề cửa sổ")
+    run.set_defaults(run=cmd_run)
     commands.add_parser("host", help="chạy Native Messaging host").set_defaults(run=cmd_host)
     args = parser.parse_args()
     args.run(args)

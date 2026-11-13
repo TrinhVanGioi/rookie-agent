@@ -64,11 +64,19 @@ def login(session: JabSession, hwnd: int, role: str = "maker", timeout: float = 
 
 
 def run_in_sandbox(
-    workflow: dict[str, Any], inputs: dict[str, str], role: str = "maker", element_timeout: float = 10.0
+    workflow: dict[str, Any],
+    inputs: dict[str, str],
+    role: str = "maker",
+    element_timeout: float = 10.0,
+    session: JabSession | None = None,
 ) -> dict[str, Any]:
-    """Start the mock, log in, run the workflow, close the mock. Returns the run result."""
+    """Start the mock, log in, run the workflow, close the mock. Returns the run result.
+
+    Pass `session` to reuse a running bridge thread (only one can exist per process).
+    """
     process = start_mock()
-    session = JabSession().open()
+    own_session = session is None
+    session = session or JabSession().open()
     try:
         hwnd, _ = session.wait_for_window("Mock TPSS", timeout=30)
         login(session, hwnd, role)
@@ -81,16 +89,22 @@ def run_in_sandbox(
             element_timeout=element_timeout,
         )
     finally:
-        session.close()
         process.kill()
         process.wait(timeout=10)
+        if own_session:
+            session.close()
 
 
 def sandbox_and_report(
-    server: ServerClient, workflow_id: str, version: int, inputs: dict[str, str], role: str = "maker"
+    server: ServerClient,
+    workflow_id: str,
+    version: int,
+    inputs: dict[str, str],
+    role: str = "maker",
+    session: JabSession | None = None,
 ) -> dict[str, Any]:
     """Run a stored workflow version in the sandbox and report the outcome to the server."""
     reply = server.workflow_version(workflow_id, version)
-    result = run_in_sandbox(reply["workflow"], inputs, role)
+    result = run_in_sandbox(reply["workflow"], inputs, role, session=session)
     server.post_test_run(workflow_id, version, result)
     return result

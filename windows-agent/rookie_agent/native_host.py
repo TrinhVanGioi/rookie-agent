@@ -12,6 +12,8 @@ Requests are `{"id": ..., "cmd": ...}`. Every reply echoes `id` and has `ok`.
     run             run an approved workflow: "server_url", "workflow_id", "inputs", optional "window"
     decide          answer the open question of a run: "approve": true or false
     emergency_stop  Dừng khẩn: stop the run at once
+    snapshot        a drawing of the Java screen (structure only, no values) for the flow visualizer;
+                    optional "window" (part of the title). Works while the window is minimized.
 
 While a run is going the host also sends messages without a request id:
 `{"event": "progress" | "waiting" | "finished", ...}`. Values the GDV typed are never in them.
@@ -73,6 +75,8 @@ class Session(Protocol):
     def windows(self) -> list[tuple[int, str]]: ...
     def attach(self, recorder: Recorder) -> None: ...
     def detach(self) -> Recorder | None: ...
+    def wait_for_window(self, title_part: str = "", timeout: float = 20.0) -> tuple[int, str]: ...
+    def tree(self, hwnd: int, max_nodes: int = 5000) -> Any: ...
 
 
 # (server_url, workflow_id) -> {"workflow": ..., "digest": ...}, already checked against its digest
@@ -131,6 +135,7 @@ class Host:
             "run": self._run,
             "decide": self._decide,
             "emergency_stop": self._emergency_stop,
+            "snapshot": self._snapshot,
         }.get(command)
         if handler is None:
             return {**reply, "ok": False, "error": f"Lệnh không hỗ trợ: {command!r}"}
@@ -231,6 +236,13 @@ class Host:
         if not self._controller.decide(bool(message.get("approve"))):
             raise RuntimeError("Không có bước nào đang chờ.")
         return {}
+
+    def _snapshot(self, message: dict[str, Any]) -> dict[str, Any]:
+        from rookie_agent.wireframe import wireframe
+
+        session = self._require_session()
+        hwnd, _ = session.wait_for_window(str(message.get("window") or ""), timeout=2)
+        return {"screen": wireframe(session.tree(hwnd))}
 
     def _emergency_stop(self, _: dict[str, Any]) -> dict[str, Any]:
         self._stop.set()

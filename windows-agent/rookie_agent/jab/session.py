@@ -31,6 +31,10 @@ class Node:
     name: str
     states: str
     description: str = ""
+    x: int = 0
+    y: int = 0
+    width: int = 0
+    height: int = 0
     children: list["Node"] = field(default_factory=list)
 
 
@@ -287,7 +291,7 @@ class JabSession(threading.Thread):
                 info = bridge.info(vm, context)
                 if info is None:
                     return Node("?", "", "")
-                node = Node(info.role_en_US, info.name, info.states_en_US, info.description)
+                node = Node(info.role_en_US, info.name, info.states_en_US, info.description, info.x, info.y, info.width, info.height)
                 for index in range(info.childrenCount):
                     if budget[0] <= 0:
                         break

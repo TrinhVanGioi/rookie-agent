@@ -26,6 +26,18 @@ class FakeSession:
     def __init__(self):
         self.recorder: Recorder | None = None
 
+    def wait_for_window(self, title_part="", timeout=20.0):
+        if title_part not in "Mock TPSS - Chuyển tiền":
+            raise RuntimeError("Không thấy cửa sổ Java nào.")
+        return 1, "Mock TPSS - Chuyển tiền"
+
+    def tree(self, hwnd, max_nodes=5000):
+        from rookie_agent.jab.session import Node
+
+        return Node("frame", "Mock TPSS - Chuyển tiền", "enabled,showing", "", 10, 10, 400, 300, [
+            Node("text", "Số tiền", "enabled,showing", "", 20, 40, 100, 20),
+        ])
+
     def windows(self):
         return [(1, "Mock TPSS - Chuyển tiền")]
 
@@ -133,3 +145,17 @@ def test_serve_reports_a_corrupt_stream_and_stops():
     serve(Host(FakeSession()), io.BytesIO(struct.pack("=I", 3) + b"abc"), stdout)
     replies = unframe(stdout.getvalue())
     assert len(replies) == 1 and replies[0]["ok"] is False
+
+
+def test_snapshot_returns_a_drawing_without_values():
+    reply = Host(FakeSession()).handle({"id": 3, "cmd": "snapshot"})
+    assert reply["ok"] and reply["screen"]["title"] == "Mock TPSS - Chuyển tiền"
+    assert reply["screen"]["items"] == [
+        {"role": "text", "kind": "field", "name": "Số tiền", "x": 10, "y": 30, "w": 100, "h": 20}
+    ]
+
+
+def test_snapshot_without_a_matching_window_is_an_error():
+    reply = Host(FakeSession()).handle({"cmd": "snapshot", "window": "TPSS khác"})
+    assert not reply["ok"] and "cửa sổ Java" in reply["error"]
+    assert not Host(None, bridge_error="chưa bật").handle({"cmd": "snapshot"})["ok"]
