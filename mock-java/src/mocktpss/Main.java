@@ -16,7 +16,9 @@ import javax.swing.event.ChangeListener;
  * Mock TPSS: a Swing stand-in for the Java applet screens (CIF, transfer, approval).
  * Synthetic data only.
  *
- * <pre>java -cp out mocktpss.Main [--seed N] [--new-ui]</pre>
+ * <pre>java -cp out mocktpss.Main [--seed N] [--new-ui] [--dump]</pre>
+ *
+ * {@code --dump} prints the synthetic customers (CIF, CCCD, accounts) and exits; tests use it to pick valid inputs.
  */
 public final class Main {
     static final String TITLE = "Mock TPSS";
@@ -102,8 +104,11 @@ public final class Main {
                 seed = Long.parseLong(args[++i]);
             } else if (args[i].equals("--new-ui")) {
                 newUi = true;
+            } else if (args[i].equals("--dump")) {
+                System.out.print(new Bank(seed).describe());
+                return;
             } else {
-                System.err.println("Cách dùng: java -cp out mocktpss.Main [--seed N] [--new-ui]");
+                System.err.println("Cách dùng: java -cp out mocktpss.Main [--seed N] [--new-ui] [--dump]");
                 System.exit(2);
             }
         }

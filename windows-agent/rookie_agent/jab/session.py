@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from typing import Any, TypeVar
 
 from rookie_agent.jab import bridge as jab
-from rookie_agent.recorder import TABLE_ROLE, TAB_ROLE, TEXT_ROLES, TOGGLE_ROLES, Recorder
+from rookie_agent.recorder import COMBO_ROLE, TABLE_ROLE, TAB_ROLE, TEXT_ROLES, TOGGLE_ROLES, Recorder
 from rookie_agent.selectors import Element, Step, parse_path_selector, parse_role_selector
 
 T = TypeVar("T")
@@ -157,12 +157,41 @@ class JabSession(threading.Thread):
 
         def on_selection(recorder: Recorder, vm: int, source: int) -> None:
             info = bridge.info(vm, source)
-            if info is None or info.role_en_US != TABLE_ROLE:
+            if info is None:
                 return
-            element = self._element(bridge, vm, source)
-            rows = bridge.selected_rows(vm, source)
-            if element is not None and rows:
-                recorder.row_selected(element, rows[0])
+            if info.role_en_US == TABLE_ROLE:
+                element = self._element(bridge, vm, source)
+                rows = bridge.selected_rows(vm, source)
+                if element is not None and rows:
+                    recorder.row_selected(element, rows[0])
+            elif info.role_en_US == "list":
+                on_combo_list(recorder, vm, source)
+
+        def on_combo_list(recorder: Recorder, vm: int, source: int) -> None:
+            """The option list of a combo box changed: report the combo box it belongs to."""
+            owned: list[int] = []
+            try:
+                current = source
+                for _ in range(6):
+                    current = bridge.parent(vm, current)
+                    if not current:
+                        return
+                    owned.append(current)
+                    info = bridge.info(vm, current)
+                    if info is None:
+                        return
+                    if info.role_en_US == COMBO_ROLE:
+                        element = self._element(bridge, vm, current)
+                        chosen = bridge.selection(vm, current)
+                        owned.extend(chosen)
+                        option = bridge.info(vm, chosen[0]) if chosen and chosen[0] else None
+                        if element is not None and option is not None:
+                            focused = "focused" in info.states_en_US.split(",")
+                            recorder.option_selected(element, option.name, focused)
+                        return
+            finally:
+                for java_object in owned:
+                    bridge.release(vm, java_object)
 
         bridge.on("text_change", guarded(on_text))
         bridge.on("focus_lost", guarded(on_focus_lost))

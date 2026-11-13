@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "description": "Bảng cấu hình rủi ro theo ứng dụng (docs/design.md mục 4.3). Learner gán risk bằng bảng này, không để LLM quyết. Luật thử theo thứ tự, luật đầu tiên khớp sẽ thắng. Mẫu là biểu thức chính quy, so với chữ thường. Luật có human_only là bước chỉ người được làm: workflow dừng trước bước đó.",
+  "web": {
+    "description": "Theo API gọi sau bước. Lời gọi không phải GET mà không khớp luật nào thì là write.",
+    "default_mutation": "write",
+    "rules": [
+      { "risk": "money", "human_only": true, "method": "POST", "path": "^/api/transfers/[^/]+/(approve|reject)$" },
+      { "risk": "money", "method": "POST|PUT|PATCH|DELETE", "path": "^/api/transfers" },
+      { "risk": "write", "method": "POST|PUT|PATCH|DELETE", "path": "^/api/cif" }
+    ]
+  },
+  "java": {
+    "description": "Theo màn hình (tiêu đề cửa sổ) và nhãn nút. Bấm nút hoặc mục menu không khớp luật nào thì là write, vì hướng Java không quan sát được API.",
+    "default_click": "write",
+    "click_roles": ["push button", "menu item"],
+    "rules": [
+      { "risk": "money", "human_only": true, "screen": "phê duyệt|approval", "label": "^(duyệt|từ chối|phê duyệt|approve|reject)$" },
+      { "risk": "read", "label": "tra cứu|tìm|tải lại|làm mới|xem|đăng nhập|đăng xuất|đóng|thoát|search|refresh" },
+      { "risk": "money", "screen": "chuyển tiền|thanh toán|rút tiền|nộp tiền|transfer|payment", "label": "gửi duyệt|chuyển|xác nhận|hạch toán|submit|confirm" },
+      { "risk": "write", "label": "lưu|mở cif|tạo|thêm|sửa|xoá|xóa|cập nhật|gửi|save|create|update|delete" }
+    ]
+  }
+}

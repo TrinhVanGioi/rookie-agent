@@ -115,3 +115,32 @@ def test_events_are_copies():
     rec.clicked(element("push button", "Tải lại"))
     rec.events.clear()
     assert len(rec.stop()) == 1
+
+
+def test_repeated_selection_reports_are_recorded_once():
+    rec = recorder()
+    table = element("table", "Hàng chờ phê duyệt")
+    rec.row_selected(table, 0)
+    rec.row_selected(table, 0)  # the bridge reports a selection twice
+    rec.row_selected(table, 1)
+    assert [e["value"] for e in rec.stop()] == ["0", "1"]
+
+
+def test_combo_box_choice_keeps_plain_values_only(assert_valid_events):
+    rec = recorder()
+    rec.option_selected(element("combo box", "Loại tiền", 7), "USD", focused=True)
+    rec.option_selected(element("combo box", "Loại tiền", 7), "USD", focused=True)
+    rec.option_selected(element("combo box", "Tài khoản nguồn", 8), "001012345678", focused=True)
+    events = rec.stop()
+    assert_valid_events(events)
+    assert [(e["type"], e["value"], e["value_class"]) for e in events] == [
+        ("select", "USD", None),
+        ("select", None, "account_number"),
+    ]
+    assert "001012345678" not in json.dumps(events)
+
+
+def test_combo_box_reset_by_the_application_is_not_recorded():
+    rec = recorder()
+    rec.option_selected(element("combo box", "Loại tiền"), "VND", focused=False)
+    assert rec.stop() == []

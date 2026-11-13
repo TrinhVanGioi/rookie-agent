@@ -27,6 +27,7 @@ CLICK_ROLES = frozenset({"push button", "menu", "menu item", "hyperlink"})
 TOGGLE_ROLES = frozenset({"check box", "radio button", "toggle button"})
 TAB_ROLE = "page tab"
 TABLE_ROLE = "table"
+COMBO_ROLE = "combo box"
 
 
 def _now() -> str:
@@ -40,6 +41,8 @@ class Recorder:
         self._events: list[dict] = []
         # Edited text fields waiting to be written out, in the order they were first edited.
         self._dirty: dict[str, tuple[Element, str]] = {}
+        # Last selection written per component: the bridge reports each selection more than once.
+        self._selected: dict[str, str] = {}
 
     @property
     def events(self) -> list[dict]:
@@ -114,11 +117,32 @@ class Recorder:
             self._flush_all()
             self._emit("click", element)
 
+    def _select(self, element: Element, value: str, value_class: str | None = None) -> None:
+        if self._selected.get(element.key) == value:
+            return
+        self._selected[element.key] = value
+        self._flush_all()
+        if value_class is None:
+            self._emit("select", element, value=value)
+        else:
+            self._emit("select", element, value_class=value_class)
+
     def row_selected(self, element: Element, row: int) -> None:
         """A table row was selected. The row index is kept; cell contents are not."""
         if element.role == TABLE_ROLE and row >= 0:
-            self._flush_all()
-            self._emit("select", element, value=str(row))
+            self._select(element, str(row))
+
+    def option_selected(self, element: Element, option: str, focused: bool) -> None:
+        """The user picked an option in a combo box. As with text, a change made by the
+        application itself (the combo box does not have focus) is not an action of the user."""
+        if element.role != COMBO_ROLE or not focused:
+            return
+        field = classify(element.name, element.role)
+        if field.kind == "plain":
+            self._select(element, option)
+        elif field.kind == "sensitive":
+            # Keep the fact that a choice was made, not which one.
+            self._select(element, option, value_class=field.value_class)
 
     def stop(self) -> list[dict]:
         """Write out pending edits and return every event of the session."""

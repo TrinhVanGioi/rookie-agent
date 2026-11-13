@@ -58,6 +58,9 @@ public final class SelfTest {
             check(component.getAccessibleContext().getAccessibleRole() == AccessibleRole.PASSWORD_TEXT,
                     screen + ": ô mật khẩu phải có vai trò password text");
         }
+        if (component instanceof JComboBox) {
+            return; // its arrow button belongs to Swing, not to the application
+        }
         if (component instanceof Container) {
             for (Component child : ((Container) component).getComponents()) {
                 checkNames(screen, child, names);

@@ -1,0 +1,107 @@
+import json
+
+import pytest
+
+from app.learner import LearnError, learn, normalize, slug
+from app.schemas import validate_workflow
+from tests.helpers import java_transfer_session, web_report_session
+
+DAYS = ["2026-11-03", "2026-11-10", "2026-11-12"]
+
+
+def web_sessions():
+    return [web_report_session(f"s{i}", day) for i, day in enumerate(DAYS)]
+
+
+def test_web_workflow_gets_a_date_parameter_from_three_sessions():
+    workflow, warnings = learn(web_sessions(), "doi-chieu")
+    validate_workflow(workflow)
+    assert workflow["status"] == "draft" and workflow["engine"] == "web"
+    assert workflow["inputs"] == [{"name": "ngay_bao_cao", "type": "date"}]
+    fill = next(step for step in workflow["steps"] if step["action"] == "fill")
+    assert fill["value"] == "{ngay_bao_cao}"
+    assert warnings == []
+
+
+def test_a_value_that_never_changes_stays_constant():
+    sessions = web_sessions()
+    for events in sessions:
+        events[1]["value"] = "2026-11-10"
+    workflow, _ = learn(sessions, "doi-chieu")
+    assert workflow["inputs"] == []
+    assert next(step for step in workflow["steps"] if step["action"] == "fill")["value"] == "2026-11-10"
+
+
+def test_one_session_still_learns_but_warns():
+    workflow, warnings = learn([web_report_session("s0", "2026-11-10")], "doi-chieu")
+    assert workflow["inputs"][0]["name"] == "ngay_bao_cao"
+    assert any("Chỉ có 1 phiên" in w for w in warnings)
+    assert any("một giá trị mẫu" in w for w in warnings)
+
+
+def test_java_transfer_learns_parameters_by_field_class_and_stops_before_nothing_it_may_do():
+    sessions = [java_transfer_session(f"s{i}") for i in range(3)]
+    workflow, warnings = learn(sessions, "chuyen-tien")
+    validate_workflow(workflow)
+    assert workflow["engine"] == "java"
+    assert [(i["name"], i.get("value_class")) for i in workflow["inputs"]] == [
+        ("so_cif_hoac_cccd", "cif_number"),
+        ("tai_khoan_chuyen", "account_number"),
+        ("tai_khoan_nhan", "account_number"),
+        ("so_tien", "amount"),
+    ]
+    by_label = {step["target"]["label"]: step for step in workflow["steps"]}
+    assert by_label["Loại tiền"]["value"] == "VND"  # same in all sessions: constant, not a parameter
+    assert by_label["Gửi duyệt"]["risk"] == "money" and by_label["Gửi duyệt"]["mode"] == "approve"
+    assert by_label["Tra cứu CIF"]["risk"] == "read" and by_label["Tra cứu CIF"]["mode"] == "auto"
+    assert warnings == []
+
+
+def test_sensitive_values_never_reach_the_workflow():
+    sessions = [java_transfer_session(f"s{i}") for i in range(3)]
+    dumped = json.dumps(learn(sessions, "chuyen-tien")[0], ensure_ascii=False)
+    assert "00103840" not in dumped and "001012345678" not in dumped
+
+
+def test_a_human_only_step_ends_the_workflow_with_a_warning():
+    sessions = []
+    for i in range(3):
+        events = java_transfer_session(f"s{i}")
+        last = dict(events[-1], seq=len(events), url="Mock TPSS - Phê duyệt")
+        last["target"] = {"selectors": ["role=push button[name='Duyệt']"], "label": "Duyệt", "tag": "push button"}
+        sessions.append(events + [last])
+    workflow, warnings = learn(sessions, "chuyen-tien")
+    assert workflow["steps"][-1]["target"]["label"] == "Gửi duyệt"
+    assert all(step["target"]["label"] != "Duyệt" for step in workflow["steps"])
+    assert any("chỉ người được thực hiện" in w for w in warnings)
+
+
+def test_sessions_that_take_different_paths_are_refused_not_merged():
+    sessions = [java_transfer_session("s0"), java_transfer_session("s1", extra_click=True), java_transfer_session("s2")]
+    with pytest.raises(LearnError) as error:
+        learn(sessions, "chuyen-tien")
+    assert "Phiên ghi 2 khác phiên 1 ở bước 3" in str(error.value)
+
+
+def test_mixed_engines_and_empty_input_are_refused():
+    with pytest.raises(LearnError):
+        learn([web_report_session("a", DAYS[0]), java_transfer_session("b")], "x")
+    with pytest.raises(LearnError):
+        learn([], "x")
+
+
+def test_normalize_merges_repeated_edits_and_repeated_clicks():
+    events = web_report_session("s", "2026-11-03")
+    typed = dict(events[1], seq=2, value="2026-11-04")
+    events = events[:2] + [typed, dict(events[2], seq=3), dict(events[2], seq=4)]
+    merged = normalize(events)
+    assert [e["type"] for e in merged] == ["click", "input", "click"]
+    assert merged[1]["value"] == "2026-11-04"
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [("Tài khoản chuyển", "tai_khoan_chuyen"), ("Đơn vị", "don_vi"), ("2 lần", "p_2_lan"), ("???", "gia_tri")],
+)
+def test_slug_makes_valid_input_names(text, expected):
+    assert slug(text) == expected

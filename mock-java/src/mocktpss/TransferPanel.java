@@ -6,6 +6,7 @@ import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import javax.swing.BorderFactory;
 import javax.swing.JButton;
+import javax.swing.JComboBox;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JTextField;
@@ -19,6 +20,7 @@ final class TransferPanel extends JPanel {
     private final JTextField from = Ui.field("Tài khoản chuyển", 14);
     private final JTextField to = Ui.field("Tài khoản nhận", 14);
     private final JTextField amount = Ui.field("Số tiền", 14);
+    private final JComboBox<String> currency = Ui.named(new JComboBox<String>(new String[] {"VND", "USD", "EUR"}), "Loại tiền");
     private final JTextField note = Ui.field("Nội dung", 24);
     private final JLabel status = Ui.status();
 
@@ -46,6 +48,7 @@ final class TransferPanel extends JPanel {
         Ui.row(form, row++, "Tài khoản chuyển", from);
         Ui.row(form, row++, "Tài khoản nhận", to);
         Ui.row(form, row++, "Số tiền", amount);
+        Ui.row(form, row++, "Loại tiền", currency);
         Ui.row(form, row++, "Nội dung", note);
         if (!newUi) {
             Ui.row(form, row, "", submit);
@@ -69,7 +72,8 @@ final class TransferPanel extends JPanel {
             to.setText("");
             amount.setText("");
             note.setText("");
-            status.setText("Đã gửi lệnh " + transfer.id + ", chờ phê duyệt.");
+            status.setText("Đã gửi lệnh " + transfer.id + " (" + currency.getSelectedItem() + "), chờ phê duyệt.");
+            currency.setSelectedIndex(0);
         } catch (Bank.BankException error) {
             status.setText(error.getMessage());
         }
