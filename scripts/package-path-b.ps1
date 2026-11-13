@@ -7,9 +7,15 @@
 #
 # The wheels must match the Python that will be installed on the target machine (version and 32/64 bit).
 # The agent itself uses only the Python standard library; the wheels are for the server.
+#   .\scripts\package-path-b.ps1 -Password <pass>                 zip with a password (needs 7-Zip)
+#
+# -Encryption ZipCrypto (default) opens with the Extract All of Windows Explorer; AES256 is stronger but needs
+# 7-Zip or WinRAR on the target. The password is only given on the command line, never stored in the repo.
 param(
     [string]$PythonVersion = "3.12",
-    [string]$Platform = "win_amd64"
+    [string]$Platform = "win_amd64",
+    [string]$Password = "",
+    [ValidateSet("ZipCrypto", "AES256")][string]$Encryption = "ZipCrypto"
 )
 $ErrorActionPreference = "Stop"
 $repo = Split-Path -Parent $PSScriptRoot
@@ -53,28 +59,40 @@ Get-ChildItem (Join-Path $stage "windows-agent\install") -Include *.json, *.bat 
     Remove-Item -Force
 
 if (Test-Path $zip) { Remove-Item -Force $zip }
-Add-Type -AssemblyName System.IO.Compression
-Add-Type -AssemblyName System.IO.Compression.FileSystem
-# Windows PowerShell 5.1 writes "\" in the names of ZipFile.CreateFromDirectory entries, which breaks the zip
-# format for many tools. Add the entries one by one with "/".
-# A freshly built jar can be held briefly by a virus scanner, so retry a few times.
-for ($attempt = 1; ; $attempt++) {
-    try {
-        $archive = [System.IO.Compression.ZipFile]::Open($zip, "Create")
+
+if ($Password) {
+    $sevenZip = @("C:\Program Files\7-Zip\7z.exe", "C:\Program Files (x86)\7-Zip\7z.exe") | Where-Object { Test-Path $_ } | Select-Object -First 1
+    if (-not $sevenZip) { $sevenZip = (Get-Command 7z -ErrorAction SilentlyContinue).Source }
+    if (-not $sevenZip) { throw "Dat mat khau can 7-Zip (7z.exe). Cai 7-Zip hoac chay khong co -Password." }
+    # The folder itself is added, so the entries start with rookie-agent-path-b/ and use "/".
+    & $sevenZip a -tzip "-p$Password" "-mem=$Encryption" -mx=5 -bso0 -bsp0 $zip $stage
+    if ($LASTEXITCODE -ne 0) { throw "7-Zip failed" }
+    & $sevenZip t "-p$Password" -bso0 -bsp0 $zip
+    if ($LASTEXITCODE -ne 0) { throw "The password-protected zip did not pass its own test" }
+} else {
+    Add-Type -AssemblyName System.IO.Compression
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    # Windows PowerShell 5.1 writes "\" in the names of ZipFile.CreateFromDirectory entries, which breaks the zip
+    # format for many tools. Add the entries one by one with "/".
+    # A freshly built jar can be held briefly by a virus scanner, so retry a few times.
+    for ($attempt = 1; ; $attempt++) {
         try {
-            foreach ($file in Get-ChildItem -Recurse -File -Force $stage) {
-                $name = "rookie-agent-path-b/" + $file.FullName.Substring($stage.Length + 1).Replace("\", "/")
-                [void][System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile($archive, $file.FullName, $name, "Optimal")
+            $archive = [System.IO.Compression.ZipFile]::Open($zip, "Create")
+            try {
+                foreach ($file in Get-ChildItem -Recurse -File -Force $stage) {
+                    $name = "rookie-agent-path-b/" + $file.FullName.Substring($stage.Length + 1).Replace("\", "/")
+                    [void][System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile($archive, $file.FullName, $name, "Optimal")
+                }
+            } finally {
+                $archive.Dispose()
             }
-        } finally {
-            $archive.Dispose()
+            break
+        } catch [System.IO.IOException] {
+            if ($attempt -ge 5) { throw }
+            if (Test-Path $zip) { Remove-Item -Force $zip }
+            Start-Sleep -Seconds 2
         }
-        break
-    } catch [System.IO.IOException] {
-        if ($attempt -ge 5) { throw }
-        if (Test-Path $zip) { Remove-Item -Force $zip }
-        Start-Sleep -Seconds 2
     }
 }
 Remove-Item -Recurse -Force $stage
-Write-Host "Da tao $zip"
+Write-Host "Da tao $zip$(if ($Password) { " (co mat khau, $Encryption)" })"
