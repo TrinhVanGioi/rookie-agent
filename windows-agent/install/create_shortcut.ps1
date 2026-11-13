@@ -2,10 +2,12 @@
 #  1. Copy the browser extension to a fixed place, so it keeps working if the package folder is moved or deleted.
 #  2. Put the "Rookie Agent" icon on the desktop; it starts the local page with the bundled Python
 #     (the 32-bit or 64-bit one, whichever matches Java).
+#     It also starts by itself, hidden, each time the user logs in.
 #  3. Open the extensions page of Chrome and put the extension folder on the clipboard.
 # Nothing needs to be installed first. -DesktopDir and -NoBrowser are for testing.
 param(
     [string]$DesktopDir = [Environment]::GetFolderPath("Desktop"),
+    [string]$StartupDir = [Environment]::GetFolderPath("Startup"),
     [string]$AppHome = (Join-Path $env:LOCALAPPDATA "RookieAgent"),
     [switch]$NoBrowser
 )
@@ -38,6 +40,16 @@ $shortcut.Description = "Rookie Agent"
 $shortcut.IconLocation = "$env:SystemRoot\System32\imageres.dll,109"
 $shortcut.Save()
 Write-Host "Da tao bieu tuong Rookie Agent tren man hinh nen: $link"
+
+# 2b. start by itself when this user logs in to Windows: the agent and the learning server are ready, no window shown
+New-Item -ItemType Directory -Force $StartupDir | Out-Null
+$auto = $shell.CreateShortcut((Join-Path $StartupDir "Rookie Agent.lnk"))
+$auto.TargetPath = $python
+$auto.Arguments = "-m rookie_agent web --auto-bits --no-browser --start-server"
+$auto.WorkingDirectory = $agent
+$auto.WindowStyle = 7
+$auto.Save()
+Write-Host "Rookie Agent se tu chay ngam moi khi dang nhap Windows."
 
 # 3. the extension in Chrome
 if ((Test-Path $target) -and -not $NoBrowser) {

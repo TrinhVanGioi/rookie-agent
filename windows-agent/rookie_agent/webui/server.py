@@ -35,12 +35,14 @@ def runtime_python(bits: int) -> Path | None:
     return None
 
 
-def relaunch(bits: int, port: int = PORT) -> None:
+def relaunch(bits: int, port: int = PORT, start_server: bool = False) -> None:
     python = runtime_python(bits)
     if python is None:
         raise RuntimeError(f"Gói này không có Python {bits}-bit.")
-    subprocess.Popen([str(python), "-m", "rookie_agent", "web", "--port", str(port), "--no-browser"], cwd=str(AGENT_ROOT),
-                     creationflags=NO_WINDOW)
+    command = [str(python), "-m", "rookie_agent", "web", "--port", str(port), "--no-browser"]
+    if start_server:
+        command.append("--start-server")
+    subprocess.Popen(command, cwd=str(AGENT_ROOT), creationflags=NO_WINDOW)
 
 
 class LocalServer:
@@ -144,7 +146,7 @@ def make_handler(core: Core, port: int, on_shutdown: Any):
     return Handler
 
 
-def build_core(home: Path, local_server: LocalServer) -> Core:
+def build_core(home: Path, local_server: LocalServer, start_server: bool = False) -> Core:
     from rookie_agent.jab import bridge as jab
     from rookie_agent.jab.session import JabSession
 
@@ -157,7 +159,7 @@ def build_core(home: Path, local_server: LocalServer) -> Core:
     return Core(
         home=home, open_session=lambda: JabSession().open(), own_bits=jab.BITS, dll_info=dll_info,
         feed_factory=lambda recorder: JavaFeed(recorder), server_starter=local_server.start,
-        relauncher=lambda bits: relaunch(bits),
+        relauncher=lambda bits: relaunch(bits, start_server=start_server),
     )
 
 
@@ -169,7 +171,7 @@ def already_running(port: int) -> bool:
         return False
 
 
-def main(port: int = PORT, open_browser: bool = True, auto_bits: bool = False) -> None:
+def main(port: int = PORT, open_browser: bool = True, auto_bits: bool = False, start_server: bool = False) -> None:
     home = agent_home()
     home.mkdir(parents=True, exist_ok=True)
     if sys.stdout is None or sys.stderr is None:  # started without a console (pythonw)
@@ -186,10 +188,10 @@ def main(port: int = PORT, open_browser: bool = True, auto_bits: bool = False) -
         own = struct.calcsize("P") * 8
         wanted = diagnose.wanted_bits(diagnose.java_users(), diagnose.find_java_installs(), own)
         if wanted != own and runtime_python(wanted):
-            relaunch(wanted, port)
+            relaunch(wanted, port, start_server)
             return
     local_server = LocalServer(home)
-    core = build_core(home, local_server)
+    core = build_core(home, local_server, start_server)
     box: dict[str, ThreadingHTTPServer] = {}
     handler = make_handler(core, port, lambda: (time.sleep(0.5), box["server"].shutdown()))
     for attempt in range(20):  # a copy that is handing over may still hold the port for a moment
@@ -202,6 +204,14 @@ def main(port: int = PORT, open_browser: bool = True, auto_bits: bool = False) -
             time.sleep(0.5)
     if open_browser:
         webbrowser.open(url)
+    if start_server:  # at Windows logon: the learning server is ready before the teller needs it
+        def warm_up() -> None:
+            try:
+                local_server.start()
+            except Exception as error:
+                print("Máy chủ học chưa bật được:", error)
+
+        threading.Thread(target=warm_up, daemon=True).start()
     try:
         box["server"].serve_forever()
     finally:

@@ -215,7 +215,7 @@ def cmd_host(_: argparse.Namespace) -> None:
 def cmd_web(args: argparse.Namespace) -> None:
     from rookie_agent.webui.server import main as web_main
 
-    web_main(args.port, open_browser=not args.no_browser, auto_bits=args.auto_bits)
+    web_main(args.port, open_browser=not args.no_browser, auto_bits=args.auto_bits, start_server=args.start_server)
 
 
 def main() -> None:
@@ -268,6 +268,7 @@ def main() -> None:
     web.add_argument("--port", type=int, default=8765)
     web.add_argument("--no-browser", action="store_true", help="không tự mở trình duyệt")
     web.add_argument("--auto-bits", action="store_true", help="tự chuyển sang Python cùng bit với Java")
+    web.add_argument("--start-server", action="store_true", help="bật luôn máy chủ học trên máy này")
     web.set_defaults(run=cmd_web)
     args = parser.parse_args()
     args.run(args)

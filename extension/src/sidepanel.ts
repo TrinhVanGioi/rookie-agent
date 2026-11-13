@@ -187,4 +187,7 @@ void (async () => {
   $<HTMLInputElement>("server").value = saved?.server ?? DEFAULT_SERVER;
   await refreshState();
   await renderRecordings();
+  // The server starts with Windows; say at once whether it is reachable, without asking for any permission.
+  const origin = new URL($<HTMLInputElement>("server").value).origin + "/*";
+  if (await chrome.permissions.contains({ origins: [origin] })) void checkServer();
 })();
