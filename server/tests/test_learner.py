@@ -111,3 +111,23 @@ def test_normalize_merges_repeated_edits_and_repeated_clicks():
 )
 def test_slug_makes_valid_input_names(text, expected):
     assert slug(text) == expected
+
+
+def login_session(session_id: str):
+    from tests.helpers import _event
+
+    screen = "Mock TPSS - Đăng nhập"
+    return [
+        _event("java", session_id, 0, "input", screen, ["role=text[name='Tên đăng nhập']"], "Tên đăng nhập", "text", None, "username", []),
+        _event("java", session_id, 1, "submit", screen, ["role=password text[name='Mật khẩu']"], "Mật khẩu", "password text", None, None, []),
+    ]
+
+
+def test_enter_in_a_field_is_learned_as_its_own_step_and_is_safe_by_rule():
+    workflow, _ = learn([login_session(f"s{i}") for i in range(3)], "dang-nhap")
+    validate_workflow(workflow)
+    assert [(s["action"], s["target"]["label"], s["risk"], s["mode"]) for s in workflow["steps"]] == [
+        ("fill", "Tên đăng nhập", "read", "auto"),
+        ("submit", "Mật khẩu", "read", "auto"),
+    ]
+    assert workflow["inputs"] == [{"name": "ten_dang_nhap", "type": "string", "label": "Tên đăng nhập", "value_class": "username"}]

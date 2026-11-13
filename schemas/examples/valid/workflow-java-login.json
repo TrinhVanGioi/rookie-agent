@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "engine": "java",
+  "id": "dang-nhap",
+  "title": "Đăng nhập",
+  "version": 1,
+  "status": "draft",
+  "inputs": [
+    {
+      "name": "ten_dang_nhap",
+      "label": "Tên đăng nhập",
+      "type": "string",
+      "value_class": "username"
+    }
+  ],
+  "steps": [
+    {
+      "id": "s1_ten_dang_nhap",
+      "action": "fill",
+      "target": {
+        "selectors": [
+          "role=text[name='Tên đăng nhập']"
+        ],
+        "label": "Tên đăng nhập"
+      },
+      "value": "{ten_dang_nhap}",
+      "risk": "read",
+      "mode": "auto"
+    },
+    {
+      "id": "s2_mat_khau",
+      "action": "submit",
+      "target": {
+        "selectors": [
+          "role=password text[name='Mật khẩu']"
+        ],
+        "label": "Mật khẩu"
+      },
+      "risk": "read",
+      "mode": "auto"
+    }
+  ]
+}

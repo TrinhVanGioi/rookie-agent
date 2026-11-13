@@ -159,3 +159,38 @@ def test_snapshot_without_a_matching_window_is_an_error():
     reply = Host(FakeSession()).handle({"cmd": "snapshot", "window": "TPSS khác"})
     assert not reply["ok"] and "cửa sổ Java" in reply["error"]
     assert not Host(None, bridge_error="chưa bật").handle({"cmd": "snapshot"})["ok"]
+
+
+class FakeFeed:
+    """Stands for JavaFeed: the helper inside the Java application."""
+
+    last = None
+
+    def __init__(self, recorder):
+        self.recorder = recorder
+        self.calls = []
+        FakeFeed.last = self
+
+    def start(self, session_id):
+        self.calls.append(("start", session_id))
+
+    def stop(self):
+        self.calls.append(("stop",))
+        # what the helper still had to say is read on stop, before the events are counted
+        self.recorder.action(Element("password text", "Mật khẩu", (Step("frame", -1), Step("password text", 3)), "Mock TPSS - Đăng nhập"))
+
+
+def test_the_java_helper_listens_exactly_while_recording_and_its_last_words_are_kept(assert_valid_events):
+    host = Host(FakeSession(), feed_factory=FakeFeed)
+    assert host.handle({"id": 1, "cmd": "start", "session_id": "s-abc"})["ok"]
+    assert FakeFeed.last.calls == [("start", "s-abc")]
+    stopped = host.handle({"id": 2, "cmd": "stop"})
+    assert FakeFeed.last.calls == [("start", "s-abc"), ("stop",)]
+    assert_valid_events(stopped["events"])
+    assert [(e["type"], e["target"]["label"]) for e in stopped["events"]] == [("submit", "Mật khẩu")]
+
+
+def test_no_helper_means_recording_still_works():
+    host = Host(FakeSession())
+    assert host.handle({"cmd": "start"})["ok"]
+    assert host.handle({"cmd": "stop"})["ok"]

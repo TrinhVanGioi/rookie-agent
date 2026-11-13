@@ -157,3 +157,32 @@ def test_a_press_reported_twice_is_one_click():
     rec.clicked(button)   # a real second press, later
     rec.clicked(element("push button", "Tải lại", 3))  # another button right after: not a duplicate
     assert [e["target"]["label"] for e in rec.stop()] == ["Gửi duyệt", "Gửi duyệt", "Tải lại"]
+
+
+def test_an_action_reported_from_inside_the_application_is_a_click_on_a_button_and_a_submit_on_a_field(assert_valid_events):
+    rec = recorder()
+    rec.action(element("push button", "Gửi duyệt", 9))
+    rec.action(element("password text", "Mật khẩu", 3))
+    rec.action(element("text", "Số tiền", 5))
+    rec.action(element("check box", "Giao diện mới", 6))
+    rec.action(element("panel", "x"))  # not something that acts
+    events = rec.stop()
+    assert_valid_events(events)
+    assert [(e["type"], e["target"]["tag"]) for e in events] == [
+        ("click", "push button"),
+        ("submit", "password text"),
+        ("submit", "text"),
+        ("click", "check box"),
+    ]
+    assert all(e["value"] is None and e["value_class"] is None for e in events)
+
+
+def test_enter_in_a_field_writes_the_pending_edit_first_and_is_not_counted_twice():
+    now = [0.0]
+    rec = Recorder(session_id="s-test", clock=lambda: "2026-11-12T09:15:03.000Z", monotonic=lambda: now[0])
+    typed(rec, element("text", "Ngày báo cáo", 1), "2026-11-10")
+    field = element("text", "Ngày báo cáo", 1)
+    rec.action(field)
+    now[0] = 0.1
+    rec.action(field)  # the helper reported it again
+    assert [(e["type"], e["value"]) for e in rec.stop()] == [("input", "2026-11-10"), ("submit", None)]

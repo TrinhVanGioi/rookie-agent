@@ -60,6 +60,10 @@ class FakeDriver:
         self._find(selectors)
         self.calls.append(("select", selectors[0], value))
 
+    def submit(self, selectors):
+        self._find(selectors)
+        self.calls.append(("submit", selectors[0]))
+
     def read_value(self, selectors):
         self._find(selectors)
         return "001076060577"
@@ -217,3 +221,30 @@ def test_driver_error_is_reported_as_failed():
 
     result, _, _ = run(driver=Broken())
     assert result["status"] == "failed" and "s1" in result["message"]
+
+
+def test_enter_in_a_field_is_a_step_the_runner_can_do():
+    workflow = {
+        "schema_version": 1,
+        "engine": "java",
+        "id": "dang-nhap",
+        "version": 1,
+        "status": "approved",
+        "inputs": [],
+        "steps": [
+            {"id": "s1", "action": "fill", "target": {"selectors": ["role=text[name='Tên đăng nhập']"]}, "value": "gdv01", "risk": "read", "mode": "auto"},
+            {"id": "s2", "action": "submit", "target": {"selectors": ["role=password text[name='Mật khẩu']"]}, "risk": "read", "mode": "auto"},
+        ],
+    }
+    result, driver, _ = run(workflow=workflow, inputs={})
+    assert result["status"] == "finished"
+    assert driver.calls == [("fill", "role=text[name='Tên đăng nhập']", "gdv01"), ("submit", "role=password text[name='Mật khẩu']")]
+
+
+def test_enter_in_a_field_that_is_not_on_screen_stops_and_asks():
+    workflow = {
+        "schema_version": 1, "engine": "java", "id": "x", "version": 1, "status": "approved", "inputs": [],
+        "steps": [{"id": "s1", "action": "submit", "target": {"selectors": ["role=text[name='Số tiền']"]}, "risk": "read", "mode": "auto"}],
+    }
+    result, _, _ = run(workflow=workflow, inputs={}, driver=FakeDriver(missing={"role=text[name='Số tiền']"}))
+    assert result["status"] == "needs_help"

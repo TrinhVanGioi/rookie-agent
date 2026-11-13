@@ -109,7 +109,14 @@ Extension không chạy được trong tab IE mode, và giao diện bên trong a
 
 **Khác biệt so với hướng A.** Không có `api_calls` (không quan sát được mạng của applet), nên mức rủi ro được gán theo màn hình và nhãn nút (4.3). Ảnh chụp là ảnh cửa sổ ứng dụng, được che vùng nhạy cảm theo toạ độ của thành phần lấy từ JAB.
 
-**Dự phòng.** Nếu ứng dụng dùng component tự viết không có tên accessible, nạp một Java agent nhỏ vào JVM của applet (tham số runtime trong Java Control Panel) để nghe sự kiện bằng `AWTEventListener`. Chỉ làm khi spike trên hệ thống thật (task 1.7) cho thấy JAB không đủ.
+**Agent ghi trong JVM (`java-agent/`).** Một jar nhỏ nạp vào JVM của ứng dụng bằng `-javaagent`, thường qua biến môi trường `JAVA_TOOL_OPTIONS` của người dùng (`windows-agent/install/enable_java_agent.ps1`) nên không sửa ứng dụng. Nó gắn `ActionListener` vào mọi nút và ô văn bản, nên thấy hành động dù được kích bằng chuột, Enter hay phím tắt gắn với nút. Quy tắc để nó vô hại:
+
+- **Chỉ hoạt động khi GDV bấm Ghi.** Agent Windows tạo file `recording.flag` trong thư mục `%LOCALAPPDATA%\RookieAgent` khi bắt đầu ghi và xoá khi dừng; không có file này agent Java không làm gì.
+- **Không ghi ký tự gõ, không ghi giá trị.** Chỉ ghi "đã có hành động trên thành phần này": vai trò, tên, vị trí trong cây, tên màn hình. Ô mật khẩu chỉ được ghi nhận là đã nhấn Enter.
+- **Chỉ ghi ra thư mục của agent trên máy này** (`java-events\<pid>.jsonl`), không gửi đi đâu.
+- Đặt tên thành phần giống hệt Java Access Bridge (cùng vai trò, tên, đường dẫn), nên một cú bấm do cả hai báo chỉ thành một sự kiện.
+
+Enter trong ô thành sự kiện `submit`, rồi bước `submit` của workflow ("Nhấn Enter trong ô"). Khi chạy lại, Java Access Bridge gọi hành động `notify-field-accept` của ô, đúng việc phím Enter làm, nên không cần gửi phím và vẫn chạy được khi cửa sổ thu nhỏ. Chưa làm: phím chức năng và phím tắt gắn với hành động không qua nút (chỉ đo được khi có Touchpoint thật); component tự viết không có tên accessible.
 
 **Cách bắt sự kiện (đã kiểm chứng trên mock Swing, JDK 21 64-bit).**
 
@@ -123,7 +130,7 @@ Extension không chạy được trong tab IE mode, và giao diện bên trong a
 
 Ứng dụng tự xoá form sau khi gửi không bị ghi nhầm thành thao tác nhập, vì lúc đó ô không có focus.
 
-**Giới hạn của Java Access Bridge.** Bấm nút bằng bàn phím (Enter, phím cách, phím tắt) không sinh sự kiện nào, nên chưa ghi được. Nếu GDV quen thao tác bằng bàn phím thì phải dùng Java agent dự phòng bên dưới.
+**Giới hạn của Java Access Bridge, đã đo.** Enter trong một ô (ví dụ Enter ở ô mật khẩu để đăng nhập) đăng nhập được nhưng không sinh sự kiện nào; bấm nút bằng phím cũng không. GDV quầy thao tác nhiều bằng bàn phím, nên chỉ dùng Java Access Bridge thì workflow học ra thiếu bước gửi. Phần bổ sung nằm ở mục dưới.
 
 **Ngôn ngữ.** PoC viết Windows agent bằng Python, khi chạy chỉ dùng thư viện chuẩn (gọi DLL của Java Access Bridge bằng `ctypes`) để không phải mang thêm gói nào vào máy nội bộ. Bản triển khai thật cân nhắc C#/.NET để đóng gói gọn.
 

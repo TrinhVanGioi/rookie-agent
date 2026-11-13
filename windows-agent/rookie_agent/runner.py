@@ -19,7 +19,7 @@ import time
 from collections.abc import Callable
 from typing import Any, Protocol
 
-SUPPORTED_ACTIONS = frozenset({"click", "fill", "select", "read_value", "wait_for"})
+SUPPORTED_ACTIONS = frozenset({"click", "fill", "select", "submit", "read_value", "wait_for"})
 RISKS = frozenset({"read", "write", "money"})
 MODES = frozenset({"auto", "review", "approve"})
 MOCK_WINDOW_MARKERS = ("Mock TPSS",)
@@ -42,6 +42,7 @@ class Driver(Protocol):
     def click(self, selectors: list[str]) -> None: ...
     def fill(self, selectors: list[str], value: str) -> None: ...
     def select(self, selectors: list[str], value: str) -> None: ...
+    def submit(self, selectors: list[str]) -> None: ...
     def read_value(self, selectors: list[str]) -> str: ...
 
 
@@ -213,6 +214,8 @@ def run_workflow(
             elif action == "select":
                 value = _PLACEHOLDER.sub(lambda match: values[match.group(1)], step["value"])
                 wait_until_found(step, lambda: driver.select(selectors, value))
+            elif action == "submit":
+                wait_until_found(step, lambda: driver.submit(selectors))
             elif action == "read_value":
                 values[step["save_as"]] = wait_until_found(step, lambda: driver.read_value(selectors))
             elif action == "wait_for":

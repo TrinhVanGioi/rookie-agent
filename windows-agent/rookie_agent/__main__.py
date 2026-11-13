@@ -89,14 +89,19 @@ def cmd_record(args: argparse.Namespace) -> None:
         _, title = session.wait_for_window(args.window, timeout=10)
     except Exception as error:
         sys.exit(f"Lỗi: {error}")
+    from rookie_agent.java_feed import JavaFeed
+
     recorder = Recorder()
     session.attach(recorder)
+    feed = JavaFeed(recorder)
+    feed.start(recorder.session_id)
     print(f"ĐANG GHI trên: {title}")
     print("Thao tác trên ứng dụng Java, xong thì quay lại đây bấm Enter để Dừng.")
     try:
         input()
     except (EOFError, KeyboardInterrupt):
         pass
+    feed.stop()
     session.detach()
     events = recorder.stop()
     session.close()

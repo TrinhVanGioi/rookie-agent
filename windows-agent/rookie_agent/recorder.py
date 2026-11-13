@@ -111,10 +111,7 @@ class Recorder:
 
     # ---- clicks and selections ----------------------------------------------------
 
-    def clicked(self, element: Element) -> None:
-        """A button, menu item or link was pressed. Text fields, panels and labels are not actions."""
-        if element.role not in CLICK_ROLES:
-            return
+    def _press(self, element: Element, kind: str) -> None:
         now = self._monotonic()
         if self._last_press is not None:
             key, at = self._last_press
@@ -122,7 +119,21 @@ class Recorder:
                 return  # the same press, reported a second time
         self._last_press = (element.key, now)
         self._flush_all()
-        self._emit("click", element)
+        self._emit(kind, element)
+
+    def clicked(self, element: Element) -> None:
+        """A button, menu item or link was pressed. Text fields, panels and labels are not actions."""
+        if element.role in CLICK_ROLES:
+            self._press(element, "click")
+
+    def action(self, element: Element) -> None:
+        """An action reported from inside the application, however it was triggered (mouse, Enter, a
+        mnemonic). On a button it is a click; on a text field it is Enter pressed in that field, which
+        submits it. Never a value: nothing typed is recorded here."""
+        if element.role in CLICK_ROLES or element.role in TOGGLE_ROLES:
+            self._press(element, "click")
+        elif element.role in TEXT_ROLES or element.role == "password text":
+            self._press(element, "submit")
 
     def toggled(self, element: Element) -> None:
         """A check box, radio button or toggle button changed its checked state."""

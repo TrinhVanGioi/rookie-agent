@@ -32,6 +32,7 @@ from typing import Any, BinaryIO, Protocol
 
 from rookie_agent import __version__
 from rookie_agent.controllers import RemoteController
+from rookie_agent.java_feed import JavaFeed
 from rookie_agent.recorder import Recorder
 
 HOST_NAME = "com.rookie_agent.host"
@@ -114,6 +115,7 @@ class Host:
         loader: Loader = default_loader,
         executor: Executor | None = None,
         sandboxer: Callable[..., dict[str, Any]] | None = None,
+        feed_factory: Callable[[Recorder], Any] | None = None,
     ) -> None:
         self._session = session
         self._bridge_error = bridge_error
@@ -122,6 +124,8 @@ class Host:
         self._loader = loader
         self._executor = executor or self._execute_on_java
         self._sandboxer = sandboxer or _default_sandboxer
+        self._feed_factory = feed_factory
+        self._feed: Any = None
         self._recorder: Recorder | None = None
         self._run_thread: threading.Thread | None = None
         self._stop = threading.Event()
@@ -187,12 +191,18 @@ class Host:
             raise RuntimeError("Đang ghi. Bấm Dừng trước khi ghi phiên mới.")
         self._recorder = Recorder(session_id=message.get("session_id"))
         session.attach(self._recorder)
+        if self._feed_factory is not None:
+            self._feed = self._feed_factory(self._recorder)
+            self._feed.start(self._recorder.session_id)
         return {"session_id": self._recorder.session_id}
 
     def _stop_recording(self, _: dict[str, Any]) -> dict[str, Any]:
         if self._recorder is None:
             raise RuntimeError("Chưa bắt đầu ghi.")
         self._require_session().detach()
+        if self._feed is not None:
+            self._feed.stop()  # reads what the helper still has before the events are counted
+            self._feed = None
         recorder, self._recorder = self._recorder, None
         return {"session_id": recorder.session_id, "engine": "java", "events": recorder.stop()}
 
@@ -328,7 +338,7 @@ def main() -> None:
     except Exception as error:
         bridge_error = str(error)
     try:
-        serve(Host(session, bridge_error, jab.BITS), stdin, stdout)
+        serve(Host(session, bridge_error, jab.BITS, feed_factory=lambda recorder: JavaFeed(recorder)), stdin, stdout)
     finally:
         if session is not None:
             session.close()

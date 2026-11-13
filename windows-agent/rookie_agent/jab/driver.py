@@ -78,6 +78,18 @@ class JabDriver:
 
         self._with(selectors, act)
 
+    def submit(self, selectors: list[str]) -> None:
+        """Enter pressed in a text field. The field's own accept action does what the key does, no keyboard needed."""
+
+        def act(bridge: jab.Bridge, vm: int, context: int) -> None:
+            info = bridge.info(vm, context)
+            if info is None:
+                raise DriverError("Không đọc được phần tử.")
+            if "notify-field-accept" not in bridge.actions(vm, context) or not bridge.do_action(vm, context, "notify-field-accept"):
+                raise DriverError(f"{_describe(info)} không nhấn Enter được.")
+
+        self._with(selectors, act)
+
     def select(self, selectors: list[str], value: str) -> None:
         def act(bridge: jab.Bridge, vm: int, context: int) -> None:
             info = bridge.info(vm, context)

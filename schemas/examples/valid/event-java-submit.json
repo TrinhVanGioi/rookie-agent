@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "engine": "java",
+  "session_id": "s-0300",
+  "seq": 3,
+  "ts": "2026-11-12T09:20:15.100Z",
+  "type": "submit",
+  "url": "Mock TPSS - Đăng nhập",
+  "target": {
+    "selectors": [
+      "role=password text[name='Mật khẩu']",
+      "path=frame/root pane[0]/layered pane[1]/panel[0]/panel[0]/password text[3]"
+    ],
+    "label": "Mật khẩu",
+    "tag": "password text"
+  },
+  "value": null,
+  "value_class": null,
+  "api_calls": []
+}

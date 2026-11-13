@@ -11,3 +11,4 @@ mock-java/out/
 *.jar
 windows-agent/install/*.json
 windows-agent/install/*.bat
+java-agent/out/

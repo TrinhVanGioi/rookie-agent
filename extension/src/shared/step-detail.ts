@@ -45,6 +45,7 @@ export const DOING: Record<string, (caption: string) => string> = {
   goto: (c) => `Mở trang ${c}`.trim(),
   click: (c) => `Bấm «${c}»`,
   fill: (c) => `Điền vào ô «${c}»`,
+  submit: (c) => `Nhấn Enter trong ô «${c}»`,
   select: (c) => `Chọn trong «${c}»`,
   read_value: (c) => `Đọc thông tin ở «${c}» để dùng ở bước sau`,
   wait_for: (c) => `Chờ «${c}» hiện ra`,

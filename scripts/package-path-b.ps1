@@ -11,6 +11,7 @@ $stage = Join-Path $dist "rookie-agent-path-b"
 $zip = Join-Path $dist "rookie-agent-path-b.zip"
 
 & (Join-Path $repo "mock-java\build.ps1")
+& (Join-Path $repo "java-agent\build.ps1")
 
 if (Test-Path $stage) { Remove-Item -Recurse -Force $stage }
 New-Item -ItemType Directory -Force $stage | Out-Null
@@ -19,6 +20,8 @@ New-Item -ItemType Directory -Force $stage | Out-Null
 foreach ($folder in @("windows-agent", "config", "schemas")) {
     Copy-Item -Recurse (Join-Path $repo $folder) (Join-Path $stage $folder)
 }
+New-Item -ItemType Directory -Force (Join-Path $stage "java-agent") | Out-Null
+Copy-Item (Join-Path $repo "java-agent\rookie-java-agent.jar") (Join-Path $stage "java-agent")
 New-Item -ItemType Directory -Force (Join-Path $stage "mock-java") | Out-Null
 Copy-Item (Join-Path $repo "mock-java\mock-tpss.jar") (Join-Path $stage "mock-java")
 
@@ -26,6 +29,7 @@ Get-ChildItem -Recurse -Force $stage -Directory |
     Where-Object { $_.Name -in @("__pycache__", ".pytest_cache") } |
     Remove-Item -Recurse -Force
 Get-ChildItem (Join-Path $stage "windows-agent\install") -Include *.json, *.bat -Recurse |
+    Where-Object { $_.Name -notlike "*.ps1" } |
     Remove-Item -Force
 
 if (Test-Path $zip) { Remove-Item -Force $zip }

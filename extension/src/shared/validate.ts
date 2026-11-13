@@ -93,6 +93,9 @@ function collect(schema: Schema, value: unknown, path: string, errors: string[])
       case "minLength":
         if (typeof value === "string" && value.length < (rule as number)) errors.push(`${at}: quá ngắn`);
         break;
+      case "maxLength":
+        if (typeof value === "string" && value.length > (rule as number)) errors.push(`${at}: quá dài`);
+        break;
       case "pattern":
         if (typeof value === "string" && !new RegExp(rule as string, "u").test(value)) {
           errors.push(`${at}: sai định dạng`);

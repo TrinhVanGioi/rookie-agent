@@ -137,7 +137,7 @@ def learn(
                         selectors.append(selector)
             step["target"] = {"selectors": selectors, "label": label, "tag": target.get("tag")}
             if first["type"] in ("click", "submit"):
-                step["action"] = "click"
+                step["action"] = "click" if first["type"] == "click" else "submit"
             else:
                 step["action"] = "fill" if first["type"] == "input" else "select"
                 classes = [event["value_class"] for event in column if event["value_class"]]

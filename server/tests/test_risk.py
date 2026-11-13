@@ -57,3 +57,18 @@ def test_web_risk_follows_the_api_that_was_called(method, path, expected):
 
 def test_modes_follow_the_hard_rules():
     assert (mode_for("read"), mode_for("write"), mode_for("money")) == ("auto", "approve", "approve")
+
+
+@pytest.mark.parametrize(
+    ("label", "screen", "expected"),
+    [
+        ("Mật khẩu", "Mock TPSS - Đăng nhập", Risk("read")),
+        ("Số CIF hoặc CCCD", "Mock TPSS - Khách hàng (CIF)", Risk("read")),
+        ("Số tiền", "Mock TPSS - Chuyển tiền", Risk("money")),  # Enter in any field of a money screen may send the order
+        ("Nội dung", "Mock TPSS - Màn hình lạ", Risk("write")),  # an unknown field: the safe default
+    ],
+)
+def test_enter_in_a_field_is_classified_by_screen_and_field(label, screen, expected):
+    event = java_click(label, screen, tag="text")
+    event["type"] = "submit"
+    assert risk_of(event) == expected

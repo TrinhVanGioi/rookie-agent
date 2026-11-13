@@ -35,6 +35,21 @@ describe("schema validation", () => {
     expect(validateWorkflow(workflow).join("\n")).toContain("steps/0/risk");
   });
 
+  it("accepts a workflow the GDV named, and refuses a name that is too long or empty", () => {
+    const base = structuredClone(valid["../../schemas/examples/valid/workflow-java-login.json"]) as { title?: string };
+    expect(base.title).toBe("Đăng nhập");
+    expect(validateWorkflow(base)).toEqual([]);
+    expect(validateWorkflow({ ...base, title: "x".repeat(81) }).join()).toContain("title");
+    expect(validateWorkflow({ ...base, title: "" }).join()).toContain("title");
+  });
+
+  it("accepts Enter pressed in a field, as an event and as a step", () => {
+    expect(validateEvent(valid["../../schemas/examples/valid/event-java-submit.json"])).toEqual([]);
+    const login = structuredClone(valid["../../schemas/examples/valid/workflow-java-login.json"]) as { steps: { target?: unknown }[] };
+    delete login.steps[1]!.target;
+    expect(validateWorkflow(login).join()).toContain("thiếu trường target"); // a step that acts on a field needs the field
+  });
+
   it("rejects a money step set to auto", () => {
     const workflow = structuredClone(valid["../../schemas/examples/valid/workflow-java.json"]) as {
       steps: { risk: string; mode: string }[];

@@ -75,12 +75,26 @@ Lệnh này đăng ký agent làm Native Messaging host cho Edge và Chrome củ
 | Chuyển tab | `click` | |
 | Tích ô chọn, nút radio | `click` | |
 | Chọn dòng trong bảng | `select` | Lưu số thứ tự dòng, không lưu nội dung ô. |
+| Enter trong một ô (cần agent Java) | `submit` | Không lưu gì của ô. Chạy lại bằng hành động Enter của ô. |
 
 Bảng phân loại trường nằm ở `config\field-classes.json`, dùng chung với extension. Trường chưa có trong bảng được coi là nhạy cảm.
 
+## Ghi cả thao tác bằng bàn phím
+
+Người quầy hay dùng Enter và Tab. Java Access Bridge không thấy Enter trong một ô, nên cần một agent nhỏ chạy trong chính ứng dụng Java:
+
+```powershell
+# một lần, cho người dùng Windows hiện tại (không cần quyền quản trị)
+.\install\enable_java_agent.ps1 -Jar ..\java-agent\rookie-java-agent.jar
+# đóng và mở lại ứng dụng Java; tắt đi bằng: .\install\enable_java_agent.ps1 -Disable
+```
+
+Agent này **chỉ làm việc khi bạn bấm Ghi**, không bao giờ ghi ký tự gõ hay giá trị của ô, và chỉ ghi ra thư mục `%LOCALAPPDATA%\RookieAgent` trên máy này. Gói đóng sẵn `dist\rookie-agent-path-b.zip` đã kèm jar.
+
 ## Hạn chế đã biết
 
-- **Bấm nút bằng bàn phím (Enter, phím cách, phím tắt) chưa được ghi.** Java Access Bridge chỉ báo sự kiện khi bấm bằng chuột. Nếu GDV quen dùng bàn phím thì cần Java agent dự phòng.
+- **Thao tác bằng bàn phím chỉ ghi được khi đã bật agent Java** (xem mục "Ghi cả thao tác bằng bàn phím"). Java Access Bridge một mình không thấy Enter trong ô hay nút bấm bằng phím.
+- **Phím chức năng và phím tắt gắn với hành động không qua nút chưa ghi được**; chỉ đo được khi có Touchpoint thật.
 - **Combo box chưa được ghi.** Mock chưa có combo box để kiểm chứng.
 - **Nhánh bấm chuột chưa có test tự động trên ứng dụng thật**, chỉ có test đơn vị. Test tích hợp điều khiển mock qua bridge (điền text, chuyển tab) nên không sinh sự kiện chuột.
 - Mới thử với JDK 21 64-bit trên mock Swing. Chưa thử với JRE 8 32-bit và applet thật trong IE mode.

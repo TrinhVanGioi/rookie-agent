@@ -428,7 +428,7 @@ export class FlowCanvas {
 
       const badges = el("div", "rk-badges");
       const risk = el("span", `rk-badge risk-${step.risk}`, RISK_LABEL[step.risk]);
-      risk.title = RISK_HINT[step.risk];
+      risk.title = RISK_HINT[step.risk] ?? "";
       badges.append(risk, this.modeControl(step));
 
       // the decision itself is made on the review screen, where the GDV sees the whole picture

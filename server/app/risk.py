@@ -37,10 +37,14 @@ def _matches(pattern: str | None, text: str) -> bool:
 
 def _java_risk(event: dict[str, Any], config: dict[str, Any]) -> Risk:
     target = event.get("target") or {}
-    if event["type"] not in ("click", "submit") or target.get("tag") not in config["click_roles"]:
+    if event["type"] not in ("click", "submit"):
         return READ  # typing, choosing a tab or an option changes nothing on the server side
+    if event["type"] == "click" and target.get("tag") not in config["click_roles"]:
+        return READ  # a click on something that is not a button or a menu item
     screen, label = _norm(event.get("url")), _norm(target.get("label"))
     for rule in config["rules"]:
+        if rule.get("types") is not None and event["type"] not in rule["types"]:
+            continue
         if _matches(rule.get("screen"), screen) and _matches(rule.get("label"), label):
             return Risk(rule["risk"], bool(rule.get("human_only")))
     return Risk(config["default_click"])

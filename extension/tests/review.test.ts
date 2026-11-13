@@ -86,7 +86,7 @@ describe("describeStep", () => {
     };
     const read = describeStep(flow, "r1", {}, undefined)!;
     expect(read.gives).toEqual([{ name: "Tài khoản thanh toán", note: "Dùng ở các bước sau" }]);
-    const [used] = describeStep(flow, "r2", {}, undefined)!.takes;
+    const used = describeStep(flow, "r2", {}, undefined)!.takes[0]!;
     expect(used.source).toBe("Agent đọc ở bước 1 «Tài khoản thanh toán»");
     expect(used.value).toBeNull(); // the agent's reading never reaches the panel
     expect(used.missing).toContain("không hiển thị");

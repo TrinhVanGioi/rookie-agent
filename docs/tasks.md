@@ -22,6 +22,8 @@ Hai hướng (xem `docs/design.md` mục 1): **A** là extension cho web trên C
 | 1.9 | (Hướng B) Khung Windows agent trong `windows-agent/`: Native Messaging host, kết nối Java Access Bridge, liệt kê cửa sổ Java; side panel hiện trạng thái agent và chuyển lệnh Bắt đầu ghi / Dừng | Test đơn vị cho giao thức Native Messaging (đóng khung, nhận, gửi thông điệp); agent đọc được cây thành phần của mock Swing; side panel báo rõ khi agent chưa cài hoặc Java Access Bridge chưa bật |
 | 1.10 | (Hướng B) Recorder Java: bắt click, nhập, chọn qua Java Access Bridge; sinh selector Java nhiều lớp; bỏ qua `password text`; phân loại trường và che PII bằng bảng cấu hình dùng chung với hướng A | Test đơn vị cho selector và phân loại trường; thao tác trên mock Swing cho ra event `engine: java` đúng schema; không có giá trị mật khẩu, số tài khoản nào trong event (test tìm chuỗi) |
 
+| 1.11 | (Hướng B) Agent ghi trong JVM (`java-agent/`): thấy Enter trong ô và hành động bằng phím, chỉ hoạt động khi đang Ghi, không ghi ký tự gõ; bước `submit` ghi, học và chạy lại được | Trên mock Swing nạp agent bằng `JAVA_TOOL_OPTIONS`: Enter ở ô mật khẩu được ghi thành `submit`, một cú bấm do cả hai nguồn báo chỉ thành một sự kiện, không ghi gì khi chưa bấm Ghi, không có giá trị nào trong event; workflow chạy lại đúng |
+
 **Nghiệm thu Gate 1 (e2e):** mở extension, thao tác 3 lần trên mock site với 3 ngày khác nhau, server có đúng 3 phiên, đều qua validate schema, và không chứa giá trị nhạy cảm. Hướng B: thao tác 3 lần "tra CIF rồi lập lệnh chuyển tiền" trên mock Swing, server có đúng 3 phiên `engine: java`, đều qua validate schema, và không chứa giá trị nhạy cảm.
 
 ## Gate 2: chạy lại đúng (tuần 2)

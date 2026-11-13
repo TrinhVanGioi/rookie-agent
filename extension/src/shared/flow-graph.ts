@@ -64,6 +64,7 @@ export interface Graph {
 export const ACTION_LABEL: Record<string, string> = {
   goto: "Mở trang",
   click: "Bấm",
+  submit: "Nhấn Enter",
   fill: "Điền",
   select: "Chọn",
   read_value: "Lấy thông tin",
