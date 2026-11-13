@@ -23,6 +23,7 @@ import {
   TYPE_LABEL,
   connect,
   ensureVisible,
+  midpoint,
   portPoint,
   readableView,
   sidesFor,
@@ -41,7 +42,10 @@ export interface LayoutStore {
 }
 
 export interface CanvasHandlers {
-  onDecision?(approve: boolean): void;
+  /** The GDV pressed the button on a step that is waiting: open the review screen for it. */
+  onOpenReview?(): void;
+  /** The GDV picked a step (or clicked the background: null) to see what goes into it. */
+  onSelect?(id: string | null): void;
   onParam?(name: string, value: string): void;
   /** The GDV changed how much control a step has. Only offered for steps that only read. */
   onMode?(stepId: string, mode: string): void;
@@ -66,7 +70,7 @@ const SVG_NS = "http://www.w3.org/2000/svg";
 const DOCK_W = 300;
 const DOCK_H = 168;
 /** Room kept under the flow for the screen card. Short windows get no card space and fold the card instead. */
-const DOCK_RESERVE = 300;
+const DOCK_RESERVE = 280;
 const TALL_ENOUGH = 780;
 const CAMERA_EASE = "transform 0.85s cubic-bezier(0.22, 0.8, 0.3, 1)";
 
@@ -88,7 +92,6 @@ interface NodeParts {
   signature: string;
   status?: HTMLElement;
   ok?: HTMLButtonElement;
-  no?: HTMLButtonElement;
   shown?: StepStatus;
   asking?: "approve" | "review" | null;
 }
@@ -101,10 +104,14 @@ export class FlowCanvas {
   private readonly layer = el("div", "rk-layer");
   private readonly banner = el("div", "rk-banner");
   private readonly dock = el("div", "rk-dock");
+  /** A card at the bottom left for what goes into the selected step. The caller fills it. */
+  readonly detailHost = el("div", "rk-detail-dock");
   private readonly dockTitle = el("div", "rk-dock-title");
   private readonly dockBoard = el("div", "rk-dock-board");
   private readonly nodeEls = new Map<string, NodeParts>();
-  private readonly lineEls = new Map<string, { path: SVGPathElement; edge: GraphEdge }>();
+  private readonly lineEls = new Map<string, { path: SVGPathElement; edge: GraphEdge; pill?: HTMLElement }>();
+  private selected: string | null = null;
+  private suppressClick = false;
   private graph: Graph = { nodes: [], edges: [] };
   private positions: Positions = {};
   private moved = new Set<string>();
@@ -142,7 +149,8 @@ export class FlowCanvas {
     this.banner.setAttribute("role", "status");
     this.banner.setAttribute("aria-live", "polite");
     this.buildDock();
-    root.append(this.world, this.banner, this.dock, this.buildLegend(), this.buildToolbar());
+    this.detailHost.setAttribute("aria-live", "polite");
+    root.append(this.world, this.banner, this.dock, this.detailHost, this.buildLegend(), this.buildToolbar());
     this.bindView();
     this.applyView();
   }
@@ -183,7 +191,9 @@ export class FlowCanvas {
       if (edgeIds.has(id)) continue;
       this.lineEls.delete(id);
       this.fadeOut(line.path);
+      if (line.pill) this.fadeOut(line.pill);
     }
+    if (this.selected !== null && !ids.has(this.selected)) this.select(null);
 
     for (const node of graph.nodes) {
       const existing = this.nodeEls.get(node.id);
@@ -203,11 +213,19 @@ export class FlowCanvas {
       const path = svg("path", { class: `rk-line ${edge.kind}${firstTime ? "" : " rk-enter"}`, "marker-end": "url(#rk-arrow)" });
       path.dataset.edge = edge.id;
       this.lines.appendChild(path);
-      this.lineEls.set(edge.id, { path, edge });
+      // a data line says what it carries, so the GDV sees which information reaches which step
+      let pill: HTMLElement | undefined;
+      if (edge.kind === "data" && edge.caption) {
+        pill = el("span", `rk-pill${firstTime ? "" : " rk-enter"}`, edge.caption);
+        pill.dataset.edge = edge.id;
+        this.layer.appendChild(pill);
+      }
+      this.lineEls.set(edge.id, { path, edge, pill });
     }
 
     this.moveNodes(targets, firstTime ? 0 : 450);
     this.updatePorts();
+    this.applySelection();
     this.setRun(this.lastRun);
     this.fit(!firstTime);
   }
@@ -243,10 +261,7 @@ export class FlowCanvas {
       if (parts.asking !== asking) {
         parts.asking = asking;
         parts.root.classList.toggle("is-asking", asking !== null);
-        if (parts.ok && parts.no) {
-          parts.ok.textContent = asking === "review" ? "Đi tiếp" : "Duyệt";
-          parts.no.textContent = asking === "review" ? "Dừng" : "Không duyệt";
-        }
+        if (parts.ok) parts.ok.textContent = asking === "review" ? "Xem rồi đi tiếp" : "Xem rồi duyệt";
       }
     }
     for (const { path, edge } of this.lineEls.values()) {
@@ -300,6 +315,33 @@ export class FlowCanvas {
     return this.positions[id];
   }
 
+  /** Show or hide the detail card. It fades, and keeps its place. */
+  setDetailVisible(visible: boolean): void {
+    this.detailHost.classList.toggle("show", visible);
+  }
+
+  /** Pick a step to see what goes into it. `null` clears. The lines and labels of that step light up. */
+  select(id: string | null): void {
+    if (id === this.selected) return;
+    this.selected = id;
+    this.applySelection();
+    this.handlers.onSelect?.(id);
+  }
+
+  selectedId(): string | null {
+    return this.selected;
+  }
+
+  private applySelection(): void {
+    for (const [nodeId, parts] of this.nodeEls) parts.root.classList.toggle("selected", nodeId === this.selected);
+    for (const { path, edge, pill } of this.lineEls.values()) {
+      const touches = this.selected !== null && (edge.to === this.selected || edge.from === this.selected);
+      path.classList.toggle("lit", touches);
+      pill?.classList.toggle("lit", touches);
+      pill?.classList.toggle("dim", this.selected !== null && !touches);
+    }
+  }
+
   currentView(): View {
     return { ...this.view };
   }
@@ -315,8 +357,12 @@ export class FlowCanvas {
 
   private clearAll(): void {
     for (const { root } of this.nodeEls.values()) root.remove();
-    for (const { path } of this.lineEls.values()) path.remove();
+    for (const { path, pill } of this.lineEls.values()) {
+      path.remove();
+      pill?.remove();
+    }
     this.nodeEls.clear();
+    this.selected = null;
     this.lineEls.clear();
     this.current = null;
     cancelAnimationFrame(this.tween);
@@ -328,7 +374,7 @@ export class FlowCanvas {
   }
 
   private signatureOf(node: GraphNode): string {
-    return JSON.stringify([node.title, node.subtitle, node.step?.risk, node.step?.mode, node.row, node.flip, node.index]);
+    return JSON.stringify([node.title, node.subtitle, node.info, node.step?.risk, node.step?.mode, node.row, node.flip, node.index]);
   }
 
   private addNode(node: GraphNode, entering: boolean): void {
@@ -368,6 +414,10 @@ export class FlowCanvas {
 
     const head = el("div", "rk-head");
     head.addEventListener("pointerdown", (event) => this.startNodeDrag(event as PointerEvent, node.id));
+    root.addEventListener("click", (event) => {
+      if (this.suppressClick || (event.target as HTMLElement).closest("button, input")) return;
+      this.select(this.selected === node.id ? null : node.id);
+    });
 
     if (node.kind === "step" && node.step) {
       const step = node.step;
@@ -381,16 +431,14 @@ export class FlowCanvas {
       risk.title = RISK_HINT[step.risk];
       badges.append(risk, this.modeControl(step));
 
+      // the decision itself is made on the review screen, where the GDV sees the whole picture
       const actions = el("div", "rk-actions");
-      const ok = el("button", "rk-go", "Duyệt");
-      const no = el("button", "rk-no", "Không duyệt");
-      ok.type = no.type = "button";
-      ok.addEventListener("click", () => this.handlers.onDecision?.(true));
-      no.addEventListener("click", () => this.handlers.onDecision?.(false));
-      actions.append(ok, no);
+      const ok = el("button", "rk-go", "Xem rồi duyệt");
+      ok.type = "button";
+      ok.addEventListener("click", () => this.handlers.onOpenReview?.());
+      actions.append(ok);
       parts.ok = ok;
-      parts.no = no;
-      root.append(head, el("div", "rk-body", node.subtitle ? `«${node.subtitle}»` : ""), badges, actions);
+      root.append(head, el("div", "rk-body", node.subtitle ? `«${node.subtitle}»` : ""), el("div", "rk-info", node.info), badges, actions);
     } else if (node.input) {
       const input = node.input;
       root.classList.add("rk-param");
@@ -448,15 +496,18 @@ export class FlowCanvas {
   }
 
   private updateLines(): void {
-    for (const { path, edge } of this.lineEls.values()) {
+    for (const { path, edge, pill } of this.lineEls.values()) {
       const from = this.node(edge.from);
       const to = this.node(edge.to);
       if (!from || !to || !this.positions[from.id] || !this.positions[to.id]) continue;
       const [fromSide, toSide] = sidesFor(edge, from, to);
-      path.setAttribute(
-        "d",
-        connect(portPoint(from, this.positions[from.id]!, fromSide), fromSide, portPoint(to, this.positions[to.id]!, toSide), toSide),
-      );
+      const a = portPoint(from, this.positions[from.id]!, fromSide);
+      const b = portPoint(to, this.positions[to.id]!, toSide);
+      path.setAttribute("d", connect(a, fromSide, b, toSide));
+      if (pill) {
+        const middle = midpoint(a, fromSide, b, toSide);
+        pill.style.transform = `translate(${middle.x}px, ${middle.y}px) translate(-50%, -50%)`;
+      }
     }
   }
 
@@ -559,6 +610,8 @@ export class FlowCanvas {
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", up);
       if (!moved) return;
+      this.suppressClick = true;
+      window.setTimeout(() => (this.suppressClick = false), 0);
       this.moved.add(id);
       const mine: Positions = {};
       for (const key of this.moved) if (this.positions[key]) mine[key] = this.positions[key]!;
@@ -571,31 +624,46 @@ export class FlowCanvas {
   private bindView(): void {
     const down = (event: Event) => {
       const pointer = event as PointerEvent;
-      if ((pointer.target as HTMLElement).closest(".rk-node, .rk-toolbar, .rk-dock")) return;
+      if ((pointer.target as HTMLElement).closest(".rk-node, .rk-toolbar, .rk-dock, .rk-detail-dock")) return;
       this.setView(this.view, false);
       const start = { x: pointer.clientX, y: pointer.clientY, vx: this.view.x, vy: this.view.y };
+      let panned = false;
       const move = (e: Event) => {
         const p = e as PointerEvent;
+        if (Math.abs(p.clientX - start.x) + Math.abs(p.clientY - start.y) > 3) panned = true;
         this.view = { ...this.view, x: start.vx + p.clientX - start.x, y: start.vy + p.clientY - start.y };
         this.applyView();
       };
       const up = () => {
         window.removeEventListener("pointermove", move);
         window.removeEventListener("pointerup", up);
+        if (panned) {
+          this.suppressClick = true;
+          window.setTimeout(() => (this.suppressClick = false), 0);
+        }
       };
       window.addEventListener("pointermove", move);
       window.addEventListener("pointerup", up);
     };
     const wheel = (event: Event) => {
       const e = event as WheelEvent;
-      if ((e.target as HTMLElement).closest(".rk-dock")) return;
+      if ((e.target as HTMLElement).closest(".rk-dock, .rk-detail-dock")) return;
       e.preventDefault();
       const rect = this.root.getBoundingClientRect();
       this.zoomBy(e.deltaY < 0 ? 1.1 : 1 / 1.1, { x: e.clientX - rect.left, y: e.clientY - rect.top });
     };
+    const click = (event: Event) => {
+      if (this.suppressClick || (event.target as HTMLElement).closest(".rk-node, .rk-toolbar, .rk-dock, .rk-detail-dock")) return;
+      this.select(null);
+    };
     this.root.addEventListener("pointerdown", down);
+    this.root.addEventListener("click", click);
     this.root.addEventListener("wheel", wheel, { passive: false });
-    this.cleanup.push(() => this.root.removeEventListener("pointerdown", down), () => this.root.removeEventListener("wheel", wheel));
+    this.cleanup.push(
+      () => this.root.removeEventListener("pointerdown", down),
+      () => this.root.removeEventListener("click", click),
+      () => this.root.removeEventListener("wheel", wheel),
+    );
   }
 
   // ---- chrome around the canvas ----------------------------------------------------------------------------------------

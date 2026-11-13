@@ -13,9 +13,9 @@
 import type { Workflow, WorkflowInput, WorkflowStep } from "./server-api";
 
 export const NODE_W = 232;
-export const NODE_H = 122;
+export const NODE_H = 136;
 export const GAP_X = 72;
-export const ROW_GAP = 96;
+export const ROW_GAP = 84;
 export const PER_ROW = 4;
 /** Space between rows of information nodes, tighter than between rows of steps. */
 const INFO_ROW_GAP = 36;
@@ -32,6 +32,8 @@ export interface GraphNode {
   h: number;
   title: string;
   subtitle: string;
+  /** One line about the information this step takes ("Nhận: Số tiền"), shown under the caption. */
+  info: string;
   /** Row in the snake (0 is the first row of steps). Information nodes sit above, at -1 and less. */
   row: number;
   /** Odd rows run right to left, so the line from one row to the next is a short drop. */
@@ -48,6 +50,8 @@ export interface GraphEdge {
   kind: "flow" | "data";
   /** Name of the value carried, for data lines. */
   carries?: string;
+  /** What the line carries, in the GDV's words ("Số tiền"), for the label on a data line. */
+  caption?: string;
 }
 
 export interface Graph {
@@ -113,6 +117,64 @@ export function paramNodeId(name: string): string {
   return `param:${name}`;
 }
 
+// ---- information a step takes ---------------------------------------------------------------------------
+
+export interface Taken {
+  /** The placeholder name, or "" for a value fixed when the GDV showed the work. */
+  name: string;
+  /** What the GDV calls it: the caption of the field or of the step that read it. */
+  caption: string;
+  from: "param" | "step" | "fixed";
+  /** Node the information comes from (a field node or the step that read it). */
+  sourceId?: string;
+  /** For a read value, the step that read it. */
+  producer?: WorkflowStep;
+  producerIndex?: number;
+  input?: WorkflowInput;
+  /** For a fixed value, the value itself (never sensitive: it was part of the recording). */
+  fixed?: string;
+}
+
+/** The information the step at `index` uses, in order, without repeats. */
+export function takesOf(workflow: Workflow, index: number): Taken[] {
+  const step = workflow.steps[index]!;
+  const producers = new Map<string, number>();
+  workflow.steps.slice(0, index).forEach((earlier, i) => {
+    if (earlier.save_as) producers.set(earlier.save_as, i);
+  });
+  const result: Taken[] = [];
+  const seen = new Set<string>();
+  const names = [...placeholdersOf(step.value), ...placeholdersOf(step.tolerance), ...(step.inputs ?? [])];
+  for (const name of names) {
+    if (seen.has(name)) continue;
+    seen.add(name);
+    const made = producers.get(name);
+    if (made !== undefined) {
+      const producer = workflow.steps[made]!;
+      result.push({ name, caption: captionOf(producer) || humanize(name), from: "step", sourceId: producer.id, producer, producerIndex: made });
+      continue;
+    }
+    const input = workflow.inputs.find((i) => i.name === name);
+    if (input) result.push({ name, caption: input.label || humanize(input.name), from: "param", sourceId: paramNodeId(name), input });
+  }
+  const fixed = typeof step.value === "string" && placeholdersOf(step.value).length === 0 ? step.value : "";
+  if ((step.action === "fill" || step.action === "select") && fixed !== "") {
+    result.push({ name: "", caption: captionOf(step), from: "fixed", fixed });
+  }
+  return result;
+}
+
+/** The line under a step's caption about the information it takes. */
+export function infoLine(step: WorkflowStep, takes: Taken[]): string {
+  if (step.save_as) return "Lấy thông tin để dùng ở bước sau";
+  const given = takes.filter((t) => t.from !== "fixed").map((t) => t.caption);
+  const fixed = takes.find((t) => t.from === "fixed");
+  if (given.length > 0) return `Nhận: ${given.join(", ")}`;
+  if (fixed) return `Điền sẵn: ${fixed.fixed}`;
+  if (step.action === "wait_for") return "Chờ màn hình hiện ra";
+  return "Không cần thông tin";
+}
+
 // ---- layout ------------------------------------------------------------------------------------------------
 
 export function buildGraph(workflow: Workflow): Graph {
@@ -134,18 +196,18 @@ export function buildGraph(workflow: Workflow): Graph {
       h: NODE_H,
       title: "Thông tin cần nhập",
       subtitle: input.label || humanize(input.name),
+      info: "",
       row: row - infoRows,
       flip: false,
       input,
     });
   });
 
-  const producer = new Map<string, string>(); // value name -> id of the step that read it
-  const seen = new Set<string>();
   workflow.steps.forEach((step, index) => {
     const row = Math.floor(index / PER_ROW);
     const flip = row % 2 === 1;
     const column = flip ? PER_ROW - 1 - (index % PER_ROW) : index % PER_ROW;
+    const takes = takesOf(workflow, index);
     nodes.push({
       id: step.id,
       kind: "step",
@@ -155,6 +217,7 @@ export function buildGraph(workflow: Workflow): Graph {
       h: NODE_H,
       title: ACTION_LABEL[step.action] ?? step.action,
       subtitle: captionOf(step),
+      info: infoLine(step, takes),
       row,
       flip,
       index: index + 1,
@@ -164,16 +227,17 @@ export function buildGraph(workflow: Workflow): Graph {
       const previous = workflow.steps[index - 1]!.id;
       edges.push({ id: `${previous}->${step.id}:flow`, from: previous, to: step.id, kind: "flow" });
     }
-    const used = [...placeholdersOf(step.value), ...placeholdersOf(step.tolerance), ...(step.inputs ?? [])];
-    for (const name of used) {
-      const from = producer.get(name) ?? (workflow.inputs.some((i) => i.name === name) ? paramNodeId(name) : null);
-      if (from === null) continue;
-      const id = `${from}->${step.id}:data:${name}`;
-      if (seen.has(id)) continue;
-      seen.add(id);
-      edges.push({ id, from, to: step.id, kind: "data", carries: name });
+    for (const taken of takes) {
+      if (taken.from === "fixed" || !taken.sourceId) continue;
+      edges.push({
+        id: `${taken.sourceId}->${step.id}:data:${taken.name}`,
+        from: taken.sourceId,
+        to: step.id,
+        kind: "data",
+        carries: taken.name,
+        caption: taken.caption,
+      });
     }
-    if (step.save_as) producer.set(step.save_as, step.id);
   });
 
   return { nodes, edges };
@@ -203,6 +267,17 @@ export function connect(from: Point, fromSide: Side, to: Point, toSide: Side): s
   const a = NORMAL[fromSide];
   const b = NORMAL[toSide];
   return `M ${from.x} ${from.y} C ${from.x + a.x * reach} ${from.y + a.y * reach}, ${to.x + b.x * reach} ${to.y + b.y * reach}, ${to.x} ${to.y}`;
+}
+
+/** The point halfway along the line `connect` draws, for placing its label. */
+export function midpoint(from: Point, fromSide: Side, to: Point, toSide: Side): Point {
+  const distance = Math.hypot(to.x - from.x, to.y - from.y);
+  const reach = Math.min(160, Math.max(50, distance / 2));
+  const a = NORMAL[fromSide];
+  const b = NORMAL[toSide];
+  const c1 = { x: from.x + a.x * reach, y: from.y + a.y * reach };
+  const c2 = { x: to.x + b.x * reach, y: to.y + b.y * reach };
+  return { x: (from.x + 3 * c1.x + 3 * c2.x + to.x) / 8, y: (from.y + 3 * c1.y + 3 * c2.y + to.y) / 8 };
 }
 
 export function portPoint(node: Pick<GraphNode, "w" | "h">, at: Point, side: Side): Point {

@@ -13,7 +13,10 @@ import {
   ensureVisible,
   fitView,
   humanize,
+  infoLine,
+  midpoint,
   placeholdersOf,
+  takesOf,
   readableView,
   sidesFor,
 } from "../src/shared/flow-graph";
@@ -127,6 +130,37 @@ describe("lines", () => {
     expect(connect({ x: 300, y: 0 }, "left", { x: 0, y: 0 }, "right")).toBe("M 300 0 C 150 0, 150 0, 0 0");
     expect(connect({ x: 0, y: 0 }, "right", { x: 10, y: 0 }, "left")).toBe("M 0 0 C 50 0, -40 0, 10 0"); // minimum reach
     expect(connect({ x: 0, y: 0 }, "bottom", { x: 100, y: 0 }, "bottom")).toBe("M 0 0 C 0 50, 100 50, 100 0");
+  });
+});
+
+describe("information a step takes", () => {
+  it("lists parameters, values read by an earlier step and values fixed in the demonstration, without repeats", () => {
+    const flow = {
+      ...javaFlow,
+      steps: [
+        { id: "a", action: "read_value", target: { selectors: ["#a"], label: "Tài khoản" }, save_as: "tk", risk: "read", mode: "auto" },
+        { id: "b", action: "fill", target: { selectors: ["#b"], label: "Ô B" }, value: "{tk} {so_cif} {so_cif}", risk: "read", mode: "auto" },
+        { id: "c", action: "select", target: { selectors: ["#c"], label: "Loại tiền" }, value: "USD", risk: "read", mode: "auto" },
+      ],
+    } as Workflow;
+    expect(takesOf(flow, 1).map((t) => [t.name, t.from, t.caption])).toEqual([["tk", "step", "Tài khoản"], ["so_cif", "param", "Số CIF"]]);
+    expect(takesOf(flow, 2).map((t) => [t.from, t.fixed])).toEqual([["fixed", "USD"]]);
+    expect(takesOf(flow, 0)).toEqual([]);
+    expect(infoLine(flow.steps[2]!, takesOf(flow, 2))).toBe("Điền sẵn: USD");
+  });
+
+  it("does not take a value that nothing produced yet", () => {
+    const flow = { ...javaFlow, steps: [{ id: "x", action: "fill", target: { selectors: ["#x"] }, value: "{tk}", risk: "read", mode: "auto" }] } as Workflow;
+    expect(takesOf(flow, 0)).toEqual([]);
+  });
+
+  it("finds the middle of a line for its label", () => {
+    expect(midpoint({ x: 0, y: 0 }, "right", { x: 300, y: 0 }, "left")).toEqual({ x: 150, y: 0 });
+    const down = midpoint({ x: 0, y: 0 }, "bottom", { x: 0, y: 200 }, "top");
+    expect(down).toEqual({ x: 0, y: 100 });
+    const u = midpoint({ x: 0, y: 0 }, "bottom", { x: 100, y: 0 }, "bottom"); // a U under the row
+    expect(u.x).toBe(50);
+    expect(u.y).toBeGreaterThan(30);
   });
 });
 
@@ -307,19 +341,18 @@ describe("FlowCanvas", () => {
     expect(node("param:so_cif").classList.contains("passed")).toBe(true);
   });
 
-  it("asks for approval inside the node that is waiting, and reports the answer", () => {
-    const decisions: boolean[] = [];
-    const canvas = make({ onDecision: (a: boolean) => decisions.push(a) });
+  it("shows a button on the node that is waiting, which opens the review screen and decides nothing itself", () => {
+    const opened: number[] = [];
+    const canvas = make({ onOpenReview: () => opened.push(1) });
     canvas.setGraph(buildGraph(javaFlow), "wf");
     canvas.setRun(reduce(startedState(false), { event: "waiting", kind: "approve", step_id: "submit", label: "Gửi duyệt", risk: "money" }));
     expect(node("fill_cif").classList.contains("is-asking")).toBe(false);
-    const [ok, no] = node("submit").querySelectorAll<HTMLButtonElement>(".rk-actions button");
-    expect([ok!.textContent, no!.textContent]).toEqual(["Duyệt", "Không duyệt"]);
-    ok!.click();
-    no!.click();
-    expect(decisions).toEqual([true, false]);
+    const buttons = node("submit").querySelectorAll<HTMLButtonElement>(".rk-actions button");
+    expect([...buttons].map((b) => b.textContent)).toEqual(["Xem rồi duyệt"]); // no Duyệt / Không duyệt here
+    buttons[0]!.click();
+    expect(opened).toEqual([1]);
     canvas.setRun(reduce(startedState(false), { event: "waiting", kind: "review", step_id: "submit", label: null, risk: "money" }));
-    expect([...node("submit").querySelectorAll(".rk-actions button")].map((b) => b.textContent)).toEqual(["Đi tiếp", "Dừng"]);
+    expect(node("submit").querySelector(".rk-actions button")!.textContent).toBe("Xem rồi đi tiếp");
   });
 
   it("lets the GDV change how much control a read step has with one click, and nothing else", () => {
@@ -445,7 +478,7 @@ describe("FlowCanvas", () => {
       const nodes = buildGraph(longFlow(8)).nodes;
       const view = tall.currentView();
       const lowest = Math.max(...nodes.map((n) => n.y + n.h));
-      expect(lowest * view.k + view.y).toBeLessThanOrEqual(900 - 300 + 0.5); // the card has the bottom 300px
+      expect(lowest * view.k + view.y).toBeLessThanOrEqual(900 - 280 + 0.5); // the card has the bottom 280px
 
       root.replaceChildren();
       size(1170, 700);
@@ -468,6 +501,69 @@ describe("FlowCanvas", () => {
       expect(at.y * after.k + after.y + NODE_H * after.k).toBeLessThanOrEqual(420 - 40 + 0.001);
       expect(at.x * after.k + after.x).toBeGreaterThanOrEqual(40 - 0.001);
     });
+  });
+
+  describe("information", () => {
+    it("says on each step what information it takes", () => {
+      make().setGraph(buildGraph(javaFlow), "wf");
+      expect(node("fill_cif").querySelector(".rk-info")!.textContent).toBe("Nhận: Số CIF");
+      expect(node("search_cif").querySelector(".rk-info")!.textContent).toBe("Không cần thông tin");
+      expect(node("wait_result").querySelector(".rk-info")!.textContent).toBe("Chờ màn hình hiện ra");
+      expect(node("read_account").querySelector(".rk-info")!.textContent).toBe("Lấy thông tin để dùng ở bước sau");
+      expect(node("fill_from").querySelector(".rk-info")!.textContent).toBe("Nhận: Tài khoản thanh toán");
+    });
+
+    it("labels each data line with what it carries, in the GDV's words", () => {
+      make().setGraph(buildGraph(javaFlow), "wf");
+      const pills = [...root.querySelectorAll<HTMLElement>(".rk-pill")];
+      expect(pills.map((p) => p.textContent).sort()).toEqual(["Số CIF", "Tài khoản thanh toán"]);
+      expect(pills.every((p) => /translate\(.+px, .+px\) translate\(-50%, -50%\)/.test(p.style.transform))).toBe(true);
+    });
+
+    it("selects a step on click, lights up the lines that reach it, and clears on a click elsewhere", () => {
+      const picked: (string | null)[] = [];
+      const canvas = make({ onSelect: (id: string | null) => picked.push(id) });
+      canvas.setGraph(buildGraph(javaFlow), "wf");
+      node("fill_from").click();
+      expect(node("fill_from").classList.contains("selected")).toBe(true);
+      expect(canvas.selectedId()).toBe("fill_from");
+      expect(root.querySelector('[data-edge="read_account->fill_from:data:tai_khoan_chuyen"]')!.classList.contains("lit")).toBe(true);
+      const other = [...root.querySelectorAll<HTMLElement>(".rk-pill")].find((p) => p.textContent === "Số CIF")!;
+      expect(other.classList.contains("dim")).toBe(true); // lines of other steps step back
+      node("fill_from").click();
+      expect(canvas.selectedId()).toBeNull(); // clicking the selected step again clears it
+      node("fill_cif").click();
+      root.click();
+      expect(picked).toEqual(["fill_from", null, "fill_cif", null]);
+    });
+
+    it("does not select a step when its button or box was clicked, or when it was dragged", () => {
+      const canvas = make();
+      canvas.setGraph(buildGraph(javaFlow), "wf");
+      node("param:so_tien").querySelector("input")!.click();
+      expect(canvas.selectedId()).toBeNull();
+      node("search_cif").querySelector(".rk-head")!.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, clientX: 10, clientY: 10 }));
+      window.dispatchEvent(new MouseEvent("pointermove", { clientX: 60, clientY: 60 }));
+      window.dispatchEvent(new MouseEvent("pointerup"));
+      node("search_cif").click(); // the click that ends a drag
+      expect(canvas.selectedId()).toBeNull();
+    });
+  });
+
+  it("has a card for the detail of the selected step, which the caller fills and which fades in and out", () => {
+    const canvas = make();
+    canvas.setGraph(buildGraph(javaFlow), "wf");
+    const card = root.querySelector<HTMLElement>(".rk-detail-dock")!;
+    expect(card).toBe(canvas.detailHost);
+    expect(card.classList.contains("show")).toBe(false);
+    canvas.detailHost.textContent = "chi tiết";
+    canvas.setDetailVisible(true);
+    expect(card.classList.contains("show")).toBe(true);
+    node("fill_cif").click();
+    card.click(); // a click inside the card is not a click on the background
+    expect(canvas.selectedId()).toBe("fill_cif");
+    canvas.setDetailVisible(false);
+    expect(card.classList.contains("show")).toBe(false);
   });
 
   describe("screen card", () => {
@@ -534,6 +630,6 @@ describe("FlowCanvas", () => {
   });
 
   it("has fixed node sizes for lines to attach to", () => {
-    expect([NODE_W, NODE_H]).toEqual([232, 122]);
+    expect([NODE_W, NODE_H]).toEqual([232, 136]);
   });
 });
