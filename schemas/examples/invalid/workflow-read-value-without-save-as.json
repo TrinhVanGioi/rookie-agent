@@ -1,0 +1,94 @@
+{
+  "schema_version": 1,
+  "engine": "java",
+  "id": "tra-cif-lap-lenh-chuyen-tien",
+  "version": 1,
+  "status": "draft",
+  "inputs": [
+    {
+      "name": "so_cif",
+      "type": "string",
+      "value_class": "cif_number"
+    },
+    {
+      "name": "tai_khoan_nhan",
+      "type": "string",
+      "value_class": "account_number"
+    },
+    {
+      "name": "so_tien",
+      "type": "string",
+      "value_class": "amount"
+    }
+  ],
+  "steps": [
+    {
+      "id": "fill_cif",
+      "action": "fill",
+      "target": {
+        "selectors": [
+          "role=text[name='Số CIF']"
+        ]
+      },
+      "value": "{so_cif}",
+      "risk": "read",
+      "mode": "auto"
+    },
+    {
+      "id": "search_cif",
+      "action": "click",
+      "target": {
+        "selectors": [
+          "role=push button[name='Tra cứu CIF']"
+        ]
+      },
+      "risk": "read",
+      "mode": "auto"
+    },
+    {
+      "id": "wait_result",
+      "action": "wait_for",
+      "target": {
+        "selectors": [
+          "role=table[name='Kết quả tra cứu']"
+        ]
+      },
+      "risk": "read",
+      "mode": "auto"
+    },
+    {
+      "id": "read_account",
+      "action": "read_value",
+      "target": {
+        "selectors": [
+          "role=text[name='Tài khoản thanh toán']"
+        ]
+      },
+      "risk": "read",
+      "mode": "auto"
+    },
+    {
+      "id": "fill_from",
+      "action": "fill",
+      "target": {
+        "selectors": [
+          "role=text[name='Tài khoản chuyển']"
+        ]
+      },
+      "value": "{tai_khoan_chuyen}",
+      "risk": "read",
+      "mode": "review"
+    },
+    {
+      "id": "submit",
+      "action": "click",
+      "target": {
+        "selectors": [
+          "role=push button[name='Gửi duyệt']"
+        ]
+      },
+      "risk": "money",
+      "mode": "approve"
+    }
+  ]
+}

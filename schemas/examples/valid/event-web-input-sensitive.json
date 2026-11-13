@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "engine": "web",
+  "session_id": "s-0142",
+  "seq": 3,
+  "ts": "2026-11-12T09:15:03Z",
+  "type": "input",
+  "url": "/chuyentien",
+  "target": {
+    "selectors": [
+      "#tf-from",
+      "label=Tài khoản chuyển"
+    ],
+    "label": "Tài khoản chuyển",
+    "tag": "input"
+  },
+  "value": null,
+  "value_class": "account_number",
+  "api_calls": [],
+  "screenshot": null
+}

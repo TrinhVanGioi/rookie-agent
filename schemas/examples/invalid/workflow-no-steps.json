@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "engine": "web",
+  "id": "doi-chieu-cuoi-ngay",
+  "version": 3,
+  "status": "approved",
+  "inputs": [
+    {
+      "name": "ngay",
+      "type": "date"
+    },
+    {
+      "name": "nguong_lech",
+      "type": "number",
+      "default": 1000
+    }
+  ],
+  "steps": []
+}

@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "engine": "java",
+  "session_id": "s-0200",
+  "seq": 4,
+  "ts": "2026-11-12T09:20:11.250Z",
+  "type": "click",
+  "url": "Mock TPSS/Chuyển tiền",
+  "target": {
+    "selectors": [
+      "role=push button[name='Gửi duyệt']",
+      "path=frame/root pane/panel[1]/push button[0]"
+    ],
+    "label": "Gửi duyệt",
+    "tag": "push button"
+  },
+  "value": null,
+  "value_class": null,
+  "api_calls": [
+    {
+      "method": "POST",
+      "path": "/x",
+      "status": 200
+    }
+  ]
+}

@@ -1,0 +1,87 @@
+{
+  "schema_version": 1,
+  "engine": "web",
+  "id": "doi-chieu-cuoi-ngay",
+  "version": 3,
+  "status": "approved",
+  "inputs": [
+    {
+      "name": "ngay",
+      "type": "date"
+    },
+    {
+      "name": "nguong_lech",
+      "type": "number",
+      "default": 1000
+    }
+  ],
+  "steps": [
+    {
+      "id": "open_a",
+      "action": "click",
+      "target": {
+        "selectors": [
+          "#tab-a",
+          "text=Báo cáo A"
+        ]
+      },
+      "risk": "read",
+      "mode": "auto"
+    },
+    {
+      "id": "set_date_a",
+      "action": "fill",
+      "target": {
+        "selectors": [
+          "#f-date",
+          "label=Ngày báo cáo"
+        ]
+      },
+      "value": "{ngay}",
+      "risk": "read",
+      "mode": "auto"
+    },
+    {
+      "id": "search_a",
+      "action": "click",
+      "target": {
+        "selectors": [
+          "#btn-search",
+          "text=Tìm kiếm"
+        ]
+      },
+      "risk": "read",
+      "mode": "auto"
+    },
+    {
+      "id": "extract_a",
+      "action": "extract_table",
+      "target": {
+        "selectors": [
+          "#tbl-report"
+        ]
+      },
+      "save_as": "bao_cao_a",
+      "risk": "read",
+      "mode": "auto"
+    },
+    {
+      "id": "compare",
+      "action": "compare",
+      "inputs": [
+        "bao_cao_a",
+        "bao_cao_b"
+      ],
+      "key": "id",
+      "tolerance": "{nguong_lech}",
+      "risk": "read",
+      "mode": "review"
+    },
+    {
+      "id": "save_report",
+      "action": "save",
+      "risk": "write",
+      "mode": "review"
+    }
+  ]
+}

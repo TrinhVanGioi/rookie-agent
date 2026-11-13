@@ -1,0 +1,272 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rookie-agent.local/schemas/workflow.schema.json",
+  "title": "Workflow",
+  "description": "Quy trình đã tổng quát hoá. Xem docs/design.md mục 4.3.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "engine",
+    "id",
+    "version",
+    "status",
+    "inputs",
+    "steps"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "engine": {
+      "enum": [
+        "web",
+        "java"
+      ]
+    },
+    "id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "status": {
+      "enum": [
+        "draft",
+        "tested",
+        "approved"
+      ]
+    },
+    "inputs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "type"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]*$"
+          },
+          "type": {
+            "enum": [
+              "date",
+              "number",
+              "string"
+            ]
+          },
+          "value_class": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "default": {
+            "type": [
+              "string",
+              "number",
+              "null"
+            ]
+          }
+        }
+      }
+    },
+    "steps": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "action",
+          "risk",
+          "mode"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "action": {
+            "enum": [
+              "goto",
+              "click",
+              "fill",
+              "select",
+              "read_value",
+              "wait_for",
+              "extract_table",
+              "compare",
+              "save"
+            ]
+          },
+          "target": {
+            "type": "object",
+            "required": [
+              "selectors"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "selectors": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "label": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "tag": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          },
+          "url": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          },
+          "save_as": {
+            "type": "string",
+            "minLength": 1
+          },
+          "inputs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "key": {
+            "type": "string"
+          },
+          "tolerance": {
+            "type": [
+              "string",
+              "number"
+            ]
+          },
+          "risk": {
+            "enum": [
+              "read",
+              "write",
+              "money"
+            ]
+          },
+          "mode": {
+            "enum": [
+              "auto",
+              "review",
+              "approve"
+            ]
+          }
+        },
+        "allOf": [
+          {
+            "description": "Bước money không bao giờ là auto.",
+            "if": {
+              "required": [
+                "risk"
+              ],
+              "properties": {
+                "risk": {
+                  "const": "money"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "mode": {
+                  "enum": [
+                    "review",
+                    "approve"
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "description": "Bước write luôn là approve.",
+            "if": {
+              "required": [
+                "risk"
+              ],
+              "properties": {
+                "risk": {
+                  "const": "write"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "mode": {
+                  "const": "approve"
+                }
+              }
+            }
+          },
+          {
+            "description": "Các action thao tác trên phần tử phải có target.",
+            "if": {
+              "required": [
+                "action"
+              ],
+              "properties": {
+                "action": {
+                  "enum": [
+                    "click",
+                    "fill",
+                    "select",
+                    "read_value",
+                    "wait_for",
+                    "extract_table"
+                  ]
+                }
+              }
+            },
+            "then": {
+              "required": [
+                "target"
+              ]
+            }
+          },
+          {
+            "description": "read_value và extract_table phải đặt tên biến.",
+            "if": {
+              "required": [
+                "action"
+              ],
+              "properties": {
+                "action": {
+                  "enum": [
+                    "read_value",
+                    "extract_table"
+                  ]
+                }
+              }
+            },
+            "then": {
+              "required": [
+                "save_as"
+              ]
+            }
+          }
+        ]
+      }
+    }
+  }
+}

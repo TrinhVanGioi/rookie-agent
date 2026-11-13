@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "engine": "java",
+  "session_id": "s-0200",
+  "seq": 2,
+  "ts": "2026-11-12T09:20:11.250Z",
+  "type": "input",
+  "url": "Mock TPSS/Chuyển tiền",
+  "target": {
+    "selectors": [
+      "role=text[name='Số CIF']",
+      "label=Số CIF"
+    ],
+    "label": "Số CIF",
+    "tag": "text"
+  },
+  "value": null,
+  "value_class": "cif_number",
+  "api_calls": []
+}
