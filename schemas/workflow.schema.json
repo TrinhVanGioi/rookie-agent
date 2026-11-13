@@ -72,6 +72,12 @@
               "number",
               "null"
             ]
+          },
+          "label": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         }
       }
@@ -267,6 +273,11 @@
           }
         ]
       }
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80
     }
   }
 }

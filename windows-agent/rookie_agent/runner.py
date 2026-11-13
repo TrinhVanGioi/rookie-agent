@@ -203,6 +203,7 @@ def run_workflow(
                     note(step, "rejected", "GDV không duyệt")
                     return result("rejected", f"GDV không duyệt bước {step['id']}.")
 
+        controller.progress(step["id"], "running", "")
         try:
             if action == "click":
                 wait_until_found(step, lambda: driver.click(selectors))

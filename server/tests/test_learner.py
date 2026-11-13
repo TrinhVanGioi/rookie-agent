@@ -17,7 +17,7 @@ def test_web_workflow_gets_a_date_parameter_from_three_sessions():
     workflow, warnings = learn(web_sessions(), "doi-chieu")
     validate_workflow(workflow)
     assert workflow["status"] == "draft" and workflow["engine"] == "web"
-    assert workflow["inputs"] == [{"name": "ngay_bao_cao", "type": "date"}]
+    assert workflow["inputs"] == [{"name": "ngay_bao_cao", "type": "date", "label": "Ngày báo cáo"}]
     fill = next(step for step in workflow["steps"] if step["action"] == "fill")
     assert fill["value"] == "{ngay_bao_cao}"
     assert warnings == []
@@ -55,6 +55,12 @@ def test_java_transfer_learns_parameters_by_field_class_and_stops_before_nothing
     assert by_label["Gửi duyệt"]["risk"] == "money" and by_label["Gửi duyệt"]["mode"] == "approve"
     assert by_label["Tra cứu CIF"]["risk"] == "read" and by_label["Tra cứu CIF"]["mode"] == "auto"
     assert warnings == []
+
+
+def test_parameters_carry_the_caption_the_gdv_sees_on_screen():
+    sessions = [java_transfer_session(f"s{i}") for i in range(3)]
+    workflow, _ = learn(sessions, "chuyen-tien")
+    assert [i["label"] for i in workflow["inputs"]] == ["Số CIF hoặc CCCD", "Tài khoản chuyển", "Tài khoản nhận", "Số tiền"]
 
 
 def test_sensitive_values_never_reach_the_workflow():

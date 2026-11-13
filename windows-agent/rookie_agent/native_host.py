@@ -10,6 +10,8 @@ Requests are `{"id": ..., "cmd": ...}`. Every reply echoes `id` and has `ok`.
     start           begin recording; optional "session_id"
     stop            end recording; returns the events (PII already removed)
     run             run an approved workflow: "server_url", "workflow_id", "inputs", optional "window"
+    sandbox         run a draft on the Swing mock and report to the server: "server_url", "workflow_id",
+                    "version", "inputs" (synthetic values); a pass allows the status `tested`
     decide          answer the open question of a run: "approve": true or false
     emergency_stop  Dừng khẩn: stop the run at once
     snapshot        a drawing of the Java screen (structure only, no values) for the flow visualizer;
@@ -91,6 +93,15 @@ def default_loader(server_url: str, workflow_id: str) -> dict[str, Any]:
     return ServerClient(server_url).approved_workflow(workflow_id)
 
 
+def _default_sandboxer(
+    server_url: str, workflow_id: str, version: int, inputs: dict[str, str], session: Any
+) -> dict[str, Any]:
+    from rookie_agent.sandbox import sandbox_and_report
+    from rookie_agent.server_client import ServerClient
+
+    return sandbox_and_report(ServerClient(server_url), workflow_id, version, inputs, session=session)
+
+
 class Host:
     """Command handling, separate from the pipes so it can be tested with fakes."""
 
@@ -102,6 +113,7 @@ class Host:
         emit: Callable[[dict[str, Any]], None] | None = None,
         loader: Loader = default_loader,
         executor: Executor | None = None,
+        sandboxer: Callable[..., dict[str, Any]] | None = None,
     ) -> None:
         self._session = session
         self._bridge_error = bridge_error
@@ -109,6 +121,7 @@ class Host:
         self._emit = emit or (lambda message: None)
         self._loader = loader
         self._executor = executor or self._execute_on_java
+        self._sandboxer = sandboxer or _default_sandboxer
         self._recorder: Recorder | None = None
         self._run_thread: threading.Thread | None = None
         self._stop = threading.Event()
@@ -133,6 +146,7 @@ class Host:
             "start": self._start,
             "stop": self._stop_recording,
             "run": self._run,
+            "sandbox": self._sandbox,
             "decide": self._decide,
             "emergency_stop": self._emergency_stop,
             "snapshot": self._snapshot,
@@ -214,6 +228,29 @@ class Host:
         self._run_thread = threading.Thread(target=work, name="runner", daemon=True)
         self._run_thread.start()
         return {"workflow_id": workflow["id"], "version": workflow["version"], "steps": len(workflow["steps"])}
+
+    def _sandbox(self, message: dict[str, Any]) -> dict[str, Any]:
+        session = self._require_session()
+        if self.running or self._recorder is not None:
+            raise RuntimeError("Agent đang bận. Dừng ghi hoặc chạy trước khi chạy thử.")
+        server_url, workflow_id, version = message.get("server_url"), message.get("workflow_id"), message.get("version")
+        if not isinstance(server_url, str) or not isinstance(workflow_id, str) or not isinstance(version, int):
+            raise RuntimeError("Thiếu server_url, workflow_id hoặc version.")
+        raw_inputs = message.get("inputs") or {}
+        inputs = {str(name): str(value) for name, value in raw_inputs.items()} if isinstance(raw_inputs, dict) else {}
+
+        def work() -> None:
+            try:
+                result = self._sandboxer(server_url, workflow_id, version, inputs, session)
+            except Exception as error:
+                result = {"status": "failed", "message": str(error), "steps": []}
+            self._emit({"event": "finished", "sandbox": True, "workflow_id": workflow_id, "version": version, **result})
+
+        self._stop = threading.Event()
+        self._controller = None
+        self._run_thread = threading.Thread(target=work, name="sandbox", daemon=True)
+        self._run_thread.start()
+        return {"workflow_id": workflow_id, "version": version}
 
     def _execute_on_java(
         self,

@@ -158,6 +158,7 @@ def test_latest_approved_version_is_served_while_a_newer_draft_exists(client):
     assert client.get("/workflows/chuyen-tien/approved").json()["workflow"]["version"] == 1
     listing = client.get("/workflows").json()["workflows"]
     assert [(w["version"], w["status"], w["engine"]) for w in listing] == [(1, "approved", "java"), (2, "draft", "java")]
+    assert all("title" in w for w in listing)
 
 
 def test_unknown_workflow_is_404(client):
@@ -178,3 +179,47 @@ def test_data_survives_a_restart(tmp_path):
     with TestClient(create_app(db)) as second:
         assert second.get("/workflows/chuyen-tien").json()["workflow"]["version"] == 1
         assert second.get("/sessions/s-java-0").status_code == 200
+
+
+# ---- naming and adjusting an agent in the GDV's own words -------------------------------------------
+
+
+def test_the_gdv_names_the_agent_and_the_id_is_made_for_them(client):
+    ids = post_sessions(client)
+    first = client.post("/workflows/learn", json={"title": "Tra CIF và lập lệnh chuyển tiền", "session_ids": ids})
+    assert first.status_code == 201
+    workflow = first.json()["workflow"]
+    assert workflow["id"] == "tra-cif-va-lap-lenh-chuyen-tien" and workflow["title"] == "Tra CIF và lập lệnh chuyển tiền"
+    second = client.post("/workflows/learn", json={"title": "Tra CIF và lập lệnh chuyển tiền", "session_ids": ids})
+    assert second.json()["workflow"]["id"] == "tra-cif-va-lap-lenh-chuyen-tien-2"  # same name twice: no clash
+    assert {w["title"] for w in client.get("/workflows").json()["workflows"]} == {"Tra CIF và lập lệnh chuyển tiền"}
+
+
+def test_learning_needs_a_name_or_an_id(client):
+    assert client.post("/workflows/learn", json={"session_ids": post_sessions(client)}).status_code == 422
+
+
+def test_one_click_changes_how_much_control_a_read_step_has(client):
+    learn(client)
+    steps = client.get("/workflows/chuyen-tien").json()["workflow"]["steps"]
+    read_step = next(s for s in steps if s["risk"] == "read")
+    response = client.post("/workflows/chuyen-tien/versions/1/revise", json={"modes": {read_step["id"]: "review"}})
+    assert response.status_code == 201
+    revised = response.json()["workflow"]
+    assert revised["version"] == 2 and revised["status"] == "draft"
+    assert next(s for s in revised["steps"] if s["id"] == read_step["id"])["mode"] == "review"
+    assert client.get("/workflows/chuyen-tien/versions/1").json()["workflow"]["steps"] == steps  # the old version is untouched
+
+
+def test_the_safety_rules_cannot_be_relaxed_from_the_screen(client):
+    learn(client)
+    steps = client.get("/workflows/chuyen-tien").json()["workflow"]["steps"]
+    money = next(s for s in steps if s["risk"] == "money")
+    url = "/workflows/chuyen-tien/versions/1/revise"
+    refused = client.post(url, json={"modes": {money["id"]: "auto"}})
+    assert refused.status_code == 422 and "tiền" in refused.json()["detail"]
+    assert client.post(url, json={"modes": {money["id"]: "review"}}).status_code == 201  # more control is allowed
+    assert client.post(url, json={"modes": {"khong-co": "auto"}}).status_code == 422
+    assert client.post(url, json={"modes": {}}).status_code == 422
+    assert client.post(url, json={"modes": {money["id"]: "bogus"}}).status_code == 422
+    assert client.post("/workflows/khong-co/versions/1/revise", json={"modes": {"s": "auto"}}).status_code == 404

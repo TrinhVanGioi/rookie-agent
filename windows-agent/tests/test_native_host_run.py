@@ -188,3 +188,32 @@ def test_input_values_never_appear_in_messages():
     host.handle({"cmd": "decide", "approve": True})
     host.wait_for_run(3)
     assert "5000000" not in repr(events)
+
+
+def test_sandbox_command_runs_in_the_background_and_reports_when_finished():
+    events = []
+    calls = []
+
+    def sandboxer(server_url, workflow_id, version, inputs, session):
+        calls.append((server_url, workflow_id, version, inputs))
+        return {"status": "finished", "message": "ok", "steps": []}
+
+    host = Host(FakeSession(), emit=events.append, sandboxer=sandboxer)
+    reply = host.handle({"id": 4, "cmd": "sandbox", "server_url": "http://s", "workflow_id": "chuyen-tien", "version": 1, "inputs": {"so_tien": "1000"}})
+    assert reply["ok"] and reply["version"] == 1
+    host.wait_for_run(3)
+    assert calls == [("http://s", "chuyen-tien", 1, {"so_tien": "1000"})]
+    assert events[-1] == {"event": "finished", "sandbox": True, "workflow_id": "chuyen-tien", "version": 1, "status": "finished", "message": "ok", "steps": []}
+
+
+def test_sandbox_failure_is_reported_and_bad_arguments_refused():
+    events = []
+
+    def boom(*args):
+        raise RuntimeError("Chưa có mock Swing")
+
+    host = Host(FakeSession(), emit=events.append, sandboxer=boom)
+    assert not host.handle({"cmd": "sandbox", "server_url": "u", "workflow_id": "w"})["ok"]  # no version
+    assert host.handle({"cmd": "sandbox", "server_url": "u", "workflow_id": "w", "version": 1})["ok"]
+    host.wait_for_run(3)
+    assert events[-1]["status"] == "failed" and "mock Swing" in events[-1]["message"]

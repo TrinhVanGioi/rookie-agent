@@ -68,7 +68,7 @@ def _describe(event: dict[str, Any]) -> str:
 
 
 def learn(
-    sessions: list[list[dict[str, Any]]], workflow_id: str, version: int = 1
+    sessions: list[list[dict[str, Any]]], workflow_id: str, version: int = 1, title: str | None = None
 ) -> tuple[dict[str, Any], list[str]]:
     """Return (workflow in `draft`, warnings)."""
     if not sessions or any(not events for events in sessions):
@@ -145,6 +145,8 @@ def learn(
                 if classes or len(set(values)) > 1 or len(runs) == 1:
                     name = unique(slug(label), used_names)
                     item: dict[str, Any] = {"name": name, "type": _value_type(values)}
+                    if label:
+                        item["label"] = label  # what the GDV sees on screen, shown instead of the name
                     if classes:
                         item["value_class"] = classes[0]
                     elif len(runs) == 1:
@@ -172,5 +174,7 @@ def learn(
         "inputs": inputs,
         "steps": steps,
     }
+    if title:
+        workflow["title"] = title  # the name the GDV gave this agent
     validate_workflow(workflow)
     return workflow, warnings

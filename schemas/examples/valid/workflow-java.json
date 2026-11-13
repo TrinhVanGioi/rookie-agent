@@ -8,7 +8,8 @@
     {
       "name": "so_cif",
       "type": "string",
-      "value_class": "cif_number"
+      "value_class": "cif_number",
+      "label": "Số CIF"
     },
     {
       "name": "tai_khoan_nhan",

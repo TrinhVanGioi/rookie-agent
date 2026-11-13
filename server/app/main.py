@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import os
@@ -12,7 +13,7 @@ from typing import Any, Literal
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
-from app.learner import LearnError, learn
+from app.learner import LearnError, learn, slug
 from app.schemas import SchemaError, validate_event, validate_workflow
 from app.storage import Storage
 
@@ -30,8 +31,15 @@ class SessionIn(BaseModel):
 
 
 class LearnIn(BaseModel):
-    workflow_id: str = Field(pattern=_ID)
+    """Give a `title` (the GDV's own words) and the id is made from it, or give a `workflow_id`."""
+
+    workflow_id: str | None = Field(default=None, pattern=_ID)
+    title: str | None = Field(default=None, min_length=1, max_length=80)
     session_ids: list[str] = Field(min_length=1)
+
+
+class ReviseIn(BaseModel):
+    modes: dict[str, Literal["auto", "review", "approve"]] = Field(min_length=1)
 
 
 class TestRunIn(BaseModel):
@@ -102,8 +110,18 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
 
     # ---- workflows ----------------------------------------------------------------
 
+    def id_from_title(title: str) -> str:
+        base = slug(title, "viec").replace("_", "-")[:48].strip("-") or "viec"
+        candidate, counter = base, 2
+        while storage.get_workflow(candidate) is not None:
+            candidate, counter = f"{base}-{counter}", counter + 1
+        return candidate
+
     @app.post("/workflows/learn", status_code=201)
     def learn_workflow(body: LearnIn) -> dict[str, Any]:
+        if body.workflow_id is None and body.title is None:
+            raise HTTPException(422, "Cần đặt tên cho việc này.")
+        workflow_id = body.workflow_id or id_from_title(body.title or "")
         sessions = []
         for session_id in body.session_ids:
             session = storage.get_session(session_id)
@@ -111,7 +129,7 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
                 raise HTTPException(404, f"Không tìm thấy phiên ghi {session_id}")
             sessions.append(session["events"])
         try:
-            workflow, warnings = learn(sessions, body.workflow_id, storage.next_version(body.workflow_id))
+            workflow, warnings = learn(sessions, workflow_id, storage.next_version(workflow_id), body.title)
         except LearnError as error:
             raise HTTPException(422, str(error)) from error
         storage.add_workflow(workflow, warnings)
@@ -136,6 +154,27 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
     @app.get("/workflows/{workflow_id}/versions/{version}")
     def workflow_version(workflow_id: str, version: int) -> dict[str, Any]:
         return workflow_reply(*load(workflow_id, version))
+
+    @app.post("/workflows/{workflow_id}/versions/{version}/revise", status_code=201)
+    def revise_workflow(workflow_id: str, version: int, body: ReviseIn) -> dict[str, Any]:
+        """Change how much control some steps have. Makes a new version that starts again as a draft."""
+        workflow, warnings = load(workflow_id, version)
+        revised = copy.deepcopy(workflow)
+        steps = {step["id"]: step for step in revised["steps"]}
+        for step_id, mode in body.modes.items():
+            step = steps.get(step_id)
+            if step is None:
+                raise HTTPException(422, f"Không có bước {step_id} trong việc này.")
+            if step["risk"] == "write" and mode != "approve":
+                raise HTTPException(422, "Bước sửa dữ liệu luôn phải chờ bạn duyệt.")
+            if step["risk"] == "money" and mode == "auto":
+                raise HTTPException(422, "Bước liên quan tiền không thể tự làm, phải cho bạn xem hoặc chờ bạn duyệt.")
+            step["mode"] = mode
+        revised["version"] = storage.next_version(workflow_id)
+        revised["status"] = "draft"
+        validate_workflow(revised)
+        storage.add_workflow(revised, warnings)
+        return workflow_reply(revised, warnings)
 
     @app.post("/workflows/{workflow_id}/versions/{version}/test-runs", status_code=201)
     def add_test_run(workflow_id: str, version: int, body: TestRunIn) -> dict[str, Any]:

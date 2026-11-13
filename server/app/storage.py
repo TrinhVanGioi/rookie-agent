@@ -123,7 +123,8 @@ class Storage:
     def list_workflows(self) -> list[dict[str, Any]]:
         with self._lock:
             rows = self._db.execute(
-                "SELECT id, version, status, created_at, json_extract(document, '$.engine') AS engine "
+                "SELECT id, version, status, created_at, json_extract(document, '$.engine') AS engine, "
+                "json_extract(document, '$.title') AS title "
                 "FROM workflows ORDER BY id, version"
             ).fetchall()
         return [dict(row) for row in rows]
