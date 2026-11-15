@@ -187,7 +187,7 @@ def check(
 
     if target != own_bits:
         items.append(item("bad", f"Agent đang chạy bản {own_bits}-bit nhưng Java là {target}-bit",
-                          f"Hai bên phải cùng {target}-bit. Bấm biểu tượng Rookie Agent để tự chuyển sang bản {target}-bit.",
+                          f"Hai bên phải cùng {target}-bit. Bấm nút bên dưới để chuyển sang bản {target}-bit.",
                           "switch_bits"))
     else:
         items.append(item("ok", f"Agent và Java cùng {own_bits}-bit"))

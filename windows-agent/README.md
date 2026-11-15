@@ -73,7 +73,7 @@ Lệnh này đăng ký agent làm Native Messaging host cho Edge và Chrome củ
 
 Cách dễ nhất để thử trên máy nội bộ, không cần gõ lệnh và không cần cài Python:
 
-1. Giải nén gói. Bấm đúp `Cai-dat.cmd` để tạo biểu tượng **Rookie Agent** trên màn hình nền.
+1. Giải nén gói. Bấm đúp `Cai-dat.cmd` để tạo biểu tượng **Rookie Agent** trên màn hình nền (và để agent tự chạy ngầm khi đăng nhập Windows). Gỡ bằng `Go-cai-dat.cmd`. Extension cho Chrome cài riêng bằng `Cai-extension-Chrome.cmd`.
 2. Mở màn hình ứng dụng cần ghi, rồi bấm biểu tượng. Trình duyệt mở trang `http://localhost:8765`.
 3. Trang có ba mục: **Kiểm tra máy** (nói bằng chữ thường chỗ nào chưa ổn, có nút Bật cầu nối), **Ghi** (chọn cửa sổ, Bắt đầu ghi, Dừng ghi), **Học** (chọn các bản ghi, đặt tên, bấm Học, xem các bước agent hiểu).
 

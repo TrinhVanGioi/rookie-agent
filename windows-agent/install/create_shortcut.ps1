@@ -3,13 +3,13 @@
 #  2. Put the "Rookie Agent" icon on the desktop; it starts the local page with the bundled Python
 #     (the 32-bit or 64-bit one, whichever matches Java).
 #     It also starts by itself, hidden, each time the user logs in.
-#  3. Open the extensions page of Chrome and put the extension folder on the clipboard.
-# Nothing needs to be installed first. -DesktopDir and -NoBrowser are for testing.
+#  3. (only with -WithChrome) Open the extensions page of Chrome and put the extension folder on the clipboard.
+# Nothing needs to be installed first. Step 3 only with -WithChrome (Cai-extension-Chrome.cmd). -DesktopDir and -StartupDir are for testing.
 param(
     [string]$DesktopDir = [Environment]::GetFolderPath("Desktop"),
     [string]$StartupDir = [Environment]::GetFolderPath("Startup"),
     [string]$AppHome = (Join-Path $env:LOCALAPPDATA "RookieAgent"),
-    [switch]$NoBrowser
+    [switch]$WithChrome
 )
 $ErrorActionPreference = "Stop"
 $agent = Split-Path -Parent $PSScriptRoot
@@ -52,7 +52,7 @@ $auto.Save()
 Write-Host "Rookie Agent se tu chay ngam moi khi dang nhap Windows."
 
 # 3. the extension in Chrome
-if ((Test-Path $target) -and -not $NoBrowser) {
+if ((Test-Path $target) -and $WithChrome) {
     Set-Clipboard -Value $target
     Write-Host ""
     Write-Host "De cai extension vao Chrome (chi lam mot lan):"
