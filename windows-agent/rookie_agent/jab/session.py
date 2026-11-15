@@ -261,7 +261,9 @@ class JabSession(threading.Thread):
                 vm, root = found
                 info = bridge.info(vm, root)
                 bridge.release(vm, root)
-                result.append((hwnd, info.name if info else ""))
+                name = info.name if info else ""
+                # An applet's own name is often empty or generic; the browser's title says which screen it is.
+                result.append((hwnd, name or jab.host_title(hwnd)))
             return result
 
         return self.call(task)

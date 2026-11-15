@@ -310,18 +310,45 @@ class Bridge:
 
 
 def java_windows(bridge: Bridge) -> list[int]:
-    """Handles of the visible top-level windows that belong to a Java application."""
+    """Handles of the visible windows that belong to a Java application.
+
+    A Swing application is a top-level window. An applet in Internet Explorer (or the IE mode of Edge) is a
+    child window inside the browser's window, so the children of every top-level window are searched too.
+    A Java window inside another Java window is not listed twice.
+    """
     user32 = ctypes.windll.user32
     found: list[int] = []
+    top_level: list[int] = []
 
     @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
-    def visit(hwnd, _):
+    def visit_top(hwnd, _):
+        if user32.IsWindowVisible(hwnd):
+            top_level.append(hwnd)
+        return True
+
+    @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+    def visit_child(hwnd, _):
         if user32.IsWindowVisible(hwnd) and bridge.is_java_window(hwnd):
             found.append(hwnd)
         return True
 
-    user32.EnumWindows(visit, 0)
-    return found
+    user32.EnumWindows(visit_top, 0)
+    for hwnd in top_level:
+        if bridge.is_java_window(hwnd):
+            found.append(hwnd)
+        else:
+            user32.EnumChildWindows(hwnd, visit_child, 0)
+    return list(dict.fromkeys(found))
+
+
+def host_title(hwnd: int) -> str:
+    """The text of the top-level window that holds `hwnd` (for an applet: the browser's title)."""
+    user32 = ctypes.windll.user32
+    root = user32.GetAncestor(hwnd, 2) or hwnd  # GA_ROOT
+    length = user32.GetWindowTextLengthW(root)
+    buffer = ctypes.create_unicode_buffer(length + 1)
+    user32.GetWindowTextW(root, buffer, length + 1)
+    return buffer.value
 
 
 def pump_messages() -> None:
