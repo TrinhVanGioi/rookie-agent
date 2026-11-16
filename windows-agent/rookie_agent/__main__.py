@@ -218,6 +218,48 @@ def cmd_web(args: argparse.Namespace) -> None:
     web_main(args.port, open_browser=not args.no_browser, auto_bits=args.auto_bits, start_server=args.start_server)
 
 
+def cmd_ie_probe(args: argparse.Namespace) -> int:
+    """Trên máy có Internet Explorer: liệt kê tab, đọc cấu trúc, và (tuỳ chọn) ghi thử vài giây."""
+    import time
+
+    from rookie_agent.ie.bridge import IeBridge, IeBridgeError
+    from rookie_agent.ie.session import IeSession
+
+    try:
+        bridge = IeBridge().open()
+        tabs = bridge.tabs()
+    except IeBridgeError as error:
+        print("Không đọc được Internet Explorer:", error)
+        return 1
+    if not tabs:
+        print("Chưa thấy trang nào mở trong Internet Explorer.")
+        bridge.close()
+        return 1
+    for tab in tabs:
+        info = bridge.probe(tab["id"])
+        print(f"Tab {tab['id']}: «{tab['title']}» - {len(info.get('frames', []))} khung, {info.get('inputs')} ô nhập, "
+              f"{info.get('buttons')} nút, {info.get('objects')} ActiveX/applet")
+        for frame in info.get("frames", []):
+            if frame.get("inputs"):
+                print(f"    khung «{frame['name'] or '(không tên)'}»: {frame['inputs']} ô nhập (chế độ tài liệu {frame['mode']})")
+    if args.seconds:
+        tab = tabs[0]
+        print(f"\nGhi thử {args.seconds} giây trên «{tab['title']}». Hãy thao tác trên trang đó ngay bây giờ...")
+        session = IeSession(bridge, tab["id"], tab["title"])
+        session.start()
+        time.sleep(args.seconds)
+        events = session.stop()
+        print(f"Ghi được {len(events)} thao tác (giá trị nhạy cảm đã bỏ):")
+        for event in events:
+            target = event["target"]
+            print(f"  {event['type']:7} «{target['label']}» ({target['tag']}) {target['selectors'][0]}"
+                  + (f" [loại: {event['value_class']}]" if event["value_class"] else ""))
+        if session.error:
+            print("Lưu ý:", session.error)
+    bridge.close()
+    return 0
+
+
 def main() -> None:
     # The browser passes the extension origin as an argument when it starts the host.
     if len(sys.argv) > 1 and sys.argv[1].startswith(("chrome-extension://", "moz-extension://")):
@@ -263,6 +305,9 @@ def main() -> None:
     run.add_argument("--input", action="append", default=[], help="ten=gia_tri")
     run.add_argument("--window", default="", help="một phần tiêu đề cửa sổ")
     run.set_defaults(run=cmd_run)
+    ie_probe = commands.add_parser("ie-probe", help="đọc thử các trang đang mở trong Internet Explorer")
+    ie_probe.add_argument("--seconds", type=int, default=0, help="ghi thử bấy nhiêu giây")
+    ie_probe.set_defaults(run=cmd_ie_probe)
     commands.add_parser("host", help="chạy Native Messaging host").set_defaults(run=cmd_host)
     web = commands.add_parser("web", help="mở trang quản lý trên máy này")
     web.add_argument("--port", type=int, default=8765)

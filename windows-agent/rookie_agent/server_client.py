@@ -46,7 +46,7 @@ class ServerClient:
         return self._call("GET", "/health")
 
     def post_session(self, session_id: str, engine: str, events: list[dict[str, Any]]) -> dict[str, Any]:
-        body = {"schema_version": 1, "engine": engine, "session_id": session_id, "events": events}
+        body = {"schema_version": 2 if engine == "ie" else 1, "engine": engine, "session_id": session_id, "events": events}
         return self._call("POST", "/sessions", body)
 
     def learn(self, workflow_id: str | None, session_ids: list[str], title: str | None = None) -> dict[str, Any]:

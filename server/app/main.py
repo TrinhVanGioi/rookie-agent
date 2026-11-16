@@ -24,8 +24,8 @@ _TRANSITIONS = {("draft", "tested"), ("tested", "approved")}
 
 
 class SessionIn(BaseModel):
-    schema_version: Literal[1]
-    engine: Literal["web", "java"]
+    schema_version: Literal[1, 2]
+    engine: Literal["web", "java", "ie"]
     session_id: str = Field(min_length=1, max_length=64)
     events: list[dict[str, Any]] = Field(min_length=1)
 
@@ -89,6 +89,8 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
                 continue
             if event["session_id"] != body.session_id or event["engine"] != body.engine:
                 problems.append(f"sự kiện {index}: session_id hoặc engine khác với phiên")
+            if event["schema_version"] != body.schema_version:
+                problems.append(f"sự kiện {index}: schema_version khác với phiên")
             if event["seq"] != index:
                 problems.append(f"sự kiện {index}: seq phải liên tục từ 0")
         if problems:
@@ -98,7 +100,7 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
         return {"session_id": body.session_id, "engine": body.engine, "event_count": len(body.events)}
 
     @app.get("/sessions")
-    def list_sessions(engine: Literal["web", "java"] | None = None) -> dict[str, Any]:
+    def list_sessions(engine: Literal["web", "java", "ie"] | None = None) -> dict[str, Any]:
         return {"sessions": storage.list_sessions(engine)}
 
     @app.get("/sessions/{session_id}")
@@ -106,7 +108,7 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
         session = storage.get_session(session_id)
         if session is None:
             raise HTTPException(404, "Không tìm thấy phiên ghi")
-        return {"schema_version": 1, **session}
+        return {"schema_version": 2 if session["engine"] == "ie" else 1, **session}
 
     # ---- workflows ----------------------------------------------------------------
 

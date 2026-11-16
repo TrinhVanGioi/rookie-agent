@@ -131,3 +131,24 @@ def test_enter_in_a_field_is_learned_as_its_own_step_and_is_safe_by_rule():
         ("submit", "Mật khẩu", "read", "auto"),
     ]
     assert workflow["inputs"] == [{"name": "ten_dang_nhap", "type": "string", "label": "Tên đăng nhập", "value_class": "username"}]
+
+
+def _ie_session(session_id: str, cif: str) -> list[dict]:
+    base = {"schema_version": 2, "engine": "ie", "session_id": session_id, "ts": "2026-11-16T03:00:00.000Z", "url": "TouchPoint/Main", "api_calls": [], "screenshot": None}
+    field = {"selectors": ["frame=desktopFrame/rtop/main/fraProfileArea|id=txtCustomerId"], "label": "Mã khách hàng", "tag": "input"}
+    button = lambda label, ident: {"selectors": [f"frame=desktopFrame/rtop/main/fraProfileArea|id={ident}"], "label": label, "tag": "button"}
+    return [
+        {**base, "seq": 0, "type": "input", "target": field, "value": None, "value_class": "cif_number"},
+        {**base, "seq": 1, "type": "click", "target": button("XEM CHỮ KÝ", "btnVerifySignature"), "value": None, "value_class": None},
+        {**base, "seq": 2, "type": "click", "target": button("LƯU", "btnSave"), "value": None, "value_class": None},
+    ]
+
+
+def test_learning_an_ie_recording_gives_a_version_2_workflow_with_the_save_waiting_for_approval():
+    from app.learner import learn
+
+    workflow, _ = learn([_ie_session("a", "1"), _ie_session("b", "2"), _ie_session("c", "3")], "tra-cif-ie")
+    assert workflow["schema_version"] == 2 and workflow["engine"] == "ie"
+    assert [step["risk"] for step in workflow["steps"]] == ["read", "read", "write"]
+    assert workflow["steps"][2]["mode"] == "approve"
+    assert workflow["inputs"][0]["value_class"] == "cif_number"

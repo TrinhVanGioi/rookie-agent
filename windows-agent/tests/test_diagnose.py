@@ -86,3 +86,47 @@ def test_the_browser_counts_before_an_editor_that_also_loads_java():
 def test_a_window_that_is_visible_proves_the_bridge_works():
     report = diagnose.check(32, "dll", None, ["Mock"], [], [JavaUser(1, "iexplore.exe", 32)], False)
     assert not any(entry["action"] == "enable_bridge" for entry in report["items"])
+
+
+# ---- pages in Internet Explorer ------------------------------------------------------------------------------
+
+def ie_info(frames=5, inputs=40, buttons=6, objects=0):
+    return {"frames": [{"name": f"f{i}", "mode": 5, "inputs": 0} for i in range(frames)], "inputs": inputs, "buttons": buttons, "objects": objects}
+
+
+def java_report():
+    return diagnose.check(64, "dll", None, [], [], [], False)
+
+
+def test_a_readable_ie_page_is_reported_in_plain_words():
+    items = diagnose.ie_items([{"id": 1, "title": "TouchPoint"}], {1: ie_info()}, None)
+    assert items[0]["level"] == "ok"
+    assert "TouchPoint" in items[0]["title"] + items[0]["detail"] and "5 khung" in items[0]["detail"] and "40 ô nhập" in items[0]["detail"]
+
+
+def test_a_page_with_no_input_field_asks_to_open_the_right_screen():
+    items = diagnose.ie_items([{"id": 1, "title": "TouchPoint"}], {1: ie_info(inputs=0)}, None)
+    assert items[0]["level"] == "warn" and "ô nhập" in items[0]["detail"]
+
+
+def test_activex_or_applet_in_the_page_is_called_out():
+    items = diagnose.ie_items([{"id": 1, "title": "T"}], {1: ie_info(objects=2)}, None)
+    assert any("ActiveX" in entry["title"] or "applet" in entry["title"] for entry in items)
+
+
+def test_no_ie_page_or_a_bridge_error_is_a_warning_not_a_crash():
+    assert diagnose.ie_items([], {}, None)[0]["level"] == "warn"
+    assert diagnose.ie_items([], {}, "PowerShell bị chặn")[0]["detail"].endswith("PowerShell bị chặn")
+
+
+def test_when_the_ie_page_is_readable_and_there_is_no_java_the_java_findings_are_left_out():
+    report = diagnose.with_ie(java_report(), diagnose.ie_items([{"id": 1, "title": "TouchPoint"}], {1: ie_info()}, None), readable=True)
+    assert report["summary"] == "ok" and report["wanted_bits"] == 64
+    assert all("Java" not in entry["title"] for entry in report["items"])
+
+
+def test_java_findings_stay_when_java_is_in_use():
+    users = [JavaUser(1, "iexplore.exe", 64)]
+    java = diagnose.check(64, "dll", None, ["Mock"], [], users, True)
+    report = diagnose.with_ie(java, diagnose.ie_items([{"id": 1, "title": "T"}], {1: ie_info()}, None), readable=True)
+    assert any("Java" in entry["title"] for entry in report["items"]) and report["items"][-1]["title"].startswith("Đọc được")

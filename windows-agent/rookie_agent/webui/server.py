@@ -148,6 +148,9 @@ def make_handler(core: Core, port: int, on_shutdown: Any):
     return Handler
 
 
+from rookie_agent.ie.bridge import IeBridge  # noqa: E402
+
+
 def build_core(home: Path, local_server: LocalServer, start_server: bool = False) -> Core:
     from rookie_agent.jab import bridge as jab
     from rookie_agent.jab.session import JabSession
@@ -161,7 +164,7 @@ def build_core(home: Path, local_server: LocalServer, start_server: bool = False
     return Core(
         home=home, open_session=lambda: JabSession().open(), own_bits=jab.BITS, dll_info=dll_info,
         feed_factory=lambda recorder: JavaFeed(recorder), server_starter=local_server.start,
-        relauncher=lambda bits: relaunch(bits, start_server=start_server),
+        relauncher=lambda bits: relaunch(bits, start_server=start_server), ie_bridge=lambda: IeBridge().open(),
     )
 
 

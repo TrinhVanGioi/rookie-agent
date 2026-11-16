@@ -8,7 +8,7 @@ Hệ thống để agent học thao tác của giao dịch viên (GDV) qua vài 
 
 ```
 extension/      Chrome/Edge extension Manifest V3 (TypeScript): recorder web và side panel Ghi, Học (hướng A; runner web chưa làm); cài thử xem extension/README.md
-windows-agent/  Windows agent (Python): recorder, runner Java qua Java Access Bridge (hướng B), Native Messaging host
+windows-agent/  Windows agent (Python): recorder, runner Java qua Java Access Bridge (hướng B), trang web trong IE cũ qua COM (ie/, hướng B2), Native Messaging host
 server/         FastAPI (Python): ingest, learner, kho agent, audit, sandbox runner
 mock-site/      Hệ thống web giả lập: Báo cáo A, B, CIF, chuyển tiền, phê duyệt
 mock-java/      Ứng dụng Java Swing giả lập TPSS (CIF, chuyển tiền, phê duyệt) cho hướng B

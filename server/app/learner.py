@@ -75,7 +75,7 @@ def learn(
         raise LearnError("Cần ít nhất một phiên ghi có sự kiện.")
     engines = {event["engine"] for events in sessions for event in events}
     if len(engines) != 1:
-        raise LearnError("Các phiên ghi phải cùng một hướng (web hoặc java).")
+        raise LearnError("Các phiên ghi phải cùng một hướng (web, java hoặc ie).")
     engine = engines.pop()
 
     runs = [normalize(events) for events in sessions]
@@ -166,7 +166,7 @@ def learn(
         raise LearnError("Không còn bước nào agent được phép thực hiện trong các phiên ghi này.")
 
     workflow = {
-        "schema_version": 1,
+        "schema_version": 2 if engine == "ie" else 1,
         "engine": engine,
         "id": workflow_id,
         "version": version,

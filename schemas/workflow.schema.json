@@ -16,12 +16,17 @@
   "additionalProperties": false,
   "properties": {
     "schema_version": {
-      "const": 1
+      "enum": [
+        1,
+        2
+      ],
+      "description": "1: web và java. 2: thêm engine ie (trang web trong Internet Explorer, đọc bằng COM). Bản 1 vẫn hợp lệ."
     },
     "engine": {
       "enum": [
         "web",
-        "java"
+        "java",
+        "ie"
       ]
     },
     "id": {
@@ -281,5 +286,27 @@
       "minLength": 1,
       "maxLength": 80
     }
-  }
+  },
+  "allOf": [
+    {
+      "description": "engine ie chỉ có từ schema_version 2.",
+      "if": {
+        "required": [
+          "engine"
+        ],
+        "properties": {
+          "engine": {
+            "const": "ie"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "schema_version": {
+            "const": 2
+          }
+        }
+      }
+    }
+  ]
 }

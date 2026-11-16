@@ -83,7 +83,7 @@
     <h2>2. Ghi</h2>
     <p class="sub">Làm việc như bình thường trên ứng dụng. Mỗi lần ghi nên làm cùng một việc, với khách khác nhau. Ghi 3 lần.</p>
     <div class="row">
-      <div class="grow"><label class="field" for="window">Cửa sổ ứng dụng</label><select id="window"></select></div>
+      <div class="grow"><label class="field" for="window">Màn hình cần ghi (trang trong Internet Explorer hoặc ứng dụng Java)</label><div class="row" style="margin:0"><select id="window" class="grow"></select><button id="windowsRefresh">Tải lại</button></div></div>
       <div class="grow"><label class="field" for="rname">Tên bản ghi (không bắt buộc)</label><input type="text" id="rname" placeholder="Ví dụ: vấn tin lần 1"></div>
     </div>
     <div class="row"><button class="primary" id="record">Bắt đầu ghi</button><span id="recstate"></span></div>
@@ -188,10 +188,12 @@ async function loadWindows() {
   const select = $("window"); select.textContent = "";
   try {
     const data = await api("GET", "/api/windows");
-    if (!data.windows.length) select.append(new Option("(chưa thấy cửa sổ Java nào)", ""));
+    if (!data.windows.length) select.append(new Option("(chưa thấy màn hình nào đang mở)", ""));
     for (const title of data.windows) select.append(new Option(title, title));
   } catch (e) { select.append(new Option("(không đọc được)", "")); }
 }
+
+$("windowsRefresh").onclick = loadWindows;
 
 async function loadRecordings() {
   const data = await api("GET", "/api/recordings");

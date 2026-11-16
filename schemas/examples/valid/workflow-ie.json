@@ -1,0 +1,96 @@
+{
+  "schema_version": 2,
+  "engine": "ie",
+  "id": "tra-cif-touchpoint",
+  "version": 1,
+  "status": "draft",
+  "inputs": [
+    {
+      "name": "so_cif",
+      "type": "string",
+      "value_class": "cif_number",
+      "label": "Số CIF"
+    },
+    {
+      "name": "tai_khoan_nhan",
+      "type": "string",
+      "value_class": "account_number"
+    },
+    {
+      "name": "so_tien",
+      "type": "string",
+      "value_class": "amount"
+    }
+  ],
+  "steps": [
+    {
+      "id": "fill_cif",
+      "action": "fill",
+      "target": {
+        "selectors": [
+          "frame=desktopFrame/rtop/main/fraProfileArea|id=x"
+        ]
+      },
+      "value": "{so_cif}",
+      "risk": "read",
+      "mode": "auto"
+    },
+    {
+      "id": "search_cif",
+      "action": "click",
+      "target": {
+        "selectors": [
+          "frame=desktopFrame/rtop/main/fraProfileArea|id=x"
+        ]
+      },
+      "risk": "read",
+      "mode": "auto"
+    },
+    {
+      "id": "wait_result",
+      "action": "wait_for",
+      "target": {
+        "selectors": [
+          "frame=desktopFrame/rtop/main/fraProfileArea|id=x"
+        ]
+      },
+      "risk": "read",
+      "mode": "auto"
+    },
+    {
+      "id": "read_account",
+      "action": "read_value",
+      "target": {
+        "selectors": [
+          "frame=desktopFrame/rtop/main/fraProfileArea|id=x"
+        ]
+      },
+      "save_as": "tai_khoan_chuyen",
+      "risk": "read",
+      "mode": "auto"
+    },
+    {
+      "id": "fill_from",
+      "action": "fill",
+      "target": {
+        "selectors": [
+          "frame=desktopFrame/rtop/main/fraProfileArea|id=x"
+        ]
+      },
+      "value": "{tai_khoan_chuyen}",
+      "risk": "read",
+      "mode": "review"
+    },
+    {
+      "id": "submit",
+      "action": "click",
+      "target": {
+        "selectors": [
+          "frame=desktopFrame/rtop/main/fraProfileArea|id=x"
+        ]
+      },
+      "risk": "money",
+      "mode": "approve"
+    }
+  ]
+}

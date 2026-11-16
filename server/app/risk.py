@@ -69,7 +69,9 @@ def _web_risk(event: dict[str, Any], config: dict[str, Any]) -> Risk:
 
 def risk_of(event: dict[str, Any], config_path: Path = CONFIG_PATH) -> Risk:
     config = _config(config_path)
-    return _java_risk(event, config["java"]) if event["engine"] == "java" else _web_risk(event, config["web"])
+    if event["engine"] in ("java", "ie"):  # neither can see the API: by screen and label
+        return _java_risk(event, config[event["engine"]])
+    return _web_risk(event, config["web"])
 
 
 def mode_for(risk: str) -> str:

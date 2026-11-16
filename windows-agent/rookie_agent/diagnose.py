@@ -214,6 +214,44 @@ def check(
     return {"items": items, "summary": summary, "own_bits": own_bits, "wanted_bits": target}
 
 
+def ie_items(tabs: list[dict[str, Any]], infos: dict[int, dict[str, Any]], error: str | None) -> list[dict[str, Any]]:
+    """Findings about the web pages open in Internet Explorer, in plain words. `infos` is the probe of each tab by id."""
+    if error:
+        return [item("warn", "Không đọc được trang trong Internet Explorer", error)]
+    if not tabs:
+        return [item("warn", "Chưa thấy trang nào mở trong Internet Explorer",
+                     "Mở màn hình cần ghi bằng Internet Explorer (iexplore), đăng nhập, chờ thấy các ô nhập, rồi bấm Kiểm tra lại.")]
+    items: list[dict[str, Any]] = []
+    for tab in tabs[:3]:
+        info = infos.get(tab["id"]) or {}
+        frames, inputs = len(info.get("frames") or []), int(info.get("inputs") or 0)
+        detail = f"«{tab['title']}»: {frames} khung, {inputs} ô nhập, {int(info.get('buttons') or 0)} nút."
+        if inputs == 0:
+            items.append(item("warn", "Đọc được trang trong Internet Explorer nhưng chưa thấy ô nhập nào",
+                              detail + " Hãy mở đúng màn hình cần ghi (đã đăng nhập, thấy các ô) rồi kiểm tra lại."))
+        else:
+            items.append(item("ok", "Đọc được trang trong Internet Explorer", detail))
+        if int(info.get("objects") or 0):
+            items.append(item("warn", "Trang có thành phần ActiveX hoặc applet",
+                              f"{info['objects']} thành phần. Phần nằm trong đó agent này không ghi được."))
+    return items
+
+
+def with_ie(report: dict[str, Any], ie: list[dict[str, Any]], readable: bool) -> dict[str, Any]:
+    """Put the Internet Explorer findings into the report of the PC. A web page in IE needs no Java and no matching
+    bitness, so when nothing uses Java the Java findings would only confuse the teller and are left out."""
+    java_used = any(entry["title"].startswith(("Có chương trình đang chạy Java", "Agent thấy")) for entry in report["items"])
+    if not readable and java_used and ie and ie[0]["title"].startswith("Chưa thấy trang nào"):
+        return report  # this PC runs a Java application; no IE page open is nothing to report
+    if readable and not java_used:
+        items, wanted = ie, report["own_bits"]
+    else:
+        items, wanted = report["items"] + ie, report["wanted_bits"]
+    levels = {entry["level"] for entry in items}
+    summary = "bad" if "bad" in levels else "warn" if "warn" in levels else "ok"
+    return {**report, "items": items, "summary": summary, "wanted_bits": wanted}
+
+
 def enable_bridge(installs: list[JavaInstall], bits: int) -> list[str]:
     """Run jabswitch of the Java 8 (or, failing that, any Java) of the wanted bitness. Returns what it did."""
     chosen = [i for i in installs if i.bits == bits and i.jabswitch and i.major == "8"] or [i for i in installs if i.bits == bits and i.jabswitch]

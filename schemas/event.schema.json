@@ -20,12 +20,17 @@
   "additionalProperties": false,
   "properties": {
     "schema_version": {
-      "const": 1
+      "enum": [
+        1,
+        2
+      ],
+      "description": "1: web và java. 2: thêm engine ie (trang web trong Internet Explorer, đọc bằng COM). Bản 1 vẫn hợp lệ."
     },
     "engine": {
       "enum": [
         "web",
-        "java"
+        "java",
+        "ie"
       ]
     },
     "session_id": {
@@ -150,14 +155,17 @@
       }
     },
     {
-      "description": "Hướng B không quan sát được mạng của applet.",
+      "description": "Hướng B (java) và ie không quan sát được mạng.",
       "if": {
         "required": [
           "engine"
         ],
         "properties": {
           "engine": {
-            "const": "java"
+            "enum": [
+              "java",
+              "ie"
+            ]
           }
         }
       },
@@ -190,6 +198,26 @@
         "properties": {
           "target": {
             "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "description": "engine ie chỉ có từ schema_version 2.",
+      "if": {
+        "required": [
+          "engine"
+        ],
+        "properties": {
+          "engine": {
+            "const": "ie"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "schema_version": {
+            "const": 2
           }
         }
       }

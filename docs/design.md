@@ -134,6 +134,18 @@ Enter trong ô thành sự kiện `submit`, rồi bước `submit` của workflo
 
 **Ngôn ngữ.** PoC viết Windows agent bằng Python, khi chạy chỉ dùng thư viện chuẩn (gọi DLL của Java Access Bridge bằng `ctypes`) để không phải mang thêm gói nào vào máy nội bộ. Bản triển khai thật cân nhắc C#/.NET để đóng gói gọn.
 
+### 3C. Hướng B2: trang web chạy trong Internet Explorer cũ (đọc bằng COM)
+
+Hệ thống chỉ mở được bằng IE, là trang web (frameset lồng nhau, chế độ tài liệu quirks), không phải Java applet. Extension không chạy trong IE cũ và cầu nối Java không thấy gì, nên agent đọc DOM của tab IE qua COM (`Shell.Application`), không cài thêm gì.
+
+- **Cầu PowerShell** (`windows-agent/rookie_agent/ie/ie-bridge.ps1`, chạy `-Sta`): Python nói chuyện qua JSON từng dòng, toàn ASCII. Lệnh: `tabs`, `probe`, `start`, `poll`, `stop`.
+- **Bộ ghi trong trang** (`page_recorder.js`, JavaScript ES3 vì quirks mode không có `JSON`, `addEventListener`): `attachEvent` ở cấp `document` của từng khung; mỗi lần `poll` gắn lại vào khung mới nạp. Chỉ nghe khi đang Ghi.
+- **Che dữ liệu trên máy GDV** (`ie/recorder.py`): ô `password`, `hidden`, tên giống mật khẩu/OTP không sinh sự kiện; ô nhạy cảm chỉ giữ loại; ô chưa phân loại là nhạy cảm; chuỗi số dài trong nhãn bị che.
+- **Selector**: `frame=<tên khung lồng nhau>|id=...`, rồi `name=`, `label=`, vị trí.
+- **Hợp đồng**: `engine: "ie"` cần `schema_version: 2` (bản 1 của web và java vẫn hợp lệ). Rủi ro tính theo màn hình và nhãn nút (`config/risk-rules.json`, khối `ie`), vì không thấy được API; nút chưa phân loại là `write`.
+- **Bài học đo trên MSHTML thật**: chuỗi script đưa vào `execScript` phải là `[string]` thuần (chuỗi lấy thẳng từ `Get-Content` làm COM treo); biến và hàm của trang đọc bằng `InvokeMember`, không dùng cú pháp dấu chấm; giá trị `execScript` trả về không được lọt vào đầu ra; khung khác nguồn (khác máy chủ) bị từ chối `execScript`.
+- Chưa có: chạy lại (Runner IE) và kiểm trên hệ thống thật. Ghi và Học thấy được trên trang quản lý; tab Luồng hiện flow đã học.
+
 ## 4. Định dạng dữ liệu
 
 Hai định dạng JSON nối các thành phần: **event** (một hành động đã ghi) và **workflow** (quy trình đã tổng quát hoá). JSON Schema nằm trong `schemas/` và là hợp đồng giữa extension, Windows agent và server.

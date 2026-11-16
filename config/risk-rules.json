@@ -65,5 +65,48 @@
         "label": "lưu|mở cif|tạo|thêm|sửa|xoá|xóa|cập nhật|gửi|save|create|update|delete"
       }
     ]
+  },
+  "ie": {
+    "description": "Trang web trong Internet Explorer: theo màn hình (tiêu đề trang) và nhãn nút, vì không quan sát được API. Nút không khớp luật nào thì là write. Chữ trên nút được so không phân biệt hoa thường.",
+    "default_click": "write",
+    "click_roles": [
+      "button",
+      "link"
+    ],
+    "rules": [
+      {
+        "risk": "read",
+        "types": [
+          "submit"
+        ],
+        "label": "mật khẩu|tên đăng nhập|password|username|số cif|cccd|tra cứu|tìm kiếm|ngày"
+      },
+      {
+        "risk": "money",
+        "types": [
+          "submit"
+        ],
+        "screen": "chuyển tiền|thanh toán|rút tiền|nộp tiền|transfer|payment"
+      },
+      {
+        "risk": "money",
+        "human_only": true,
+        "screen": "phê duyệt|approval",
+        "label": "^(duyệt|từ chối|phê duyệt|approve|reject)$"
+      },
+      {
+        "risk": "read",
+        "label": "tra cứu|tìm|tải lại|làm mới|xem|đăng nhập|đăng xuất|đóng|thoát|search|refresh"
+      },
+      {
+        "risk": "money",
+        "screen": "chuyển tiền|thanh toán|rút tiền|nộp tiền|transfer|payment",
+        "label": "gửi duyệt|chuyển|xác nhận|hạch toán|submit|confirm"
+      },
+      {
+        "risk": "write",
+        "label": "lưu|mở cif|tạo|thêm|sửa|xoá|xóa|cập nhật|gửi|save|create|update|delete"
+      }
+    ]
   }
 }

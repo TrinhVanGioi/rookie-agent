@@ -270,3 +270,94 @@ def test_a_learned_flow_is_kept_and_listed_for_the_flow_tab(tmp_path):
     # learning the same title again replaces the flow instead of piling up copies
     core.dispatch("POST", "/api/learn", {"ids": ids, "title": "Vấn tin tài khoản"})
     assert len(core.dispatch("GET", "/api/flows", {})[1]["flows"]) == 1
+
+
+# ---- web pages in Internet Explorer ----------------------------------------------------------------------------
+
+class FakeIeBridge:
+    def __init__(self, tabs=({"id": 1, "title": "TouchPoint"},), after_stop=()):
+        self._tabs, self.after_stop, self.started = list(tabs), list(after_stop), None
+
+    def tabs(self):
+        return list(self._tabs)
+
+    def probe(self, tab_id):
+        return {"frames": [{"name": "main", "mode": 5, "inputs": 3}] * 5, "inputs": 40, "buttons": 6, "objects": 0}
+
+    def start_recording(self, tab_id):
+        self.started = tab_id
+
+    def poll(self):
+        return []
+
+    def stop_recording(self):
+        return list(self.after_stop)
+
+
+def ie_line(kind, t, **fields):
+    base = {"t": t, "kind": kind, "frame": "desktopFrame/main", "title": "Main", "tag": "button", "type": "button", "id": "b", "name": "", "label": "XEM", "pos": 0, "value": None}
+    base.update(fields)
+    return base
+
+
+def ie_core(tmp_path, bridge=None, **overrides):
+    bridge = bridge or FakeIeBridge()
+    core, _ = make_core(tmp_path, ie_bridge=lambda: bridge, **overrides)
+    return core, bridge
+
+
+def test_ie_tabs_are_offered_next_to_java_windows(tmp_path):
+    core, _ = ie_core(tmp_path)
+    assert "Internet Explorer: TouchPoint" in core.dispatch("GET", "/api/windows", {})[1]["windows"]
+
+
+def test_recording_an_ie_tab_saves_a_session_with_engine_ie_and_no_secret(tmp_path):
+    lines = [ie_line("input", 1000, tag="input", type="text", id="txtCustomerId", label="Mã khách hàng", value="0123456789"),
+             ie_line("input", 1100, tag="input", type="password", id="pw", label="Mật khẩu", value="TOPSECRET"),
+             ie_line("click", 2000)]
+    core, bridge = ie_core(tmp_path, FakeIeBridge(after_stop=lines))
+    assert core.dispatch("POST", "/api/record/start", {"window": "Internet Explorer: TouchPoint"})[0] == 200
+    assert bridge.started == 1
+    assert core.dispatch("GET", "/api/state", {})[1]["recording"] is True
+    status, reply = core.dispatch("POST", "/api/record/stop", {"name": "vấn tin lần 1"})
+    assert status == 200 and reply["steps"] == ["Nhập vào «Mã khách hàng»", "Bấm «XEM»"] and reply["typed_values_kept"] == 0
+    document = core.store.load(reply["id"])
+    assert document["engine"] == "ie" and all(e["engine"] == "ie" for e in document["events"])
+    assert "0123456789" not in json.dumps(document) and "TOPSECRET" not in json.dumps(document)
+    assert core.dispatch("GET", "/api/state", {})[1]["recording"] is False
+
+
+def test_an_ie_recording_with_nothing_done_is_refused_like_any_other(tmp_path):
+    core, _ = ie_core(tmp_path)
+    core.dispatch("POST", "/api/record/start", {"window": "Internet Explorer: TouchPoint"})
+    assert core.dispatch("POST", "/api/record/stop", {})[0] == 400
+
+
+def test_a_tab_that_is_gone_is_explained_in_plain_words(tmp_path):
+    core, _ = ie_core(tmp_path, FakeIeBridge(tabs=()))
+    status, reply = core.dispatch("POST", "/api/record/start", {"window": "Internet Explorer: TouchPoint"})
+    assert status == 400 and "Internet Explorer" in reply["error"]
+
+
+def test_the_machine_check_reports_the_ie_page_and_drops_java_noise(tmp_path):
+    core, _ = make_core(tmp_path, session=FakeSession(titles=()), ie_bridge=lambda: FakeIeBridge(), installs=lambda: [], users=lambda: [], switched_on=lambda: True)
+    status, report = core.dispatch("GET", "/api/check", {})
+    assert status == 200 and report["summary"] == "ok"
+    assert report["items"][0]["title"].startswith("Đọc được trang trong Internet Explorer") and "5 khung" in report["items"][0]["detail"]
+    assert all("Java" not in entry["title"] for entry in report["items"])
+
+
+def test_a_recorded_ie_session_is_sent_to_the_server_as_engine_ie(tmp_path):
+    sent = []
+
+    class Server(FakeServer):
+        def post_session(self, session_id, engine, events):
+            sent.append(engine)
+
+    core, _ = ie_core(tmp_path, FakeIeBridge(after_stop=[ie_line("click", 2000)]), server_client=Server)
+    for _ in range(2):
+        core.dispatch("POST", "/api/record/start", {"window": "Internet Explorer: TouchPoint"})
+        core.dispatch("POST", "/api/record/stop", {})
+    ids = [row["id"] for row in core.store.listing()]
+    assert core.dispatch("POST", "/api/learn", {"ids": ids, "title": "Xem"})[0] == 200
+    assert sent == ["ie", "ie"]

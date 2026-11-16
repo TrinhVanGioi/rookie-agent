@@ -72,3 +72,29 @@ def test_enter_in_a_field_is_classified_by_screen_and_field(label, screen, expec
     event = java_click(label, screen, tag="text")
     event["type"] = "submit"
     assert risk_of(event) == expected
+
+
+def ie_event(kind: str, label: str, screen: str = "TouchPoint/Main", tag: str = "button") -> dict:
+    return {"schema_version": 2, "engine": "ie", "session_id": "s", "seq": 0, "ts": "2026-11-16T03:00:00.000Z", "type": kind,
+            "url": screen, "target": {"selectors": ["label=x"], "label": label, "tag": tag}, "value": None, "value_class": None, "api_calls": []}
+
+
+@pytest.mark.parametrize(
+    "label,screen,expected",
+    [
+        ("XEM CHỮ KÝ", "TouchPoint/Main", Risk("read")),
+        ("TRA CỨU", "TouchPoint/Main", Risk("read")),
+        ("ĐĂNG XUẤT", "TouchPoint/Desktop View", Risk("read")),
+        ("LƯU", "TouchPoint/Main", Risk("write")),
+        ("NÚT LẠ", "TouchPoint/Main", Risk("write")),  # not classified: write, never read
+        ("XÁC NHẬN", "TouchPoint/Chuyển tiền", Risk("money")),
+        ("DUYỆT", "TouchPoint/Phê duyệt", Risk("money", human_only=True)),
+    ],
+)
+def test_ie_clicks_are_classified_by_screen_and_label_since_there_is_no_api_to_see(label, screen, expected):
+    assert risk_of(ie_event("click", label, screen)) == expected
+
+
+def test_ie_typing_and_links_that_are_not_buttons_change_nothing():
+    assert risk_of(ie_event("input", "Mã khách hàng", tag="input")) == Risk("read")
+    assert risk_of(ie_event("click", "Một ô bất kỳ", tag="div")) == Risk("read")

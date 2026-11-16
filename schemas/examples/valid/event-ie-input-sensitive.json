@@ -1,0 +1,20 @@
+{
+  "schema_version": 2,
+  "engine": "ie",
+  "session_id": "s-0300",
+  "seq": 2,
+  "ts": "2026-11-16T03:20:11.250Z",
+  "type": "input",
+  "url": "TouchPoint/Main",
+  "target": {
+    "selectors": [
+      "frame=desktopFrame/rtop/main/fraProfileArea|id=txtCustomerId",
+      "frame=desktopFrame/rtop/main/fraProfileArea|name=txtPartyID"
+    ],
+    "label": "Mã khách hàng",
+    "tag": "input"
+  },
+  "value": null,
+  "value_class": "cif_number",
+  "api_calls": []
+}
