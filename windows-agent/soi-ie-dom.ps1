@@ -4,13 +4,13 @@
 $out = New-Object System.Collections.Generic.List[string]
 function Log($t) { Write-Host $t; $out.Add($t) }
 
-function Describe-Doc($doc, $indent) {
+function Describe-Doc($doc, $indent, $depth = 0) {
     try {
         $url = $doc.location.href; $title = $doc.title
-        Log "$indent- trang: '$title'  url(chi may chu): $(([uri]$url).Host)  che_do_tai_lieu: $($doc.documentMode)"
+        Log "$indent- khung_ten='$($doc.parentWindow.name)' trang: '$title'  url(chi may chu): $(([uri]$url).Host)  che_do_tai_lieu: $($doc.documentMode)"
         $kinds = @{}
         foreach ($e in $doc.getElementsByTagName('*')) { $k = $e.tagName; if ($kinds.ContainsKey($k)) { $kinds[$k]++ } else { $kinds[$k] = 1 } }
-        Log "$indent  so_the: $(($kinds.GetEnumerator() | Where-Object { $_.Key -in 'INPUT','BUTTON','SELECT','TEXTAREA','A','FORM','TABLE','IFRAME','FRAME','OBJECT','APPLET','EMBED' } | ForEach-Object { "$($_.Key)=$($_.Value)" }) -join ' ')"
+        Log "$indent  so_the: $(($kinds.GetEnumerator() | Where-Object { $_.Key -in 'INPUT','BUTTON','SELECT','TEXTAREA','A','FORM','TABLE','IFRAME','FRAME','FRAMESET','OBJECT','APPLET','EMBED' } | ForEach-Object { "$($_.Key)=$($_.Value)" }) -join ' ')"
         $n = 0
         foreach ($e in $doc.getElementsByTagName('input')) {
             if ($n -ge 25) { break }; $n++
@@ -20,9 +20,12 @@ function Describe-Doc($doc, $indent) {
         foreach ($e in $doc.getElementsByTagName('button')) { Log "$indent  nut: id='$($e.id)' chu='$($e.innerText)'" }
         foreach ($e in $doc.getElementsByTagName('object')) { Log "$indent  OBJECT: classid='$($e.classid)' type='$($e.type)'" }
         foreach ($e in $doc.getElementsByTagName('applet')) { Log "$indent  APPLET: code='$($e.code)'" }
-        $frames = $doc.getElementsByTagName('iframe'); $count = @($frames).Count
-        foreach ($f in $frames) {
-            try { Describe-Doc $f.contentWindow.document "$indent    " } catch { Log "$indent    (khong doc duoc iframe: $($_.Exception.Message))" }
+        # moi khung con (iframe va frame cua frameset), di sau toi da 6 tang
+        if ($depth -lt 6) {
+            $win = $doc.parentWindow; $total = [int]$win.frames.length
+            for ($i = 0; $i -lt $total; $i++) {
+                try { Describe-Doc $win.frames.item($i).document "$indent    " ($depth + 1) } catch { Log "$indent    (khung $i khong doc duoc: $($_.Exception.Message))" }
+            }
         }
     } catch { Log "$indent  (loi doc trang: $($_.Exception.Message))" }
 }
