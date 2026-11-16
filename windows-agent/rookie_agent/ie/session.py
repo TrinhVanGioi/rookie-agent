@@ -18,6 +18,7 @@ class IeSession:
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self.error: str | None = None
+        self.info: dict[str, Any] = {}  # what the bridge said at start: frames reached, frames listening
 
     @property
     def session_id(self) -> str:
@@ -27,6 +28,7 @@ class IeSession:
         """Start listening. Returns the bridge's answer (frames reached, frames listening) so the caller can tell the teller
         when the recorder could not be put into the page."""
         info = self._bridge.start_recording(self._tab_id) or {}
+        self.info = info
         self._thread = threading.Thread(target=self._loop, name="ie-feed", daemon=True)
         self._thread.start()
         return info

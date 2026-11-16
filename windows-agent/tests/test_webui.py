@@ -373,3 +373,14 @@ def test_a_page_the_recorder_could_not_get_into_is_explained_not_silently_empty(
     status, reply = core.dispatch("POST", "/api/record/start", {"window": "Internet Explorer: TouchPoint"})
     assert status == 400 and "Không gắn được bộ ghi" in reply["error"]
     assert core.dispatch("GET", "/api/state", {})[1]["recording"] is False
+
+
+def test_stopping_a_recording_that_caught_nothing_says_how_many_frames_listened_and_leaves_no_recording(tmp_path):
+    core, _ = ie_core(tmp_path)
+    core.dispatch("POST", "/api/record/start", {"window": "Internet Explorer: TouchPoint"})
+    status, reply = core.dispatch("POST", "/api/record/stop", {})
+    assert status == 400 and "5/5 khung" in reply["error"]
+    # the page must be able to show "Bắt đầu ghi" again: the agent is no longer recording
+    assert core.dispatch("GET", "/api/state", {})[1]["recording"] is False
+    # and a second Stop does not pretend to know about a recording
+    assert core.dispatch("POST", "/api/record/stop", {})[0] == 400

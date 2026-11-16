@@ -230,7 +230,15 @@ $("record").onclick = async () => {
       say("recmsg", "Đã ghi " + r.events + " thao tác. Các ô nhập: " + r.typed_fields + ", giá trị được lưu: " + r.typed_values_kept + ".", "ok");
       loadRecordings();
     }
-  } catch (e) { say("recmsg", e.message, "bad"); }
+  } catch (e) {
+    say("recmsg", e.message, "bad");
+    // A failed Stop still ends the recording on the agent; the button must show what the agent really is doing.
+    try {
+      const s = await api("GET", "/api/state"); recording = s.recording;
+      button.textContent = recording ? "Dừng ghi" : "Bắt đầu ghi"; button.className = recording ? "stop" : "primary";
+      if (!recording) $("recstate").textContent = "";
+    } catch (e2) { /* the agent is restarting */ }
+  }
   button.disabled = false;
 };
 

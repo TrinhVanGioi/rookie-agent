@@ -265,6 +265,8 @@ class Core:
         events = session.stop()
         if not events:
             hint = f" ({session.error})" if session.error else ""
+            if session.info.get("frames"):
+                hint += f" Bộ ghi đã gắn vào {session.info.get('attached', 0)}/{session.info['frames']} khung của trang."
             raise UserError("Chưa ghi được thao tác nào. Hãy thao tác trên ứng dụng sau khi bấm Bắt đầu ghi, rồi mới Dừng." + hint)
         document = self.store.save(session.session_id, events, name, engine="ie")
         return {"id": document["session_id"], **summarize_events(document["events"])}
