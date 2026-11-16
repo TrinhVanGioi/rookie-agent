@@ -67,7 +67,7 @@
     ]
   },
   "ie": {
-    "description": "Trang web trong Internet Explorer: theo màn hình (tiêu đề trang) và nhãn nút, vì không quan sát được API. Nút không khớp luật nào thì là write. Chữ trên nút được so không phân biệt hoa thường.",
+    "description": "Trang web trong Internet Explorer: theo màn hình (tiêu đề trang) và nhãn nút, vì không quan sát được API. Nút không khớp luật nào thì là write. Chữ trên nút được so không phân biệt hoa thường. Điều hướng chỉ xem (bấm dòng danh sách, thẻ chuyển đã biết, Enter ở ô mã khách hàng) là read; danh sách nhãn thẻ do người dùng bổ sung.",
     "default_click": "write",
     "click_roles": [
       "button",
@@ -102,6 +102,27 @@
         "risk": "money",
         "screen": "chuyển tiền|thanh toán|rút tiền|nộp tiền|transfer|payment",
         "label": "gửi duyệt|chuyển|xác nhận|hạch toán|submit|confirm"
+      },
+      {
+        "risk": "read",
+        "types": [
+          "click"
+        ],
+        "label": "^dòng \\d+$"
+      },
+      {
+        "risk": "read",
+        "types": [
+          "submit"
+        ],
+        "label": "mã khách hàng|customer id"
+      },
+      {
+        "risk": "read",
+        "types": [
+          "click"
+        ],
+        "label": "^(trang chủ kh|hồ sơ|thông tin tài khoản|thông tin tài|cơ hội bán|lịch sử sự kiện|tài khoản|hạn mức tín|thông tin đính|thông tin liên lạc|người liên hệ)$"
       },
       {
         "risk": "write",

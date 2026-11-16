@@ -98,3 +98,25 @@ def test_ie_clicks_are_classified_by_screen_and_label_since_there_is_no_api_to_s
 def test_ie_typing_and_links_that_are_not_buttons_change_nothing():
     assert risk_of(ie_event("input", "Mã khách hàng", tag="input")) == Risk("read")
     assert risk_of(ie_event("click", "Một ô bất kỳ", tag="div")) == Risk("read")
+
+
+@pytest.mark.parametrize(
+    "kind,label,screen,expected",
+    [
+        ("click", "dòng 2", "TouchPoint/Main", Risk("read")),           # a row of a list: looking at a customer's account
+        ("click", "dòng 12", "TouchPoint/Main", Risk("read")),
+        ("submit", "Mã khách hàng", "TouchPoint/Main", Risk("read")),   # Enter in the customer id: an enquiry
+        ("click", "Hồ sơ", "TouchPoint/Main", Risk("read")),            # tabs that only show
+        ("click", "Thông tin tài khoản", "TouchPoint/Main", Risk("read")),
+        ("click", "Lịch sử sự kiện", "TouchPoint/Main", Risk("read")),
+        ("click", "Người liên hệ", "TouchPoint/Main", Risk("read")),
+        ("click", "LƯU", "TouchPoint/Main", Risk("write")),             # still write
+        ("click", "Cập nhật hồ sơ", "TouchPoint/Main", Risk("write")),  # a label that merely starts like a tab
+        ("click", "Chuyển tiền", "TouchPoint/Chuyển tiền", Risk("money")),
+        ("submit", "Số tiền", "TouchPoint/Chuyển tiền", Risk("money")),
+        ("submit", "Ghi chú", "TouchPoint/Main", Risk("write")),        # Enter in an unknown field stays write
+        ("click", "DUYỆT", "TouchPoint/Phê duyệt", Risk("money", human_only=True)),
+    ],
+)
+def test_ie_read_only_navigation_is_read_and_everything_else_keeps_its_risk(kind, label, screen, expected):
+    assert risk_of(ie_event(kind, label, screen)) == expected
