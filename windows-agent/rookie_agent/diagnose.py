@@ -65,11 +65,13 @@ def pe_bits(path: Path) -> int | None:
 
 def find_java_installs(roots: list[Path] | None = None) -> list[JavaInstall]:
     if roots is None:
-        roots = [Path(os.environ.get(name, "")) / "Java" for name in ("ProgramFiles", "ProgramFiles(x86)") if os.environ.get(name)]
+        roots = [Path(os.environ.get(name, "")) / "Java" for name in ("ProgramFiles", "ProgramFiles(x86)", "ProgramW6432") if os.environ.get(name)]
     found: list[JavaInstall] = []
+    seen: set[str] = set()
     for root in roots:
-        if not root.is_dir():
+        if not root.is_dir() or str(root).lower() in seen:
             continue
+        seen.add(str(root).lower())
         for home in sorted(root.iterdir()):
             for runtime in (home, home / "jre"):
                 java = runtime / "bin" / "java.exe"

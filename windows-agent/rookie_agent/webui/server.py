@@ -35,11 +35,13 @@ def runtime_python(bits: int) -> Path | None:
     return None
 
 
-def relaunch(bits: int, port: int = PORT, start_server: bool = False) -> None:
+def relaunch(bits: int, port: int = PORT, start_server: bool = False, open_browser: bool = False) -> None:
     python = runtime_python(bits)
     if python is None:
         raise RuntimeError(f"Gói này không có Python {bits}-bit.")
-    command = [str(python), "-m", "rookie_agent", "web", "--port", str(port), "--no-browser"]
+    command = [str(python), "-m", "rookie_agent", "web", "--port", str(port)]
+    if not open_browser:  # the page that asked for the switch is already open; the icon has no page yet
+        command.append("--no-browser")
     if start_server:
         command.append("--start-server")
     subprocess.Popen(command, cwd=str(AGENT_ROOT), creationflags=NO_WINDOW)
@@ -188,7 +190,7 @@ def main(port: int = PORT, open_browser: bool = True, auto_bits: bool = False, s
         own = struct.calcsize("P") * 8
         wanted = diagnose.wanted_bits(diagnose.java_users(), diagnose.find_java_installs(), own)
         if wanted != own and runtime_python(wanted):
-            relaunch(wanted, port, start_server)
+            relaunch(wanted, port, start_server, open_browser)
             return
     local_server = LocalServer(home)
     core = build_core(home, local_server, start_server)

@@ -237,3 +237,18 @@ def test_an_empty_recording_is_not_saved(tmp_path):
     status, reply = core.dispatch("POST", "/api/record/stop", {})
     assert status == 400 and "Chưa ghi được" in reply["error"]
     assert core.store.listing() == []
+
+
+def test_the_icon_that_hands_over_to_another_bitness_still_opens_the_browser(monkeypatch, tmp_path):
+    """Clicking the desktop icon on a PC with 32-bit Java: the 32-bit copy must open the page, not start silently."""
+    import subprocess
+
+    from rookie_agent.webui import server
+
+    commands = []
+    monkeypatch.setattr(subprocess, "Popen", lambda command, **kw: commands.append(command))
+    monkeypatch.setattr(server, "runtime_python", lambda bits: tmp_path / f"py{bits}.exe")
+    server.relaunch(32, 8765, start_server=False, open_browser=True)
+    server.relaunch(32, 8765, start_server=True, open_browser=False)
+    assert "--no-browser" not in commands[0]
+    assert "--no-browser" in commands[1]
