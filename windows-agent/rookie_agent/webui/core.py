@@ -272,16 +272,23 @@ class Core:
         except ServerError as error:
             raise UserError(str(error)) from error
         workflow = reply["workflow"]
-        return {
+        shown = {
             "title": workflow.get("title") or title,
-            "inputs": [item["name"] for item in workflow["inputs"]],
+            "inputs": [item.get("label") or item["name"] for item in workflow["inputs"]],
             "steps": [
                 {"text": friendly_step(step["action"], (step.get("target") or {}).get("label")),
-                 "risk": RISK_WORDS.get(step["risk"], step["risk"]), "mode": MODE_WORDS.get(step["mode"], step["mode"])}
+                 "risk": RISK_WORDS.get(step["risk"], step["risk"]), "mode": MODE_WORDS.get(step["mode"], step["mode"]),
+                 "risk_key": step["risk"], "mode_key": step["mode"]}
                 for step in workflow["steps"]
             ],
             "warnings": reply["warnings"],
         }
+        flows = [flow for flow in self.store.get("flows", []) if flow.get("title") != shown["title"]]
+        self.store.put("flows", flows + [{**shown, "learned_at": time.strftime("%Y-%m-%d %H:%M:%S")}])
+        return shown
+
+    def flows(self, _: dict[str, Any]) -> dict[str, Any]:
+        return {"flows": self.store.get("flows", [])}
 
     # ---- a file to send back to the developers -----------------------------------------------
 
@@ -298,7 +305,7 @@ class Core:
         "POST /api/switch-bits": "switch_bits", "GET /api/windows": "windows", "POST /api/record/start": "record_start",
         "POST /api/record/stop": "record_stop", "GET /api/recordings": "recordings", "POST /api/recordings/delete": "delete_recording",
         "POST /api/server/check": "server_check", "POST /api/server/start": "server_start", "POST /api/learn": "learn",
-        "POST /api/diagnostics": "diagnostics",
+        "POST /api/diagnostics": "diagnostics", "GET /api/flows": "flows",
     }
 
     def dispatch(self, method: str, path: str, body: dict[str, Any]) -> tuple[int, dict[str, Any]]:

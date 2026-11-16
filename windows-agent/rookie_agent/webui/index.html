@@ -48,12 +48,29 @@
   table { width: 100%; border-collapse: collapse; margin: 8px 0; }
   td, th { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--line); font-size: 15px; vertical-align: top; }
   ol.steps { padding-left: 22px; margin: 8px 0; } ol.steps li { margin: 4px 0; }
+  .tabs { display: flex; gap: 6px; margin-bottom: 16px; }
+  .tabs button { border-radius: 8px 8px 0 0; }
+  .tabs button.on { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+  .canvas { background-color: var(--bg); background-image: radial-gradient(var(--line) 1px, transparent 1px); background-size: 18px 18px;
+    border: 1px solid var(--line); border-radius: 12px; padding: 28px 20px; overflow-x: auto; }
+  .flowrow { display: flex; align-items: center; width: max-content; }
+  .node { width: 170px; background: var(--card); border: 2px solid var(--line); border-left-width: 6px; border-radius: 10px; padding: 10px 12px; cursor: pointer; text-align: left; }
+  .node.read { border-left-color: var(--ok); } .node.write { border-left-color: var(--warn); } .node.money { border-left-color: var(--bad); }
+  .node.start { border-left-color: var(--accent); }
+  .node.sel { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent); }
+  .node .n { font-size: 12px; color: var(--muted); } .node .t { font-size: 14px; font-weight: 600; margin: 2px 0 6px; }
+  .badge { display: inline-block; font-size: 12px; border-radius: 999px; padding: 1px 8px; background: var(--line); margin-right: 4px; }
+  .link { width: 34px; height: 2px; background: var(--muted); position: relative; flex: none; }
+  .link::after { content: ""; position: absolute; right: -1px; top: -4px; border-left: 7px solid var(--muted); border-top: 5px solid transparent; border-bottom: 5px solid transparent; }
   [hidden] { display: none !important; }
 </style>
 </head>
 <body>
 <main>
   <header><h1>Rookie Agent</h1><span class="chip" id="bits"></span></header>
+  <div class="tabs"><button id="tabWork" class="on">Ghi và Học</button><button id="tabFlow">Luồng</button></div>
+
+  <div id="paneWork">
 
   <section>
     <h2>1. Kiểm tra máy</h2>
@@ -97,6 +114,18 @@
     <p class="sub">Tạo một file nhỏ chỉ có kết quả kiểm tra và tên các bước. Không có giá trị bạn đã nhập.</p>
     <div class="row"><button id="diag">Tạo file chẩn đoán</button><span id="diagmsg"></span></div>
   </section>
+  </div>
+
+  <div id="paneFlow" hidden>
+    <section>
+      <h2>Luồng đã học</h2>
+      <p class="sub">Mỗi ô là một bước agent đã học, nối theo thứ tự chạy. Bấm vào ô để xem chi tiết. Màu viền: xanh là chỉ xem, vàng là ghi dữ liệu, đỏ là tiền. Trang này chỉ để xem, chưa sửa được.</p>
+      <div class="row"><select id="flowPick" class="grow"></select><button id="flowRefresh">Làm mới</button></div>
+      <div id="flowEmpty" class="msg bad" hidden>Chưa có luồng nào. Hãy Ghi 3 lần rồi bấm Học ở tab «Ghi và Học».</div>
+      <div class="canvas" id="canvas" hidden><div class="flowrow" id="flowrow"></div></div>
+      <div id="flowDetail"></div>
+    </section>
+  </div>
 </main>
 <script>
 const $ = (id) => document.getElementById(id);
@@ -247,6 +276,42 @@ $("check").onclick = runCheck;
   if (recording) { $("record").textContent = "Dừng ghi"; $("record").className = "stop"; }
   loadRecordings(); runCheck(); serverCheck();
 })();
+
+function showTab(name) {
+  $("paneWork").hidden = name !== "work"; $("paneFlow").hidden = name !== "flow";
+  $("tabWork").className = name === "work" ? "on" : ""; $("tabFlow").className = name === "flow" ? "on" : "";
+  if (name === "flow") loadFlows();
+}
+$("tabWork").onclick = () => showTab("work"); $("tabFlow").onclick = () => showTab("flow");
+
+let flows = [];
+async function loadFlows() {
+  flows = (await api("GET", "/api/flows")).flows;
+  const pick = $("flowPick"); pick.textContent = "";
+  flows.forEach((flow, i) => { const o = el("option", flow.title + " — " + flow.learned_at); o.value = i; pick.append(o); });
+  $("flowEmpty").hidden = flows.length > 0; $("canvas").hidden = flows.length === 0; $("flowPick").hidden = flows.length === 0;
+  if (flows.length) drawFlow(flows[pick.value || 0]);
+}
+function drawFlow(flow) {
+  const row = $("flowrow"); row.textContent = ""; $("flowDetail").textContent = "";
+  const nodes = [{ cls: "start", n: "Bắt đầu", t: flow.title, lines: flow.inputs.length ? ["Nhập mỗi lần: " + flow.inputs.join(", ")] : ["Không có thông tin thay đổi"], badges: [] }]
+    .concat(flow.steps.map((s, i) => ({ cls: s.risk_key, n: "Bước " + (i + 1), t: s.text, lines: ["Mức rủi ro: " + s.risk, "Khi chạy: " + s.mode], badges: [s.risk, s.mode] })));
+  nodes.push({ cls: "start", n: "Kết thúc", t: "Xong", lines: ["Bước ghi và bước tiền luôn dừng chờ người duyệt."], badges: [] });
+  nodes.forEach((node, i) => {
+    if (i) row.append(el("div", undefined, "link"));
+    const b = el("button", undefined, "node " + node.cls);
+    b.append(el("div", node.n, "n"), el("div", node.t, "t"));
+    const badges = el("div"); node.badges.forEach((x) => badges.append(el("span", x, "badge"))); b.append(badges);
+    b.onclick = () => {
+      row.querySelectorAll(".node").forEach((x) => x.classList.remove("sel")); b.classList.add("sel");
+      const box = $("flowDetail"); box.textContent = ""; const d = el("div", undefined, "msg ok");
+      d.append(el("strong", node.n + ": " + node.t)); node.lines.forEach((l) => d.append(el("div", l, "detail"))); box.append(d);
+    };
+    row.append(b);
+  });
+}
+$("flowPick").onchange = () => drawFlow(flows[$("flowPick").value]);
+$("flowRefresh").onclick = loadFlows;
 </script>
 </body>
 </html>

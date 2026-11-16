@@ -252,3 +252,21 @@ def test_the_icon_that_hands_over_to_another_bitness_still_opens_the_browser(mon
     server.relaunch(32, 8765, start_server=True, open_browser=False)
     assert "--no-browser" not in commands[0]
     assert "--no-browser" in commands[1]
+
+
+def test_a_learned_flow_is_kept_and_listed_for_the_flow_tab(tmp_path):
+    core, session = make_core(tmp_path)
+    assert core.dispatch("GET", "/api/flows", {}) == (200, {"flows": []})
+    record_one(core, session)
+    record_one(core, session)
+    ids = [row["id"] for row in core.store.listing()]
+    core.dispatch("POST", "/api/learn", {"ids": ids, "title": "Vấn tin tài khoản"})
+    status, reply = core.dispatch("GET", "/api/flows", {})
+    assert status == 200 and len(reply["flows"]) == 1
+    flow = reply["flows"][0]
+    assert flow["title"] == "Vấn tin tài khoản"
+    assert flow["steps"][0]["text"] == "Nhập vào «Số tài khoản»"
+    assert flow["steps"][0]["risk_key"] == "read" and flow["steps"][0]["mode_key"] in ("auto", "review", "approve")
+    # learning the same title again replaces the flow instead of piling up copies
+    core.dispatch("POST", "/api/learn", {"ids": ids, "title": "Vấn tin tài khoản"})
+    assert len(core.dispatch("GET", "/api/flows", {})[1]["flows"]) == 1
