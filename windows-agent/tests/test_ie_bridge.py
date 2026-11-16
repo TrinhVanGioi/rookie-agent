@@ -39,7 +39,11 @@ def test_the_page_recorder_runs_in_real_mshtml_quirks_mode_and_keeps_secrets_out
     assert flags == "BackCompat|undefined|undefined"  # quirks mode: no JSON, no addEventListener, like the old pages
     events = [json.loads(line) for line in lines if line.startswith("{")]
     kinds = [(e["kind"], e["id"]) for e in events]
-    assert kinds == [("input", "txtCustomerId"), ("submit", "pw"), ("input", "amt"), ("submit", "amt"), ("click", "btnSave")]
+    assert kinds[:5] == [("input", "txtCustomerId"), ("submit", "pw"), ("input", "amt"), ("submit", "amt"), ("click", "btnSave")]
+    # what a teller sees as clickable counts, whatever its tag: a tab (hand cursor), a row of a list, the text of a menu item;
+    # plain text that cannot be pressed does not
+    after = events[5:]
+    assert [(e["tag"], e["id"], e["label"]) for e in after] == [("td", "tabHoSo", "Ho so"), ("tr", "row1", "-3864 DDA 9.998.920.766"), ("span", "inner", "Duy tri")]
     assert events[0]["label"] == "Ma khach hang" and events[0]["value"] == "0123456789"  # raw here; the agent decides what to keep
     everything = "\n".join(lines)
     assert "TOPSECRET" not in everything and "SECRET1" not in everything  # a password and a hidden field are never read

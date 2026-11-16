@@ -25,12 +25,14 @@ PRESS_DEBOUNCE_MS = 500
 IGNORED_TYPES = frozenset({"password", "hidden", "file"})
 # The page-side recorder already skips these; the agent does not rely on it.
 SECRET_NAME = re.compile(r"pass|pwd|otp|secret|mat.?khau|(?<![a-z])pin(?![a-z])", re.IGNORECASE)
-LONG_NUMBER = re.compile(r"\d{6,}")
-PRESSABLE_TAGS = {"button": "button", "a": "link", "input": "button", "img": "button", "td": "button", "div": "button", "span": "button", "li": "button"}
+# A word with 3 or more digits in it (an account number, an amount with its separators, a date) is replaced whole:
+# masking only the digit runs would leave "9" of "9.998.920.766" and the sign of "-3864".
+NUMBERISH = re.compile(r"\S*\d\S*\d\S*\d\S*")
+PRESSABLE_TAGS = {"a": "link"}  # every other tag that was pressed (button, tab, list row, menu text) is a "button"
 
 
 def _mask(text: str | None) -> str:
-    return LONG_NUMBER.sub("#", " ".join((text or "").split()))[:60]
+    return NUMBERISH.sub("#", " ".join((text or "").split()))[:60]
 
 
 def _iso(milliseconds: int) -> str:

@@ -87,6 +87,11 @@
     try {
       var g = tag(el);
       if (g === "INPUT") { t = el.value || el.title || el.alt || el.id; }
+      else if (g === "TR") {            // a row of a list: its cells, separated (innerText may run them together)
+        var cells = el.cells, k, parts = [];
+        for (k = 0; k < cells.length && k < 8; k++) { parts.push(cells[k].innerText); }
+        t = parts.join(" ");
+      }
       else { t = el.innerText || el.title || el.alt || el.id || el.name; }
     } catch (e) {}
     return clean(t);
@@ -127,18 +132,32 @@
     } catch (e) { return ""; }
   }
 
-  // The nearest thing a teller can press: a button, a link, a check box, or an element with its own click handler.
+  // Anything a teller can press, whatever its tag: a button, a link, a check box; a tab, a menu item, a row of a list
+  // (hand cursor, or its own click handler). Text that cannot be pressed is not an action. When the whole chain of
+  // ancestors shows the hand cursor (it is inherited), the outermost of them is the thing pressed.
+  var PLAIN_FIELD = { TEXTAREA: 1, SELECT: 1, OPTION: 1 };
+  function handCursor(el) {
+    var c = "";
+    try { c = String(el.currentStyle.cursor || "").toLowerCase(); } catch (e) {}
+    return c === "pointer" || c === "hand";
+  }
   function actionable(el) {
-    var depth = 0, g, t;
-    while (el && depth++ < 6) {
+    var depth = 0, g, t, found = null, parent;
+    while (el && depth++ < 10) {
       g = tag(el);
       t = typeOf(el);
+      if (g === "BODY" || g === "HTML") { break; }
+      if (PLAIN_FIELD[g] || (g === "INPUT" && (t === "text" || t === "password" || t === "" || t === "file"))) { return null; }
       if (g === "BUTTON" || g === "A") { return el; }
       if (g === "INPUT" && (t === "button" || t === "submit" || t === "image" || t === "reset" || t === "checkbox" || t === "radio")) { return el; }
-      if ((g === "TD" || g === "DIV" || g === "SPAN" || g === "IMG" || g === "LI") && el.onclick) { return el; }
+      if (el.onclick || handCursor(el)) {
+        found = el;
+        parent = el.parentNode;
+        if (!parent || !(parent.onclick || handCursor(parent)) || tag(parent) === "BODY") { return found; }
+      }
       el = el.parentNode;
     }
-    return null;
+    return found;
   }
 
   function isField(el) {

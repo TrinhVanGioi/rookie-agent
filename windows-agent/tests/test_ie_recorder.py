@@ -115,3 +115,13 @@ def test_the_same_press_reported_twice_in_a_moment_is_one_click():
     r.handle(raw("click", t=1200, tag="button", type="button", id="b", label="LƯU"))
     r.handle(raw("click", t=3000, tag="button", type="button", id="b", label="LƯU"))
     assert len(r.stop()) == 2
+
+
+def test_a_list_row_or_a_tab_is_a_click_and_the_numbers_in_it_are_masked():
+    r = recorder()
+    r.handle(raw("click", tag="tr", type="", id="", label="-3864 DDA 9.998.920.766", pos=4))
+    r.handle(raw("click", t=3000, tag="td", type="", id="tabHoSo", label="Hồ sơ"))
+    rows, tab = r.stop()
+    assert rows["target"]["label"] == "# DDA #" and rows["target"]["tag"] == "button"
+    assert "9.998" not in json.dumps(rows) and "3864" not in json.dumps(rows)
+    assert tab["target"]["label"] == "Hồ sơ"
