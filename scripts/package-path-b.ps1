@@ -83,7 +83,7 @@ foreach ($wheel in Get-ChildItem $wheels -Filter *.whl) {
     if ($LASTEXITCODE -ne 0) { throw "Could not unpack $($wheel.Name)" }
 }
 Remove-Item -Recurse -Force $wheels
-foreach ($cmd in @("Cai-dat.cmd", "Cai-extension-Chrome.cmd", "Go-cai-dat.cmd", "Bat-ghi-Enter.cmd", "Tat-ghi-Enter.cmd")) { Copy-Item (Join-Path $repo "windows-agent\install\$cmd") $stage }
+foreach ($cmd in @("Cai-dat.cmd", "Cai-extension-Chrome.cmd", "Go-cai-dat.cmd", "Xem-loi.cmd", "Bat-ghi-Enter.cmd", "Tat-ghi-Enter.cmd", "package.json", "start.js")) { Copy-Item (Join-Path $repo "windows-agent\install\$cmd") $stage }
 
 # The guide, if it has been written (dist\Huong-dan-chay-thu-Rookie-Agent.docx), goes in the package too
 $guide = Join-Path $dist "Huong-dan-chay-thu-Rookie-Agent.docx"
