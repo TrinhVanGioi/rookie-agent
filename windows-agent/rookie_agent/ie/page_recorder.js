@@ -82,8 +82,24 @@
     return clean(t);
   }
 
+  // A row of a list of data (accounts, customers) is named by its position, never by its text: the text is the
+  // customer's. Buttons, links and the tabs of a strip keep their text, which is the name of the screen's own controls.
+  function dataRowLabel(el) {
+    var row = el, table, depth = 0, text, g = tag(el);
+    if (g === "BUTTON" || g === "A" || g === "INPUT") { return ""; }
+    while (row && depth++ < 8 && tag(row) !== "TR") { row = row.parentNode; }
+    if (!row || tag(row) !== "TR") { return ""; }
+    table = row.parentNode;
+    while (table && tag(table) !== "TABLE") { table = table.parentNode; }
+    if (!table || table.rows.length < 3 || row.cells.length < 2) { return ""; }
+    try { text = String(row.innerText || ""); } catch (e) { text = ""; }
+    if (row.cells.length < 3 && !/\d{3}/.test(text)) { return ""; }
+    return "dòng " + (row.rowIndex + 1);
+  }
+
   function actionLabel(el) {
-    var t = "";
+    var t = "", row = dataRowLabel(el);
+    if (row) { return row; }
     try {
       var g = tag(el);
       if (g === "INPUT") { t = el.value || el.title || el.alt || el.id; }

@@ -311,8 +311,10 @@ Ngoài lấy dữ liệu, agent so sánh theo rule của người dùng và gi�
 | --- | --- |
 | Version | Mỗi lần sửa tạo version mới, quay lại được bản cũ |
 | Điểm | Tỷ lệ chạy đúng, số bước phải sửa tay, thời gian tiết kiệm so với làm thủ công |
-| Chia sẻ | Riêng tư, nhóm hoặc toàn đơn vị; mặc định chia sẻ trong đơn vị, có chế độ riêng tư |
+| Chia sẻ | **Mặc định riêng tư** (chỉ chủ agent). Chỉ chủ agent mới cho phép chia sẻ (nhóm hoặc toàn đơn vị) và chính chủ agent duyệt việc đó. Trước khi chia sẻ, chủ agent xem trước đúng nội dung sẽ chia sẻ (các bước, nhãn, tên tham số; không có giá trị nào) |
 | Clone | Người khác sao chép agent và chỉnh rule theo cách làm của mình; bản gốc không đổi |
+
+**Bản ghi thô được giữ** (quyết định của chủ dự án) để agent học liên tục và hình thành một bộ tri thức. Vì vậy bản ghi chỉ được chứa dữ liệu đã che (mục 4.2, 9), chỉ chủ sở hữu đọc được, và chủ sở hữu xoá được bất cứ lúc nào. Dòng của danh sách dữ liệu (tài khoản, khách hàng) chỉ lưu vị trí («dòng 2»), không lưu chữ, vì chữ đó có thể là tên khách.
 
 **Tri thức hai tầng.** Tầng cá nhân (rule và ghi nhớ riêng của từng người) tách khỏi tầng chung. Phản hồi sửa lỗi của người dùng chỉ đi vào tầng chung sau khi người sở hữu xác nhận và có người duyệt nghiệp vụ. Cách này tránh tình huống hai người làm khác nhau mà hệ thống không biết học theo ai.
 
