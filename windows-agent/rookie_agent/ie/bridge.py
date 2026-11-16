@@ -111,8 +111,9 @@ class IeBridge:
         """Frames, input fields, buttons and objects (ActiveX or applet) of a tab, for the machine check."""
         return dict(self.request({"cmd": "probe", "id": tab_id}, timeout=30).get("info") or {})
 
-    def start_recording(self, tab_id: int) -> None:
-        self.request({"cmd": "start", "id": tab_id}, timeout=30)
+    def start_recording(self, tab_id: int) -> dict[str, Any]:
+        """Put the recorder into the page. Answers how many frames were reached (`frames`) and how many now listen (`attached`)."""
+        return self.request({"cmd": "start", "id": tab_id}, timeout=30)
 
     def poll(self) -> list[dict[str, Any]]:
         lines = self.request({"cmd": "poll"}, timeout=30).get("lines") or []

@@ -199,22 +199,22 @@
     var e, el;
     if (!window.__rkRec) { return; }
     e = ev || window.event;
-    el = actionable(e ? e.srcElement : null);
+    el = actionable(e ? (e.srcElement || e.target) : null);
     if (!el || isSecret(el)) { return; }
     emit("click", el, null, actionLabel(el));
   }
   function onFocusIn(ev) {
-    var e = ev || window.event, el = e ? e.srcElement : null;
+    var e = ev || window.event, el = e ? (e.srcElement || e.target) : null;
     if (!window.__rkRec || !el || !isField(el) || isSecret(el)) { return; }
     el.__rkv = valueOf(el);
   }
   function onFocusOut(ev) {
-    var e = ev || window.event, el = e ? e.srcElement : null;
+    var e = ev || window.event, el = e ? (e.srcElement || e.target) : null;
     if (!window.__rkRec || !el) { return; }
     flushField(el);
   }
   function onKeyDown(ev) {
-    var e = ev || window.event, el = e ? e.srcElement : null;
+    var e = ev || window.event, el = e ? (e.srcElement || e.target) : null;
     if (!window.__rkRec || !el || e.keyCode !== 13) { return; }
     if (tag(el) === "INPUT" && isField(el) && !isSecret(el)) {
       flushField(el);                       // the typed value first, then the Enter that sends it
@@ -230,8 +230,15 @@
     };
   }
   window.__rkHandlers = { click: onClick, focusin: onFocusIn, focusout: onFocusOut, keydown: onKeyDown }; // for tests
-  doc.attachEvent("onclick", guarded("click", onClick));
-  doc.attachEvent("onfocusin", guarded("focusin", onFocusIn));
-  doc.attachEvent("onfocusout", guarded("focusout", onFocusOut));
-  doc.attachEvent("onkeydown", guarded("keydown", onKeyDown));
+  // Old IE (quirks, document mode 5..8) has attachEvent only; IE9+ in standards mode has addEventListener only.
+  // focusin/focusout are used because they bubble; with addEventListener the capture phase is used as well.
+  function listen(name, handler) {
+    if (doc.attachEvent) { doc.attachEvent("on" + name, handler); window.__rkAttached = "attachEvent"; return; }
+    if (doc.addEventListener) { doc.addEventListener(name, handler, true); window.__rkAttached = "addEventListener"; }
+  }
+  window.__rkAttached = "none";
+  listen("click", guarded("click", onClick));
+  listen("focusin", guarded("focusin", onFocusIn));
+  listen("focusout", guarded("focusout", onFocusOut));
+  listen("keydown", guarded("keydown", onKeyDown));
 })();

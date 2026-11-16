@@ -246,7 +246,8 @@ def cmd_ie_probe(args: argparse.Namespace) -> int:
         tab = tabs[0]
         print(f"\nGhi thử {args.seconds} giây trên «{tab['title']}». Hãy thao tác trên trang đó ngay bây giờ...")
         session = IeSession(bridge, tab["id"], tab["title"])
-        session.start()
+        info = session.start()
+        print(f"Bộ ghi đã gắn vào {info.get('attached')}/{info.get('frames')} khung của trang.")
         time.sleep(args.seconds)
         events = session.stop()
         print(f"Ghi được {len(events)} thao tác (giá trị nhạy cảm đã bỏ):")

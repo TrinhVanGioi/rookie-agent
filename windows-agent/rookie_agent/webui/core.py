@@ -250,9 +250,13 @@ class Core:
             raise UserError("Không thấy trang này trong Internet Explorer. Mở màn hình cần ghi rồi thử lại.")
         session = IeSession(self._ie_bridge, tab["id"], title)
         try:
-            session.start()
+            info = session.start()
         except Exception as error:
             raise UserError(f"Chưa ghi được trang Internet Explorer: {error}") from error
+        if info.get("frames") and not info.get("attached"):
+            session.stop()
+            raise UserError("Không gắn được bộ ghi vào trang này (trang bị chặn hoặc các khung khác nguồn). "
+                            "Chạy lệnh ie-probe trong thư mục windows-agent rồi gửi kết quả cho nhóm phát triển.")
         self._ie_session = session
         return {"recording": True}
 

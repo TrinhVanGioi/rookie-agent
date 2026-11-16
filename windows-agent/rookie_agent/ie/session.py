@@ -23,10 +23,13 @@ class IeSession:
     def session_id(self) -> str:
         return self.recorder.session_id
 
-    def start(self) -> None:
-        self._bridge.start_recording(self._tab_id)
+    def start(self) -> dict[str, Any]:
+        """Start listening. Returns the bridge's answer (frames reached, frames listening) so the caller can tell the teller
+        when the recorder could not be put into the page."""
+        info = self._bridge.start_recording(self._tab_id) or {}
         self._thread = threading.Thread(target=self._loop, name="ie-feed", daemon=True)
         self._thread.start()
+        return info
 
     def _loop(self) -> None:
         while not self._stop.wait(self._poll_seconds):

@@ -284,8 +284,11 @@ class FakeIeBridge:
     def probe(self, tab_id):
         return {"frames": [{"name": "main", "mode": 5, "inputs": 3}] * 5, "inputs": 40, "buttons": 6, "objects": 0}
 
+    attached = 5
+
     def start_recording(self, tab_id):
         self.started = tab_id
+        return {"frames": 5, "attached": self.attached}
 
     def poll(self):
         return []
@@ -361,3 +364,12 @@ def test_a_recorded_ie_session_is_sent_to_the_server_as_engine_ie(tmp_path):
     ids = [row["id"] for row in core.store.listing()]
     assert core.dispatch("POST", "/api/learn", {"ids": ids, "title": "Xem"})[0] == 200
     assert sent == ["ie", "ie"]
+
+
+def test_a_page_the_recorder_could_not_get_into_is_explained_not_silently_empty(tmp_path):
+    bridge = FakeIeBridge()
+    bridge.attached = 0
+    core, _ = ie_core(tmp_path, bridge)
+    status, reply = core.dispatch("POST", "/api/record/start", {"window": "Internet Explorer: TouchPoint"})
+    assert status == 400 and "Không gắn được bộ ghi" in reply["error"]
+    assert core.dispatch("GET", "/api/state", {})[1]["recording"] is False

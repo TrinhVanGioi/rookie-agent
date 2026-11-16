@@ -104,8 +104,14 @@ while ($true) {
                 $tab = Get-IeTabs | Where-Object { $_.id -eq [int]$request.id } | Select-Object -First 1
                 if ($null -eq $tab) { Reply @{ ok = $false; error = 'tab not found' }; continue }
                 $script:bound = $tab.window
-                foreach ($w in (Get-Windows $bound.Document.parentWindow)) { Inject $w }
-                Reply @{ ok = $true; title = $tab.title }
+                $frames = 0; $attached = 0
+                foreach ($w in (Get-Windows $bound.Document.parentWindow)) {
+                    Inject $w
+                    $frames++
+                    $how = Get-Prop $w '__rkAttached'
+                    if ($how -and $how -ne 'none') { $attached++ }
+                }
+                Reply @{ ok = $true; title = $tab.title; frames = $frames; attached = $attached }
             }
             'poll' {
                 if ($null -eq $bound) { Reply @{ ok = $false; error = 'not started' } } else { Reply @{ ok = $true; lines = @(Collect) } }
