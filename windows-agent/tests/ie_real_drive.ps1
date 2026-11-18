@@ -56,6 +56,10 @@ document.cookie = '__rkkeep=' + encodeURIComponent(line) + '; path=/';
   'f-logoff'    { $fd = Get-Frame $d 'desktopFrame/rhidden'; $e = $fd.getElementById('btnLogoff'); $e.focus(); $e.click() }
   'f-ok'        { $fd = Get-Frame $d 'desktopFrame/rhidden'; $e = $fd.getElementById('btnSelect'); $e.focus(); $e.click() }
   'click-label' { $d.getElementById('lblUser').click() }
+  'c-open'    { $e = $d.getElementById('btnOpen'); Send-MouseDown $d 'btnOpen'; $e.focus(); $e.click() }
+  'c-cif'     { $e = $d.getElementById('txtCif'); Do-Focus $d $e; $e.value = $env:RK_VALUE; Do-Blur $d $e }
+  'c-find'    { $e = $d.getElementById('btnFind'); Send-MouseDown $d 'btnFind'; $e.focus(); $e.click() }
+  'c-detail'  { $e = $d.getElementById('btnDetail'); Send-MouseDown $d 'btnDetail'; $e.focus(); $e.click() }
   's-acct'    { $fd = Get-Frame $d 'main'; $e = $fd.getElementById('txtAcct'); Do-Focus $fd $e; $e.value = $env:RK_VALUE; Do-Blur $fd $e }
   's-copy'    { $fd = Get-Frame $d 'main'; $e = $fd.getElementById('txtCopy'); Do-Focus $fd $e; $e.value = $env:RK_COPY; Do-Blur $fd $e }
   's-find'    { $fd = Get-Frame $d 'main'; $e = $fd.getElementById('btnFind'); Send-MouseDown $fd 'btnFind'; $e.focus(); $e.click() }

@@ -114,7 +114,23 @@ SLOW = b"<html><head><title>RookieE2E Slow</title></head><body><div>first part</
 # the cookies the page's next request would carry.
 JSLINK = (b'<html><head><title>RookieE2E Link</title></head><body><input type="text" id="txtQ" name="txtQ">'
           b'<a id="lnkFind" href="javascript:window.__ck=String(document.cookie);void(0)">TIM KIEM</a></body></html>')
-PAGES = {"/jslink": JSLINK, "/slowpage": SLOW, "/opener": OPENER, "/ajaxtab": AJAXTAB, "/ajaxnav": AJAXNAV, "/ajax2": AJAX2, "/form": FORM, "/ajax": AJAX, "/search": SEARCH_TOP, "/clock": CLOCK, "/searchform": SEARCH_FORM, "/desktop": DESKTOP, "/rhidden": RHIDDEN, "/rhidden2": RHIDDEN2, "/blank": BLANK}
+CIFAPP = b"""<html><head><title>RookieE2E Cif</title></head><body>
+<input type="button" id="btnOpen" value="Xem" onclick="openScreen()">
+<input type="text" id="txtCif" name="txtCif">
+<input type="button" id="btnFind" value="Search" onclick="find()">
+<form id="fDetail" method="post" action="/api/detail" target="resf"><input type="hidden" id="kh" name="kh" value=""><input type="submit" id="btnDetail" value="Xem chi tiet"></form>
+<div id="res"></div><iframe name="resf" id="resf" src="/blank"></iframe>
+<script>
+var tok = "";
+function xhr() { return window.XMLHttpRequest ? new XMLHttpRequest() : new ActiveXObject('Msxml2.XMLHTTP'); }
+function openScreen() { var x = xhr(); x.open('GET', '/api/init', true); x.onreadystatechange = function () { if (x.readyState == 4) { tok = x.responseText.split('"tok":"')[1].split('"')[0]; } }; x.send(null); }
+function find() {
+  var x = xhr(); x.open('POST', '/api/cif2', true); x.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+  x.onreadystatechange = function () { if (x.readyState == 4) { document.getElementById('res').innerHTML = x.responseText; document.getElementById('kh').value = x.responseText.split('"kh":"')[1].split('"')[0]; } };
+  x.send('cif=' + document.getElementById('txtCif').value + '&xsrf=' + tok);
+}
+</script></body></html>"""
+PAGES = {"/cifapp": CIFAPP, "/jslink": JSLINK, "/slowpage": SLOW, "/opener": OPENER, "/ajaxtab": AJAXTAB, "/ajaxnav": AJAXNAV, "/ajax2": AJAX2, "/form": FORM, "/ajax": AJAX, "/search": SEARCH_TOP, "/clock": CLOCK, "/searchform": SEARCH_FORM, "/desktop": DESKTOP, "/rhidden": RHIDDEN, "/rhidden2": RHIDDEN2, "/blank": BLANK}
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -123,7 +139,13 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("X-UA-Compatible", "IE=" + os.environ.get("RK_DOCMODE", "5"))   # document mode 5 like TouchPoint: no addEventListener, attachEvent only
         self.end_headers(); self.wfile.write(body)
 
+    token, seen = "", []
+
     def do_GET(self):
+        if self.path.startswith("/api/init"):     # Gate 8: the screen opening gives a new anti-forgery token each time
+            Handler.token = "T%d" % int(time.time() * 1000)
+            self._json(('{"tok":"%s"}' % Handler.token).encode("utf-8"))
+            return
         if self.path.startswith("/api/fail"):
             self.send_response(500); self.send_header("Content-Type", "text/plain"); self.end_headers(); self.wfile.write(b"server error")
             return
@@ -142,6 +164,19 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(200); self.send_header("Content-Type", "application/json"); self.end_headers(); self.wfile.write(body)
 
     def do_POST(self):
+        if self.path.startswith("/api/cif2"):     # Gate 8: needs the token the screen opening gave; answers a customer number of its own
+            body = dict(x.split("=", 1) for x in self.rfile.read(int(self.headers.get("Content-Length") or 0)).decode("utf-8").split("&") if "=" in x)
+            if body.get("xsrf") != Handler.token:
+                self.send_response(403); self.end_headers(); return
+            cif = body.get("cif", "")
+            Handler.seen.append(cif)
+            self._json(('{"kh":"KX%d","name":"KHACH %s"}' % (sum(int(c) for c in cif if c.isdigit()) * 137 + 7, cif)).encode("utf-8"))
+            return
+        if self.path.startswith("/api/detail"):   # a form posted into the frame: the customer number the search gave
+            body = self.rfile.read(int(self.headers.get("Content-Length") or 0)).decode("utf-8")
+            Handler.seen.append(body)
+            self._send(("<html><body><table><tr><td>Ma KH</td><td>%s</td></tr></table></body></html>" % body.split("=", 1)[-1]).encode("utf-8"))
+            return
         if self.path.startswith("/api/cif"):      # Gate 7: echoes the customer id, the page's session cookie and a header the page set
             body = self.rfile.read(int(self.headers.get("Content-Length") or 0)).decode("utf-8")
             if self.headers.get("X-Test") != "1":
@@ -1145,3 +1180,72 @@ def test_a_learned_request_is_sent_again_from_the_page_in_its_own_session_and_th
     assert refused["ok"] and refused["status"] == 403
     assert nowhere == {"ok": False, "error": "no_frame"}
     assert shown == "|"                                                  # nothing on the screen was filled or clicked
+
+
+def test_an_element_whose_frame_was_renamed_since_the_recording_is_found_in_its_one_frame():
+    """TouchPoint may name or order its frames differently after another sign-in: the selectors are then asked of every frame."""
+    from rookie_agent.ie.driver import IeDriver
+
+    with real_ie("/form") as bridge:
+        tab = next(t for t in bridge.tabs() if "RookieE2E" in t["title"])
+        IeDriver(bridge, tab["id"]).fill(["frame=gone/main|id=txtAcct", "frame=gone/main|label=So tai khoan"], "5566778899")
+        os.environ["RK_JS"] = "window.__res = document.getElementById('txtAcct').value;"
+        shown = drive("js")
+    assert shown == "5566778899"
+
+
+def test_record_the_api_calls_learn_them_and_run_them_from_the_page_with_a_new_customer_id(tmp_path):
+    """Gate 8 end to end: the screen opening gives a token, the search sends it with the typed id, the detail form posts the customer
+    number the search answered. Learned from one recording, run with another id: every call goes with this run's values."""
+    import sys
+    import time as _time
+    from pathlib import Path
+
+    repo = Path(__file__).resolve().parents[2]
+    from tests.test_webui import make_core
+    sys.path.append(str(repo / "server"))
+    from app.main import create_app
+    from fastapi.testclient import TestClient
+
+    app = create_app(tmp_path / "server.db")
+    app.state.flow_builder = None
+    Handler.seen.clear()
+    with TestClient(app) as server, real_ie("/cifapp") as bridge:
+        core, _ = make_core(tmp_path, ie_bridge=lambda: bridge, server_client=lambda url: _InProcessServer(server))
+        for _ in range(75):                                   # the page with a frame takes a moment to show its title
+            tab = next((t for t in bridge.tabs() if "RookieE2E Cif" in t["title"]), None)
+            if tab:
+                break
+            _time.sleep(0.2)
+        assert tab, bridge.tabs()
+        assert core.dispatch("POST", "/api/record/start", {"window": f"ie-tab:{tab['id']}", "requests": True})[0] == 200
+        _time.sleep(1.0)
+        os.environ["RK_VALUE"] = "0123456789"
+        for action, wait in (("c-open", 1.0), ("c-cif", 0.5), ("c-find", 1.5), ("c-detail", 2.5)):
+            drive(action, "RookieE2E Cif")
+            _time.sleep(wait)
+        status, saved = core.dispatch("POST", "/api/record/stop", {"name": "tra cif"})
+        assert status == 200 and saved["requests_kept"] >= 3, saved
+        status, shown = core.dispatch("POST", "/api/learn", {"ids": [saved["id"]], "title": "Tra CIF"})
+        assert status == 200 and shown["api_count"] >= 3, shown
+        flow = core.store.get("flows")[0]
+        assert "0123456789" not in json.dumps(flow) and Handler.token not in json.dumps(flow)
+        kinds = [(n["method"], "/" + n["url"].split("?")[0].split("/", 3)[-1] if "://" in n["url"] else n["url"].split("?")[0], n["kind"]) for n in flow["api"]]
+        assert ("GET", "/api/init", "xhr") in kinds and ("POST", "/api/cif2", "xhr") in kinds and ("POST", "/api/detail", "form") in kinds, kinds
+        name = flow["workflow"]["inputs"][0]["name"]
+        Handler.seen.clear()
+        os.environ["RK_JS"] = "window.__res = document.getElementById('res').innerHTML = '';"
+        drive("js", "RookieE2E Cif")
+        status, reply = core.dispatch("POST", "/api/run/start", {"title": "Tra CIF", "mode": "simulate", "window": f"ie-tab:{tab['id']}", "inputs": {name: "5566778899"}})
+        assert status == 200, reply
+        for _ in range(150):
+            run = core.dispatch("GET", "/api/run/status", {})[1]
+            if run.get("result"):
+                break
+            _time.sleep(0.2)
+        os.environ["RK_JS"] = "window.__res = document.getElementById('res').innerHTML + '|' + document.getElementById('txtCif').value;"
+        shown_page = drive("js", "RookieE2E Cif")
+    assert run["result"]["status"] == "finished", run
+    expected = "kh=KX%d" % (sum(int(c) for c in "5566778899") * 137 + 7)
+    assert Handler.seen == ["5566778899", expected], Handler.seen          # the new id, then the customer number its answer gave
+    assert shown_page == "|0123456789"                                      # the screen was not touched by the run

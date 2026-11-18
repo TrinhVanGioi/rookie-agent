@@ -33,6 +33,17 @@ def _squash(text: str) -> str:
     return re.sub(r"[\s.,]", "", text or "")
 
 
+def any_frame(selectors: list[str]) -> list[str]:
+    """The same selectors for every frame (`frame=*|...`): used only when the frame of the recording does not have the element."""
+    out: list[str] = []
+    for selector in selectors:
+        if selector.startswith("frame=") and "|" in selector and "|src=" not in selector:
+            wild = "frame=*|" + selector.split("|", 1)[1]
+            if wild not in out:
+                out.append(wild)
+    return out
+
+
 class IeDriver:
     def __init__(self, bridge: IeBridge, tab_id: int) -> None:
         self._bridge = bridge
@@ -40,6 +51,7 @@ class IeDriver:
         bridge.bind(tab_id)
 
     # ---- who we are talking to -----------------------------------------------------
+    # (any_frame below: the same selectors asked of every frame)
 
     def window_title(self) -> str:
         """The title of the page; a page on this PC (the mock sites) is marked as a mock so a `money` step may run on it."""
@@ -60,18 +72,34 @@ class IeDriver:
 
         frame, _ = locate.group_selectors(selectors)
         mine = [f for f in self._bridge.locate(selectors) if f.get("frame") == frame]
-        if not mine:
-            raise ElementNotFound()
         if len(mine) > 1:
             raise NeedsHelp("ambiguous", PLAIN_WORDS["ambiguous"])
-        found = mine[0]
+        if mine:
+            result = self._weigh(mine[0], want, risk)
+            if result.state != "not_found":
+                return self._chosen(frame, result)
+        # The frame of the recording is not there, or the element is not in it: TouchPoint may name or order its frames differently
+        # from one sign-in to the next. The same selectors are asked of every frame; exactly one frame with one element, or nothing.
+        anywhere = [(str(f.get("frame")), self._weigh(f, want, risk)) for f in self._bridge.locate(any_frame(selectors)) if f.get("frame") != frame]
+        hits = [(name, result) for name, result in anywhere if result.state != "not_found"]
+        if not hits:
+            raise ElementNotFound()
+        if len(hits) > 1:
+            raise NeedsHelp("ambiguous", PLAIN_WORDS["ambiguous"] + " (ở nhiều khung của trang)")
+        return self._chosen(*hits[0])
+
+    @staticmethod
+    def _weigh(found: dict[str, Any], want: str, risk: str) -> Any:
+        from rookie_agent.ie import locate
+
         elements = {int(n): {"field": bool(f), "press": True} for n, f in (found.get("fields") or {}).items()}
         # A label also names the row and the cell around its field: for typing or choosing only the fields themselves count.
         keep = (lambda n: elements.get(n, {}).get("field")) if want == "field" else (lambda n: True)
         probes = [locate.Probe(str(p.get("kind")), [int(n) for n in p.get("m") or [] if keep(int(n))]) for p in found.get("probes") or []]
-        result = locate.choose(probes, elements, want, risk)
-        if result.state == "not_found":
-            raise ElementNotFound()
+        return locate.choose(probes, elements, want, risk)
+
+    @staticmethod
+    def _chosen(frame: str, result: Any) -> list[str]:
         if result.state == "ambiguous":
             raise NeedsHelp("ambiguous", PLAIN_WORDS["ambiguous"])
         if result.state == "low_confidence":
@@ -104,9 +132,11 @@ class IeDriver:
             return []
         frame, _ = locate.group_selectors(selectors)
         for answer in self._bridge.frame_op("suggest", selectors, want):
-            if answer.get("frame") == frame:
+            if answer.get("frame") == frame and answer.get("candidates"):
                 return list(answer.get("candidates") or [])[:3]
-        return []
+        # the frame of the recording is gone or has nothing alike: the look-alikes of every frame, the best first
+        found = [c for answer in self._bridge.frame_op("suggest", any_frame(selectors), want) for c in answer.get("candidates") or []]
+        return found[:3]
 
     def fingerprint(self) -> list[str]:
         """Task 6.4: the screen as `frame|tag:type|label` lines, sorted (no value)."""

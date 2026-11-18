@@ -182,7 +182,21 @@ Thiết kế: `docs/design.md` mục 6.3. Chỉ bước `read` được gửi; r
 | 7.3 | Lệnh `send` của bridge: gửi từ đúng frame trong phiên của trang | Test IE thật: cookie trang đi theo, header được đặt, không có gì trên màn hình đổi; frame không có thì `no_frame`. **Xong**: `send`/`sendres` trong `page_recorder.js`, `IeBridge.send` |
 | 7.4 | Rút gọn dữ liệu trả về | Test: JSON, GWT (bỏ tên lớp Java), HTML. **Xong**: `ie/response_view.py` |
 | 7.5 | Nút «Chạy mô phỏng», sơ đồ sáng theo bước, khung chi tiết 4 phần | Test: request đi với giá trị mới; bước ghi có request thì dừng, không gửi; `//EX` thì dừng hỏi; audit không có giá trị. **Xong**: `replay.simulate`, `Core._simulate_start`, `run_status.details` |
-| 7.6 | Tài liệu và đóng gói | **Xong**. Chưa thử trên TouchPoint UAT; mã chống giả và giá trị nối giữa các bước để sau |
+| 7.6 | Tài liệu và đóng gói | **Xong**. Chưa thử trên TouchPoint UAT; mã chống giả và giá trị nối giữa các bước để sau (làm ở Gate 8) |
+
+## Gate 8: luồng theo API (mỗi nút = một lời gọi API)
+
+Thiết kế: `docs/design.md` mục 6.4. Nút «Chạy» ở tab «Luồng đã học» chạy luồng API; chạy trên giao diện IE nằm ở mục phụ.
+
+| # | Task | Tiêu chí nghiệm thu |
+|---|---|---|
+| 8.1 | Ghi form gửi thật và trang tải trong khung | Test IE thật: form gửi vào iframe được ghi là POST với các ô, ô mật khẩu là `***`. **Xong**: dòng `form` (sau cú bấm, hoặc lúc rời trang) và `nav` trong `page_recorder.js`, ghép trong `session.py` |
+| 8.2 | Giữ API lúc mở màn hình, bỏ polling | Test: API trước thao tác đầu là «Mở màn hình»; lặp ≥3 lần bị bỏ. **Xong**: `replay.build_api` |
+| 8.3 | Tìm dữ liệu nối giữa các API | Test: token JSON và mã trong bảng chuỗi GWT thành liên kết; token không rõ nguồn bị che; không giá trị nào vào file. **Xong**: `replay.templates`, `locate_value`/`take_value` |
+| 8.4 | Học thành nút API | Test: nút theo thứ tự, tên theo thao tác, tham số `⟦cif⟧`. **Xong**: `flows[].api`, `api_nodes` ở danh sách luồng |
+| 8.5 | Chạy theo nút API trên sơ đồ | Test IE thật 8/9/5: ghi 3 API (mở màn hình lấy token, tìm dùng token + CIF, form chi tiết dùng mã KH vừa trả về), học từ 1 bản ghi, chạy với CIF khác: đúng giá trị mới đi ở mọi API, màn hình không đổi. **Xong**: `replay.run_api`, sơ đồ vẽ nút API |
+| 8.6 | Tài liệu, đóng gói | **Xong**. Chưa thử trên TouchPoint UAT |
+| 8.7 | Bộ nhớ phiên cho tra cứu; Trợ lý chạy tra cứu bằng API | Test: cùng khách lần hai không gọi máy chủ, «Làm mới» và khách khác thì gọi; xoá khi đóng tab, trang đăng nhập, nút xoá, hết hạn; lần chạy dừng ở nút ghi không được nhớ; audit không có giá trị; Trợ lý chọn chạy API chỉ khi mọi nút là `read`. **Xong**: `Core._cache*`, `/api/cache`, `/api/cache/clear`, nút «Làm mới», «Xoá bộ nhớ phiên»; `tests/test_replay.py`. Bộ ghi: dòng `nav`/`form` có `uid` (test đăng nhập khung lồng nhau đạt lại ở 5/8/9) |
 
 ## Phần để sau PoC
 

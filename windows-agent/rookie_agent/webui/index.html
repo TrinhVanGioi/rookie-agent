@@ -222,10 +222,15 @@
     </section>
     <section id="runBox">
       <h2>Chạy luồng này</h2>
-      <p class="sub">Chọn trang Internet Explorer đang mở đúng màn hình đầu của việc này, nhập thông tin cần dùng, rồi Chạy. Bước ghi dữ liệu và bước tiền luôn dừng chờ bạn Duyệt. «Chạy thử» chỉ làm các bước chỉ xem rồi dừng trước bước ghi đầu tiên. Đăng nhập là việc của bạn: agent không bao giờ gõ mật khẩu.</p>
+      <p class="sub">Chọn trang Internet Explorer đã đăng nhập, nhập thông tin cần dùng, rồi bấm Chạy. Agent chạy lại luồng bằng những gì đã học: gửi lại các request trong phiên của trang đó, không bấm, không điền gì trên giao diện; mỗi ô trên sơ đồ hiện thao tác, request, dữ liệu trả về và thời gian. Chỉ các bước chỉ xem được chạy; bước ghi dữ liệu và bước tiền dừng lại.</p>
       <div class="row"><select id="runWindow" class="grow"></select><button id="runWindowsRefresh">Tải lại</button></div>
       <div id="runInputs"></div>
-      <div class="row"><button class="primary" id="runSim" title="Gửi lại các request đã học từ trang IE đã đăng nhập; không bấm, không điền gì trên giao diện">Chạy mô phỏng</button><button id="runDry">Chạy thử (chỉ đọc)</button><button id="runApprove">Duyệt agent này</button><button class="primary" id="runGo">Chạy</button><button class="stop" id="runStop">Dừng khẩn</button></div>
+      <div id="simNote"></div>
+      <div class="row"><button class="primary" id="runSim" title="Chạy bằng những gì đã học (thao tác, request, response): gửi lại các request từ trang IE đã đăng nhập, không bấm, không điền gì trên giao diện">Chạy</button><button id="runFresh" title="Gọi lại máy chủ, không dùng kết quả đã nhớ trong phiên">Làm mới</button><button id="cacheClear" title="Quên mọi kết quả tra cứu đã nhớ trong phiên này">Xoá bộ nhớ phiên</button><button class="stop" id="runStop">Dừng khẩn</button></div>
+      <div class="detail" id="cacheNote">Kết quả tra cứu được nhớ trong phiên (chỉ trên máy này, trong bộ nhớ) để không phải gọi lại cùng một khách; đóng tab IE, gặp trang đăng nhập, bấm «Xoá bộ nhớ phiên» hoặc tắt agent là xoá hết.</div>
+      <details class="adv"><summary>Chạy trên giao diện Internet Explorer (agent tự bấm, tự điền trên màn hình)</summary>
+        <div class="row"><button id="runDry">Chạy thử (chỉ đọc)</button><button id="runApprove">Duyệt agent này</button><button id="runGo">Chạy trên màn hình</button></div>
+      </details>
       <div id="runAsk"></div>
       <div id="runSteps" class="detail"></div>
       <div id="runMsg"></div>
@@ -422,7 +427,7 @@ async function loadRequests() {
       const item = document.createElement("details");
       const sum = document.createElement("summary");
       const bad = !(r.status >= 200 && r.status < 400);
-      sum.textContent = r.method + " " + r.url + " → " + r.status + " (" + r.ms + " ms)" + (r.after ? " · sau «" + (r.after.label || r.after.id || r.after.kind) + "»" : "");
+      sum.textContent = ({ form: "[gửi biểu mẫu] ", page: "[tải trang] " }[r.kind] || "") + r.method + " " + r.url + " → " + r.status + " (" + r.ms + " ms)" + (r.after ? " · sau «" + (r.after.label || r.after.id || r.after.kind) + "»" : "");
       if (bad) sum.style.color = "#b91c1c";
       item.append(sum);
       for (const [name, text] of [["Đã gửi", r.req], ["Đã nhận", r.res]]) {
@@ -564,6 +569,8 @@ $("learn").onclick = async () => {
     r.steps.forEach((s) => { const li = el("li", s.text); li.append(el("div", "Mức rủi ro: " + s.risk + ". Khi chạy: " + s.mode + ".", "detail")); list.append(li); });
     msg.append(list);
     msg.append(el("div", r.inputs.length ? "Thông tin thay đổi mỗi lần: " + r.inputs.join(", ") : "Không có thông tin nào thay đổi giữa các lần ghi.", "detail"));
+    msg.append(el("div", r.api_count ? "Đã học " + r.api_count + " lời gọi API: vào tab «Luồng đã học» để xem sơ đồ API và bấm Chạy."
+      : "Không có lời gọi API nào đi kèm bản ghi (lúc ghi «Ghi yêu cầu» đang tắt?): luồng này chưa chạy được trên sơ đồ.", r.api_count ? "detail" : "msg bad"));
     r.warnings.forEach((w) => msg.append(el("div", "Lưu ý: " + w, "detail")));
     msg.append(el("div", r.method === "codie" ? "Dựng bằng trợ lý (Codie), đã qua kiểm chứng của chương trình." : "Dựng bằng cách học theo luật." + (r.fallback_reason ? " Trợ lý không dùng được vì: " + r.fallback_reason : ""), "detail"));
     (r.questions || []).forEach((q) => msg.append(el("div", "Trợ lý hỏi: " + q, "detail")));
@@ -682,6 +689,13 @@ function renderRunInputs(flow) {
   $("runApprove").disabled = !fresh; $("runApprove").textContent = flow.repair_pending ? "Duyệt bản sửa" : flow.approved ? "Agent đã duyệt" : "Duyệt agent này";
   if (flow.repair_pending) { $("runMsg").textContent = ""; $("runMsg").append(el("div", "Agent có bản sửa (ô GDV đã chỉ lại) đang chờ Duyệt. Trước khi Duyệt, chỉ các bước chỉ xem được chạy.", "msg bad")); }
   $("runBox").hidden = !flow || flow.engine !== "ie";
+  const note = $("simNote"); note.textContent = "";   // what «Chạy» will use: the requests learned with this flow
+  if (flow && flow.engine === "ie") {
+    const n = (flow.api_nodes || []).length, notReady = (flow.api_nodes || []).filter((a) => !a.ready).length;
+    note.append(n ? el("div", "Luồng có " + n + " lời gọi API (vẽ trên sơ đồ): «Chạy» gửi lại chúng từ trang IE đang đăng nhập, lấy giá trị nối từ trả lời trước, và hiện kết quả từng API."
+      + (notReady ? " " + notReady + " API chưa gửi lại được (xem ô ghi «thiếu»)." : ""), "detail")
+      : el("div", "Luồng này chưa có API nào (học trước khi agent ghi API, hoặc lúc ghi «Ghi yêu cầu» đang tắt). Ghi lại việc này rồi Học lại để «Chạy» được.", "msg bad"));
+  }
 }
 async function loadRunWindows() {
   const select = $("runWindow"), chosen = select.value;
@@ -694,11 +708,11 @@ async function loadRunWindows() {
   } catch (e) { select.textContent = ""; select.append(new Option("(không đọc được)", "")); }
 }
 $("runWindowsRefresh").onclick = loadRunWindows;
-async function startRun(mode) {
+async function startRun(mode, extra = {}) {
   const inputs = {}; for (const input of $("runInputs").querySelectorAll("input")) inputs[input.dataset.name] = input.value;
   $("runMsg").textContent = "";
   try {
-    await api("POST", "/api/run/start", { title: currentFlow.title, inputs, window: $("runWindow").value, mode, confirm_changed: mode === "run" && screenChangedSeen });
+    await api("POST", "/api/run/start", { title: currentFlow.title, inputs, window: $("runWindow").value, mode, confirm_changed: mode === "run" && screenChangedSeen, ...extra });
     screenChangedSeen = false;
     pollRun();
   } catch (e) {
@@ -774,6 +788,11 @@ $("vcGo").onclick = async () => {
 $("vcStop").onclick = async () => { try { await api("POST", "/api/run/stop"); } catch (e) { /* the run may have ended */ } };
 $("runDry").onclick = () => startRun("dry");
 $("runSim").onclick = () => { pinnedStep = null; startRun("simulate"); };
+$("runFresh").onclick = () => { pinnedStep = null; startRun("simulate", { refresh: true }); };
+$("cacheClear").onclick = async () => {
+  try { const r = await api("POST", "/api/cache/clear", {}); $("runMsg").textContent = ""; $("runMsg").append(el("div", "Đã xoá " + r.cleared + " kết quả tra cứu đã nhớ.", "msg ok")); }
+  catch (e) { $("runMsg").append(el("div", e.message, "msg bad")); }
+};
 $("runGo").onclick = () => startRun("run");
 $("runStop").onclick = async () => { try { await api("POST", "/api/run/stop"); } catch (e) { /* the run may have ended */ } };
 $("runApprove").onclick = async () => {
@@ -790,6 +809,9 @@ async function pollRun(ids = RUN_IDS) {
     const steps = $(ids.steps); steps.textContent = "";
     for (const s of status.steps) steps.append(el("div", s.id + ": " + (STEP_WORDS[s.status] || s.status) + (s.detail ? " (" + s.detail + ")" : "")));
     if (ids === RUN_IDS) paintCanvas(status);
+    else if (status.mode === "simulate") {   // the Assistant: what each API call answered, under its line (task 8.7)
+      for (const s of status.steps) { const card = detailCard(status, s.id); if (card && card.querySelector(".simreq")) steps.append(card); }
+    }
     const ask = $(ids.ask); ask.textContent = "";
     if (status.ask && status.ask.kind === "pick") {   // task 6.2: the look-alikes are coloured on the IE page
       const a = status.ask, card = el("div", undefined, "msg bad");
@@ -828,12 +850,18 @@ const LIVE_WORDS = { running: "▶ đang chạy", done: "✓ xong", skipped: "�
 // task 7.5: what one step of a simulated run did: the action, the requests sent, what came back, the time and the state
 let lastRun = null, pinnedStep = null;
 function renderDetail(stepId) {
-  const d = lastRun && lastRun.details && lastRun.details[stepId], box = $("flowDetail");
-  if (!d) return false;
-  box.textContent = "";
-  const s = (lastRun.steps || []).find((x) => x.id === stepId) || {}, card = el("div", undefined, "msg " + (s.status === "done" ? "ok" : s.status === "skipped" ? "" : "bad"));
+  const card = detailCard(lastRun, stepId), box = $("flowDetail");
+  if (!card) return false;
+  box.textContent = ""; box.append(card);
+  return true;
+}
+function detailCard(run, stepId) {
+  const d = run && run.details && run.details[stepId];
+  if (!d) return null;
+  const s = (run.steps || []).find((x) => x.id === stepId) || {}, card = el("div", undefined, "msg " + (s.status === "done" ? "ok" : s.status === "skipped" ? "" : "bad"));
   card.append(el("strong", "Thao tác: " + d.action));
   card.append(el("div", "Trạng thái: " + (LIVE_WORDS[s.status] || s.status || "") + (s.detail ? " — " + s.detail : ""), "detail"));
+  (d.inputs || []).forEach((x) => card.append(el("div", "Đầu vào «" + x.name + "»: " + x.from, "detail")));
   if (!d.requests.length) card.append(el("div", "Không có request: bước này chỉ là thao tác trên màn hình.", "detail"));
   d.requests.forEach((r, i) => {
     const part = el("div", undefined, "simreq");
@@ -850,8 +878,7 @@ function renderDetail(stepId) {
     }
     card.append(part);
   });
-  box.append(card);
-  return true;
+  return card;
 }
 function paintCanvas(status) {
   lastRun = status;
@@ -878,14 +905,22 @@ function paintCanvas(status) {
 function drawFlow(flow) {
   renderRunInputs(flow); loadRunWindows();
   const row = $("flowrow"); row.textContent = ""; $("flowDetail").textContent = "";
+  const api = flow.api_nodes || [], RISK_VN = { read: "chỉ xem", write: "ghi dữ liệu", money: "tiền" };
+  const labelOfApi = Object.fromEntries(api.map((a, i) => [a.id, "API " + (i + 1)]));
+  // Gate 8: a flow with API calls is drawn as them (what is called, what goes in, where each value comes from), like an n8n workflow
+  const middle = api.length ? api.map((a, i) => ({ key: a.id, cls: a.risk, n: "API " + (i + 1) + " · " + a.method, t: a.label,
+      lines: ["Mức rủi ro: " + (RISK_VN[a.risk] || a.risk), "Loại: " + ({ xhr: "gọi API (XHR)", form: "gửi biểu mẫu", page: "tải trang" }[a.kind] || a.kind)]
+        .concat(a.inputs.map((x) => "Đầu vào «" + x + "»: " + (a.links[x] ? "lấy từ trả lời của " + (labelOfApi[a.links[x]] || a.links[x]) : "GDV nhập")))
+        .concat(a.ready ? [] : ["Chưa gửi lại được: có giá trị không rõ nguồn hoặc mật khẩu/mã đã che"]),
+      badges: [RISK_VN[a.risk] || a.risk].concat(Object.keys(a.links).length ? ["nối " + Object.values(a.links).map((x) => labelOfApi[x] || x).join(", ")] : []).concat(a.ready ? [] : ["thiếu"]) }))
+    : flow.steps.map((s, i) => ({ key: (flow.step_ids || [])[i], cls: s.risk_key, n: "Bước " + (i + 1), t: s.text, lines: ["Mức rủi ro: " + s.risk, "Khi chạy: " + s.mode].concat(s.optional ? ["Tuỳ chọn: " + (s.optional === "if_present" ? "chỉ bấm nếu có trên màn hình" : "để trống thì giữ giá trị đang có")] : []), badges: [s.risk, s.mode].concat(s.optional ? ["tuỳ chọn"] : []) }));
   const nodes = [{ cls: "start", n: "Bắt đầu", t: flow.title, lines: flow.inputs.length ? ["Nhập mỗi lần: " + flow.inputs.join(", ")] : ["Không có thông tin thay đổi"], badges: [] }]
-    .concat(flow.steps.map((s, i) => ({ cls: s.risk_key, n: "Bước " + (i + 1), t: s.text, lines: ["Mức rủi ro: " + s.risk, "Khi chạy: " + s.mode].concat(s.optional ? ["Tuỳ chọn: " + (s.optional === "if_present" ? "chỉ bấm nếu có trên màn hình" : "để trống thì giữ giá trị đang có")] : []), badges: [s.risk, s.mode].concat(s.optional ? ["tuỳ chọn"] : []) })));
-  nodes.push({ cls: "start", n: "Kết thúc", t: "Xong", lines: ["Bước ghi và bước tiền luôn dừng chờ người duyệt."], badges: [] });
+    .concat(middle);
+  nodes.push({ cls: "start", n: "Kết thúc", t: "Xong", lines: ["Bước ghi và bước tiền luôn dừng chờ người duyệt."], badges: [], key: "__end" });
   nodes.forEach((node, i) => {
     if (i) row.append(el("div", undefined, "link"));
     const b = el("button", undefined, "node " + node.cls);
-    if (i > 0 && i <= flow.steps.length && flow.step_ids) b.dataset.step = flow.step_ids[i - 1];
-    if (i === nodes.length - 1) b.dataset.step = "__end";
+    if (node.key) b.dataset.step = node.key;
     b.append(el("div", node.n, "n"), el("div", node.t, "t"), el("div", "", "live"));
     const badges = el("div"); node.badges.forEach((x) => badges.append(el("span", x, "badge"))); b.append(badges);
     b.onclick = () => {

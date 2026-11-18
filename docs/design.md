@@ -326,7 +326,18 @@ GDV Ghi một lần (thao tác và request/response của trang), Học thành l
 3. **Gửi trong phiên của GDV** (lệnh trang `send`/`sendres`). Request được gửi bằng XHR gốc của chính trang IE đã đăng nhập, ở đúng frame lúc ghi: cookie phiên (kể cả HttpOnly) đi theo mà agent không đọc. Giao diện không đổi. Trả lời giữ trong bộ nhớ.
 4. **Giới hạn.** Chỉ bước `read` được gửi. Bước `write`/`money` có request thì dừng («dùng Chạy trên màn hình, có Duyệt»); bước chỉ thao tác màn hình thì bỏ qua. Máy chủ trả mã ≥400, `//EX` của GWT, hoặc trang đăng nhập thì dừng, không thử đoán. Thiếu giá trị thì hỏi.
 5. **Hiển thị và audit.** Dữ liệu trả về được rút gọn (`ie/response_view.py`: JSON thành cặp khoá/giá trị và bảng, GWT thành các chuỗi đọc được, HTML thành ô bảng và chữ) và chỉ hiện trên trang quản lý của máy GDV. Audit chỉ ghi tên luồng, các bước và trạng thái.
-6. **Chưa làm.** Giá trị lấy từ trả lời của bước trước để dùng ở bước sau; mã chống giả (XSRF) phải lấy mới mỗi lần, cần thử trên UAT để biết dạng.
+6. **Chưa làm.** Giá trị lấy từ trả lời của bước trước để dùng ở bước sau; mã chống giả (XSRF) phải lấy mới mỗi lần, cần thử trên UAT để biết dạng. (Đã làm ở 6.4.)
+
+### 6.4 Luồng theo API (mỗi nút = một lời gọi API, chạy như n8n)
+
+Chỉ ghi cú bấm thì không chạy lại được. Luồng phải biết đến bước nào thì gọi API gì, gửi gì, và lấy gì từ trả lời để dùng cho bước sau.
+
+1. **Ghi đủ các loại request.** XHR/ActiveX XMLHTTP như 6.3. Form gửi thật (Enter hoặc nút submit): action, method, các ô (giá trị đọc trong bộ nhớ; ô mật khẩu và ô tên PIN/OTP là `***`; ô ẩn được đọc vì trình duyệt vốn gửi nó). Chụp ngay sau cú bấm bằng bộ hẹn giờ của bộ ghi (sau khi script của trang xong), hoặc lúc trang rời đi. Mỗi tài liệu mới của một khung báo nó đến từ đâu (`nav`): sau một form là POST của form đó, không thì là GET trang. Tài liệu đã mở trước thao tác đầu tiên không phải request của GDV.
+2. **Giữ mọi API giữa hai thao tác**, kể cả lúc mở màn hình. Bỏ request lỗi lúc ghi và request lặp ≥3 lần y hệt (trang tự hỏi định kỳ), trừ khi API sau cần trả lời của nó.
+3. **Dữ liệu nối.** Lúc Dừng ghi, trả lời đầy đủ (≤100 KB mỗi cái) còn trong bộ nhớ. Một giá trị trong url/body/header (≥4 ký tự, có chữ số hoặc dài ≥16, không phải tên lớp Java) mà một trả lời trước có thì thành `⟦lN⟧` với luật lấy lại: đường dẫn JSON, vị trí trong bảng chuỗi GWT, hoặc 16 ký tự ngay trước nó. Chỉ lưu luật, không lưu giá trị. Token (`token|secret|csrf|xsrf|nonce`) không rõ nguồn thành `***` và API đó không gửi lại được. Token không còn bị che ngay trong trang (chỉ mật khẩu/PIN/OTP), để tìm được nguồn.
+4. **Học thành nút API** (`flows[].api`, trên máy GDV). Mỗi nút: tên «thao tác → METHOD đường dẫn» (hoặc «Mở màn hình → …»), khung, method, url, header, body mẫu, các liên kết, risk của bước gây ra nó (mở màn hình là `read`), trạng thái gửi được hay không và vì sao.
+6. **Bộ nhớ phiên (cache) cho tra cứu.** Một lần chạy xong (chỉ gồm lời gọi `read`) được nhớ trong bộ nhớ của agent, khoá theo người dùng máy, tab IE (phiên đăng nhập), luồng và giá trị nhập. Cùng khách trong phiên thì hiện lại ngay, ghi rõ «Lấy từ bộ nhớ phiên lúc …», không gọi máy chủ. Hết hạn sau 5 phút (`cache_seconds`). Bị xoá khi: đóng tab IE, trả lời là trang đăng nhập, bấm «Xoá bộ nhớ phiên», tắt agent. «Làm mới» luôn gọi lại. Lần chạy dừng ở nút ghi/tiền không được nhớ. Không ghi đĩa, không gửi máy chủ. Trợ lý dùng cách chạy này cho luồng chỉ gồm nút `read`; luồng có ghi/tiền vẫn chạy trên màn hình, có Duyệt.
+7. **Chạy trên sơ đồ.** Sơ đồ vẽ các nút API. Mỗi nút hiện đầu vào lấy từ đâu (GDV nhập hay trả lời của API nào), request đã gửi, dữ liệu trả về, thời gian, trạng thái. Request gửi từ trang IE đã đăng nhập; khung lúc ghi không còn thì gửi từ khung gốc (cùng trang, cùng phiên). Giá trị nối lấy từ trả lời vừa nhận; không lấy được thì dừng hỏi. Đăng nhập không bao giờ chạy lại. Nút `write`/`money` dừng, không gửi.
 
 ## 7. Bước tư duy: đối chiếu 2 báo cáo
 

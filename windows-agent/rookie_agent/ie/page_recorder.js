@@ -52,21 +52,49 @@
   // Only on unload, when the page really goes: IE also fires beforeunload for a link href="javascript:..." (GWT pages are full of
   // them) and the page stays; a cookie written then went to the bank's server with the page's next request. Small (whole lines,
   // at most KEEP_MAX characters once encoded), so it never crowds the page's own cookies.
-  var KEEP = "__rkkeep=", KEEP_MAX = 2000;
+  var KEEP = "__rkkeep=", KEEP_MAX = 2000, FORM_MAX = 16000;
+  // Gate 8: a form the teller sent (Enter or its submit button) is a request too, and not an XHR one: when the page leaves because of
+  // it, its action, method and fields make one "form" line. A password field is never read: it stands as *** and the request is then
+  // known as one that cannot be sent again. The next document of the frame says where the browser went ("nav", at its start).
+  var leavingForm = null, leavingAt = 0;
+  function formLine() {
+    var f = leavingForm, parts = [], i, x, g, ty, n, v;
+    if (!f || new Date().getTime() - leavingAt > 10000) { return ""; }
+    leavingForm = null;
+    try {
+      for (i = 0; i < f.elements.length; i++) {
+        x = f.elements[i]; g = tag(x);
+        if (!TYPED[g] || g === "BUTTON") { continue; }
+        n = get(x, "name"); if (!n) { continue; }
+        try { if (x.disabled) { continue; } } catch (eD) {}
+        ty = typeOf(x);
+        if (ty === "submit" || ty === "image" || ty === "button" || ty === "reset" || ty === "file") { continue; }
+        if ((ty === "checkbox" || ty === "radio") && !x.checked) { continue; }
+        // a hidden field is what the browser sends anyway (a customer number, a page token), not something the teller typed
+        v = (ty === "password" || (ty !== "hidden" && isSecret(x))) ? "***" : (g === "SELECT" ? String(optValue(x) === null ? "" : optValue(x)) : String(x.value));
+        parts.push(encodeURIComponent(n) + "=" + encodeURIComponent(v));
+      }
+      v = parts.join("&");
+      return "{" + '"uid":"f' + new Date().getTime() + "-" + Math.floor(Math.random() * 1000000000) + '","t":' + new Date().getTime() + ',"kind":"form","frame":' + str(ownPath()) + ',"method":' + str(String(f.method || "GET").toUpperCase()) +
+        ',"url":' + str(String(f.action || doc.location.href)) + ',"req":' + str(v.slice(0, FORM_MAX)) + (v.length > FORM_MAX ? ',"cut":true' : "") + "}\n";
+    } catch (eF) { return ""; }
+  }
   function keepLines() {
-    var s, enc, cut;
+    var s, enc, cut, sent = "";
     try { if (window.__rkDrain) { window.__rkDrain(); } } catch (eD) {}    // events still waiting to be read are lines too
     try { flushDirty(); } catch (eDirty) {}
     flushFocused();   // a value chosen or typed in the field that has the focus, when the page is leaving, is a line too
+    try { if (window.__rkRec) { sent = formLine(); } } catch (eFl) {}
     s = String(window.__rkq).replace(/[^\n]*"kind":"ajax"[^\n]*\n/g, "");
-    if (!s) { return; }
+    if (!s && !sent) { return; }
     enc = encodeURIComponent(s);
-    while (enc.length > KEEP_MAX) {                                        // the newest whole lines only
+    while (s && enc.length > KEEP_MAX) {                                   // the newest whole lines only
       cut = s.indexOf("\n");
-      if (cut < 0 || cut >= s.length - 1) { return; }
+      if (cut < 0 || cut >= s.length - 1) { s = ""; break; }
       s = s.slice(cut + 1);
       enc = encodeURIComponent(s);
     }
+    s += sent;                                                             // the form sent is kept whole (it is not counted in the limit)
     // Never in a cookie: a cookie goes to the bank's server with every request of the next screen (on TouchPoint the server then
     // answered with an error and the page showed "Failed"). The lines wait on the top window, which a frame's change leaves in place;
     // when the whole tab changes page they are lost, and the agent's last poll has taken nearly all of them anyway.
@@ -109,6 +137,13 @@
     } catch (e) {}
   }
   restoreLines();
+  // Gate 8: where this document came from, once, when the recorder first enters it (the agent keeps only those that come after a press)
+  try {
+    if (window.__rkRec) {
+      window.__rkq += "{" + '"uid":"n' + new Date().getTime() + "-" + Math.floor(Math.random() * 1000000000) + '","t":' + new Date().getTime() + ',"kind":"nav","frame":' + str(framePath(window)) + ',"url":' + str(String(doc.location.href)) +
+        ',"title":' + str(String(doc.title || "")) + "}\n";
+    }
+  } catch (eNav) {}
   window.__rkKeep = keepLines;
   window.__rkRestore = restoreLines;
   // Each attach on its own, inside try: a window that is being unloaded or rebuilt can refuse one ("Failed"), and that must never stop the rest.
@@ -170,6 +205,9 @@
     }
     return parts.length ? parts.join("/") : "top";
   }
+  // "frame=*|..." is asked by the runner when the frame of the recording is not there any more (its name or place changed): every frame
+  // answers for itself and the agent acts only when exactly one element in one frame matches.
+  function sameFrame(wanted, own) { return wanted === own || wanted === "*"; }
   // Where this document sits does not change while it lives: found once (fewer reads of the other frames), unless a frame was unreadable.
   var ownPathKnown = null;
   function ownPath() {
@@ -333,7 +371,7 @@
         ',"t":' + new Date().getTime() + ',"kind":"ajaxerr","frame":' + str(ownPath()) + ',"host":' + str(String(window.location.hostname)) + ',"stage":' + str(stage) + ',"error":' + str(text) + "}\n";
     } catch (e9) {}
   }
-  var AJAX_REQ = 16000, AJAX_RES = 20000, AJAX_QUEUE_MAX = 600000;
+  var AJAX_REQ = 16000, AJAX_RES = 100000, AJAX_QUEUE_MAX = 2000000;   // a whole answer: a later request may take a value from it (Gate 8)
   var SECRET_HEADER = /cookie|authori|token|pass|secret/i;
   function emitAjax(rec) {
     if (window.__rkAjaxOff || !window.__rkRec || String(window.__rkq).length > AJAX_QUEUE_MAX) { return; }
@@ -350,7 +388,9 @@
     window.__rkq += line;
   }
   // A password, PIN or OTP that travels in a request body is never kept, not even in memory: its value is replaced before the line is made.
-  var SECRET_KEY = /((?:pass(?:word|wd|code)?|pwd|otp|pin|secret|token|matkhau)[a-z_]*["']?\s*[:=]\s*)("(?:[^"\\]|\\.)*"|'[^']*'|[^&,}\s]*)/gi;
+  // A token (session, anti-forgery) is not the teller's secret: it stays in memory so the agent can find which earlier answer gave it
+  // (Gate 8); what is written to disk is only where it comes from, or *** when that is not known.
+  var SECRET_KEY = /((?:pass(?:word|wd|code)?|pwd|otp|pin|matkhau)[a-z_]*["']?\s*[:=]\s*)("(?:[^"\\]|\\.)*"|'[^']*'|[^&,}\s]*)/gi;
   function hideSecrets(text) {
     try { return String(text).replace(SECRET_KEY, '$1"***"'); } catch (e) { return ""; }
   }
@@ -610,7 +650,7 @@
     var i, j, s, cut, spec, kind, hits, ids, out = [], seen = {}, els = [], k;
     for (i = 0; i < sels.length; i++) {
       s = sels[i]; cut = s.indexOf("|");
-      if (cut < 0 || s.indexOf("frame=") !== 0 || s.slice(6, cut) !== own) { continue; }
+      if (cut < 0 || s.indexOf("frame=") !== 0 || !sameFrame(s.slice(6, cut), own)) { continue; }
       spec = s.slice(cut + 1);
       kind = spec.indexOf("id=") === 0 ? "id" : spec.indexOf("name=") === 0 ? "name" : spec.indexOf("label=") === 0 ? "label" : "pos";
       hits = resolveSpec(spec); ids = [];
@@ -645,7 +685,7 @@
     }
     for (i = 0; i < sels.length; i++) {
       s = sels[i]; cut = s.indexOf("|");
-      if (cut < 0 || s.indexOf("frame=") !== 0 || s.slice(6, cut) !== own) { continue; }
+      if (cut < 0 || s.indexOf("frame=") !== 0 || !sameFrame(s.slice(6, cut), own)) { continue; }
       any = true;
       if (s.slice(cut + 1).indexOf("label=") === 0) { learned = s.slice(cut + 7); }
       hits = resolveSpec(s.slice(cut + 1));
@@ -750,7 +790,7 @@
     if (op === "unmark") { return unmarkAll(); }
     for (i = 0; i < sels.length; i++) {
       s = sels[i]; cut = s.indexOf("|");
-      if (cut < 0 || s.indexOf("frame=") !== 0 || s.slice(6, cut) !== own) { continue; }
+      if (cut < 0 || s.indexOf("frame=") !== 0 || !sameFrame(s.slice(6, cut), own)) { continue; }
       hits = resolveSpec(s.slice(cut + 1));
       if (hits.length) { found = hits; rank = i; break; }
     }
@@ -978,6 +1018,12 @@
       try { if (el.form == window.__rkEnterForm) { return; } } catch (eClick) {}
     }
     emit(kind, el, null, actionLabel(el), ',"ctl":' + (ctl ? "true" : "false"));
+    if (typeOf(el) === "submit" || typeOf(el) === "image") { try { leavingForm = el.form; leavingAt = new Date().getTime(); laterForm(); } catch (eLf) {} }
+  }
+  // A form sent into a frame (target=...) leaves this page in place: its line is made by our own timer, once the page's script has
+  // finished (never in the middle of it). A page that leaves first makes it on unload (keepLines).
+  function laterForm() {
+    try { window.setTimeout(function () { var s = ""; try { if (window.__rkRec) { s = formLine(); } } catch (e1) {} if (s) { window.__rkq += s; } }, 0); } catch (e2) {}
   }
   function onClick(ev) { clickLike("click", ev); }
   function onDblClick(ev) { clickLike("dblclick", ev); }
@@ -1011,7 +1057,7 @@
       if (tag(el) === "INPUT" && isField(el) && !isSecret(el)) {
         flushField(el);                       // the typed value first, then the Enter that sends it
         window.__rkEnter = new Date().getTime();
-        try { window.__rkEnterForm = el.form; } catch (eForm) { window.__rkEnterForm = null; }
+        try { window.__rkEnterForm = el.form; leavingForm = el.form; leavingAt = new Date().getTime(); laterForm(); } catch (eForm) { window.__rkEnterForm = null; }
         emit("submit", el, null, labelOf(el));
         return;
       }

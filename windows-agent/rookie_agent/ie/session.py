@@ -32,6 +32,7 @@ class IeSession:
         self.js_errors: list[dict[str, Any]] = []  # script errors of the page itself (message, file:line): in memory, for the panel
         self.on_hook_failed = None                # called with the host when the recorder took its stand-ins back: the caller remembers the site
         self.requests: list[dict[str, Any]] = []   # the requests the page made, full request and response: in memory only
+        self._form: dict[str, Any] | None = None   # the last form the teller sent, until the next document says where it went
         self.seen: list[dict[str, Any]] = []    # what the screen showed after each action: in memory only, the full values are here
         self.recorder = IeRecorder(app_title=app_title)
         self.app_title = app_title
@@ -138,7 +139,21 @@ class IeSession:
                     del self.notes[:-30]
             if line.get("kind") == "ajax":
                 self.requests.append({**{k: line.get(k) for k in ("t", "frame", "method", "url", "status", "ms", "req", "res", "hdr", "cut")},
-                                      "after": self._last_action})
+                                      "kind": "xhr", "after": self._last_action})
+                del self.requests[:-MAX_REQUESTS]
+            elif line.get("kind") == "form":
+                self._form = line           # the form the teller sent: the request is known when the next document says where it went
+            elif line.get("kind") == "nav" and self._last_action is not None:
+                # Gate 8: a document that came after a press is a request of its own (a form posted, a frame loaded). The documents
+                # already open when the recording started come before any action and are not requests of the teller's.
+                form, self._form = self._form, None
+                posted = form if form and int(line.get("t") or 0) - int(form.get("t") or 0) < 15000 else None
+                self.requests.append({
+                    "t": line.get("t"), "frame": line.get("frame"), "kind": "form" if posted else "page",
+                    "method": str((posted or {}).get("method") or "GET").upper(), "url": (posted or line).get("url"),
+                    "status": 200, "ms": 0, "req": (posted or {}).get("req") or "", "res": "", "cut": bool((posted or {}).get("cut")),
+                    "hdr": "Content-Type:application/x-www-form-urlencoded\n" if posted and str(posted.get("method")).upper() == "POST" else "",
+                    "after": self._last_action})
                 del self.requests[:-MAX_REQUESTS]
             if line.get("kind") in ACTION_KINDS:
                 acted = True

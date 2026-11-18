@@ -22,6 +22,7 @@ from rookie_agent.native_host import Host
 from rookie_agent.server_client import ServerClient, ServerError
 
 DEFAULT_SERVER = "http://localhost:8000"
+DEFAULT_CACHE_SECONDS = 300   # task 8.7: a look-up answered in this session is shown again for 5 minutes without calling the server
 IE_PREFIX = "Internet Explorer: "
 
 ACTION_WORDS = {
@@ -154,6 +155,7 @@ class Core:
         self._ie_session: Any = None
         self._run: dict[str, Any] | None = None   # the flow being run now, or the last one run
         self._last_requests: list[dict[str, Any]] = []   # the requests of the last recording, in memory only
+        self._cache: dict[str, dict[str, Any]] = {}       # task 8.7: look-ups of this session, in memory only; gone when the agent closes
         self._last_seen: list[dict[str, Any]] = []   # what the screen showed in the last recording, in memory only
 
     # ---- web pages in Internet Explorer ---------------------------------------------------
@@ -475,14 +477,14 @@ class Core:
             "method": reply.get("method", "rule"), "questions": list(reply.get("questions") or []),
             "fallback_reason": reply.get("fallback_reason"),
         }
-        by_step = self._requests_for(workflow, ids)
-        shown["request_steps"] = len(by_step)
+        api = self._api_for(workflow, ids)
+        shown["api_count"] = len(api)
         flows = [flow for flow in self.store.get("flows", []) if flow.get("title") != shown["title"]]
-        self.store.put("flows", flows + [{**shown, "workflow": workflow, "requests": by_step, "learned_at": time.strftime("%Y-%m-%d %H:%M:%S")}])
+        self.store.put("flows", flows + [{**shown, "workflow": workflow, "api": api, "learned_at": time.strftime("%Y-%m-%d %H:%M:%S")}])
         return shown
 
-    def _requests_for(self, workflow: dict[str, Any], ids: list[str]) -> dict[str, list[dict[str, Any]]]:
-        """Task 7.2: the request templates of the first chosen recording that has them, under the steps of the learned flow."""
+    def _api_for(self, workflow: dict[str, Any], ids: list[str]) -> list[dict[str, Any]]:
+        """Task 8.4: the API calls of the first chosen recording that has them, as the nodes of the flow (kept on this PC only)."""
         from rookie_agent.ie import replay
 
         for session_id in ids:
@@ -491,8 +493,9 @@ class Core:
             except (OSError, ValueError):
                 continue
             if document.get("requests"):
-                return replay.attach(workflow, document["events"], document["requests"])
-        return {}
+                return replay.build_api(workflow, document["events"], document["requests"],
+                                        describe=lambda s: friendly_step(s["action"], (s.get("target") or {}).get("label")))
+        return []
 
     def _traces_of(self, ids: list[str]) -> list[dict[str, Any]] | None:
         """The masked traces of the chosen recordings, in the order chosen. None unless there is one for every recording: the model
@@ -509,8 +512,12 @@ class Core:
     def flows(self, _: dict[str, Any]) -> dict[str, Any]:
         def listed(flow: dict[str, Any]) -> dict[str, Any]:
             workflow = flow.get("workflow") or {}
-            return {k: v for k, v in flow.items() if k not in ("workflow", "requests")} | {
-                "request_steps": sorted((flow.get("requests") or {}).keys()),   # the steps a simulated run can send
+            return {k: v for k, v in flow.items() if k not in ("workflow", "requests", "api")} | {
+                # the API nodes the canvas draws (task 8.5): what each calls, never a template's body
+                "api_nodes": [{"id": n["id"], "label": n["label"], "risk": n["risk"], "method": n["method"], "kind": n["kind"],
+                               "step_id": n["step_id"], "ready": bool(n["complete"] and not n["unresolved"]),
+                               "inputs": sorted(set(re.findall("⟦([a-z0-9_]+)⟧", n["url"] + n["body"] + n["headers"]))),
+                               "links": {k: v["from"] for k, v in n["links"].items()}} for n in flow.get("api") or []],
                 "approved": workflow.get("status") == "approved", "engine": workflow.get("engine"),
                 "repair_pending": bool(flow.get("repair")), "repair": None, "fingerprint": None,
                 "step_ids": [step.get("id", "") for step in workflow.get("steps", [])],   # the canvas lights the node of the step running
@@ -644,13 +651,14 @@ class Core:
         from rookie_agent.runner import required_inputs
         from rookie_agent.webui.run import WebController
 
-        workflow, by_step = flow["workflow"], flow.get("requests") or {}
+        workflow, api = flow["workflow"], flow.get("api") or []
         if workflow.get("engine") != "ie":
-            raise UserError("Chạy mô phỏng chỉ có ở luồng Internet Explorer.")
-        if not by_step:
-            raise UserError("Luồng này chưa có request nào để chạy mô phỏng. Ghi lại việc này khi «Ghi yêu cầu: bật», rồi Học lại.")
+            raise UserError("Chạy trên sơ đồ chỉ có ở luồng Internet Explorer.")
+        if not api:
+            raise UserError("Luồng này chưa có API nào để chạy. Ghi lại việc này khi «Ghi yêu cầu: bật», rồi Học lại.")
         inputs = {str(k): str(v) for k, v in (body.get("inputs") or {}).items() if str(v) != ""}
-        needed = {name for items in by_step.values() for item in items for name in replay._MARK.findall(item["url"] + item["body"])}
+        sign_in = replay._sign_in_steps(workflow)
+        needed = {name for n in api if n.get("step_id") not in sign_in for name in replay._MARK.findall(n["url"] + n["body"] + n["headers"])}
         missing = sorted(n for n in needed if n not in inputs and n in set(required_inputs(workflow)) | {i["name"] for i in workflow.get("inputs", [])})
         if missing:
             labels = {i["name"]: i.get("label") or i["name"] for i in workflow.get("inputs", [])}
@@ -665,16 +673,39 @@ class Core:
         controller = WebController(stop, dict(inputs), lambda: "")
         state: dict[str, Any] = {"mode": "simulate", "title": flow["title"], "controller": controller, "stop": stop, "result": None,
                                  "stops_before": None, "started": time.time(), "via": via, "input_names": sorted(inputs)}
-        texts = {s["id"]: friendly_step(s["action"], (s.get("target") or {}).get("label")) for s in workflow["steps"]}
+        # Task 8.7: what a look-up answered is kept for this session, in memory only, so the same customer is not asked again and again.
+        # The key is this PC's user, the IE tab (its sign-in), the flow as learned and the values given; a closed tab, a sign-in page in
+        # an answer, «Xoá bộ nhớ phiên» or the agent closing ends it. Only finished runs are kept: they sent read-only calls only.
+        self._cache_prune(bridge)
+        key = self._cache_key(flow, tab, inputs)
+        kept = None if body.get("refresh") else self._cache.get(key)
+        if kept is not None:
+            controller.steps = json.loads(json.dumps(kept["steps"]))
+            controller.details = json.loads(json.dumps(kept["details"]))
+            result = json.loads(json.dumps(kept["result"]))
+            age = int(time.time() - kept["at"])
+            result["message"] = (f"Lấy từ bộ nhớ phiên lúc {time.strftime('%H:%M:%S', time.localtime(kept['at']))} ({age} giây trước), "
+                                 "không gọi lại máy chủ. Bấm «Làm mới» để lấy dữ liệu mới.")
+            result["cached"] = True
+            state["result"] = result
+            state["thread"] = threading.Thread(target=lambda: None, name="ie-simulate-cached", daemon=True)
+            state["thread"].start()
+            self._run = state
+            self._audit(state, result)
+            return {"started": True, "cached": True}
 
         def work() -> None:
             try:
                 bridge.bind(tab["id"])
 
-                def send(item: dict[str, Any], url: str, body_text: str) -> dict[str, Any]:
-                    return bridge.send(item["frame"], item["method"], url, item.get("headers") or "", body_text)
+                def send(node: dict[str, Any], url: str, headers: str, body_text: str) -> dict[str, Any]:
+                    answer = bridge.send(node["frame"], node["method"], url, headers, body_text)
+                    if answer.get("error") == "no_frame" and node["frame"] != "top":
+                        # the frame of the recording is named or placed differently now: the tab's top page sends it, same site, same session
+                        answer = bridge.send("top", node["method"], url, headers, body_text)
+                    return answer
 
-                result = replay.simulate(workflow, by_step, inputs, send, controller, stop, describe=lambda s: texts.get(s["id"], s["id"]))
+                result = replay.run_api(workflow, api, inputs, send, controller, stop)
             except Exception as error:  # noqa: BLE001
                 result = {"status": "failed", "message": f"Chạy mô phỏng bị lỗi: {error}", "steps": []}
             finally:
@@ -682,6 +713,11 @@ class Core:
                     bridge.unbind()
                 except Exception:  # noqa: BLE001
                     pass
+            if result["status"] == "finished":
+                self._cache[key] = {"at": time.time(), "tab": tab["id"], "steps": json.loads(json.dumps(controller.steps)),
+                                    "details": json.loads(json.dumps(controller.details)), "result": dict(result)}
+            elif "đăng nhập" in str(result.get("message")):
+                self._cache_clear(tab["id"])      # the session of this tab has ended: what it gave is not kept
             state["result"] = result
             self._audit(state, result)        # step ids and states only: no request, no answer
 
@@ -689,6 +725,46 @@ class Core:
         self._run = state
         state["thread"].start()
         return {"started": True}
+
+    # ---- task 8.7: the session cache of look-ups (memory only) ---------------------------------------------------------------
+
+    def _cache_key(self, flow: dict[str, Any], tab: dict[str, Any], inputs: dict[str, str]) -> str:
+        import getpass
+
+        return json.dumps([getpass.getuser(), tab["id"], str(tab.get("host") or ""), flow["title"], flow.get("learned_at"),
+                           sorted(inputs.items())], ensure_ascii=False)
+
+    def _cache_seconds(self) -> int:
+        try:
+            return max(0, int(self.store.get("cache_seconds", DEFAULT_CACHE_SECONDS)))
+        except (TypeError, ValueError):
+            return DEFAULT_CACHE_SECONDS
+
+    def _cache_prune(self, bridge: Any) -> None:
+        """Expired entries go; so do those of an IE tab that is not open any more (its sign-in has ended with it)."""
+        limit = time.time() - self._cache_seconds()
+        try:
+            open_tabs = {t["id"] for t in bridge.tabs()}
+        except Exception:  # noqa: BLE001  tabs unknown: only the age counts
+            open_tabs = None
+        for key in list(self._cache):
+            entry = self._cache[key]
+            if entry["at"] <= limit or (open_tabs is not None and entry["tab"] not in open_tabs):
+                del self._cache[key]
+
+    def _cache_clear(self, tab_id: Any = None) -> int:
+        gone = [k for k, v in self._cache.items() if tab_id is None or v["tab"] == tab_id]
+        for key in gone:
+            del self._cache[key]
+        return len(gone)
+
+    def cache_clear(self, _: dict[str, Any]) -> dict[str, Any]:
+        """«Xoá bộ nhớ phiên»: every kept look-up is forgotten now."""
+        return {"cleared": self._cache_clear()}
+
+    def cache_state(self, _: dict[str, Any]) -> dict[str, Any]:
+        """How many look-ups are kept and for how long: counts only, never what they hold."""
+        return {"kept": len(self._cache), "seconds": self._cache_seconds()}
 
     def _save_repair(self, title: str, repairs: list[dict[str, Any]]) -> None:
         """Task 6.3: the elements the teller pointed at make a new version of the agent that changes only those steps' selectors
@@ -778,7 +854,15 @@ class Core:
         if taken is None:
             raise UserError("Thẻ này không còn dùng được (đã hết hạn, đã chạy hoặc còn thiếu thông tin). Hãy hỏi lại.")
         title, inputs = taken
-        return self.run_start({"title": title, "inputs": inputs, "window": body.get("window"), "mode": "run"}, via="assistant")
+        flow = self._flow(title)
+        api = flow.get("api") or []
+        # a look-up the agent learned as API calls only (every node read-only) runs by its calls, with the session cache (task 8.7);
+        # anything that writes or moves money goes on the screen, with its approvals
+        mode = "simulate" if api and all(n.get("risk") == "read" for n in api) else "run"
+        start = {"title": title, "inputs": inputs, "window": body.get("window"), "mode": mode}
+        if body.get("refresh"):
+            start["refresh"] = True
+        return self.run_start(start, via="assistant")
 
     def assistant_habits(self, _: dict[str, Any]) -> dict[str, Any]:
         from rookie_agent.assistant import habits
@@ -986,7 +1070,7 @@ class Core:
         "POST /api/diagnostics": "diagnostics", "GET /api/flows": "flows",
         "GET /api/codie": "codie_status", "POST /api/codie/test": "codie_test", "GET /api/calls": "calls", "GET /api/seen": "seen", "GET /api/requests": "requests", "GET /api/live": "live", "GET /api/screen": "screen", "POST /api/ie/inspect": "ie_inspect", "POST /api/flow/approve": "flow_approve", "POST /api/run/start": "run_start", "GET /api/run/status": "run_status", "POST /api/run/decide": "run_decide", "POST /api/run/stop": "run_stop", "POST /api/assistant/plan": "assistant_plan", "POST /api/assistant/answer": "assistant_answer", "POST /api/assistant/run": "assistant_run", "GET /api/assistant/habits": "assistant_habits", "GET /api/trace/last": "last_trace",
         "POST /api/voucher/read": "voucher_read", "POST /api/voucher/confirm": "voucher_confirm", "POST /api/voucher/run": "voucher_run",
-        "GET /api/server/log": "server_log",
+        "GET /api/server/log": "server_log", "POST /api/cache/clear": "cache_clear", "GET /api/cache": "cache_state",
     }
 
     def server_log(self, _: dict[str, Any]) -> dict[str, Any]:

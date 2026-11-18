@@ -55,7 +55,29 @@ def test_weak_or_split_evidence_stops_to_ask_and_nothing_is_done(frames, code):
 
 def test_no_frame_with_the_selectors_is_not_found():
     with pytest.raises(runner.ElementNotFound):
-        IeDriver(LocatingBridge([{"frame": "other", "probes": [{"kind": "id", "m": [1]}], "fields": {}}]), 3).click(["frame=main|id=x"])
+        IeDriver(LocatingBridge([]), 3).click(["frame=main|id=x"])
+
+
+class RenamedFrameBridge(LocatingBridge):
+    """The recorded frame is gone; asked of every frame (`frame=*`), the element answers from its new frame(s)."""
+
+    def __init__(self, frames):
+        super().__init__(frames, ({"ok": True, "value": "1"},))
+        self.asked = []
+
+    def locate(self, selectors):
+        self.asked.append(list(selectors))
+        return self.frames if selectors[0].startswith("frame=*|") else []
+
+
+def test_an_element_whose_frame_was_renamed_is_found_in_its_one_new_frame_and_two_frames_are_asked():
+    strong = {"probes": [{"kind": "id", "m": [7]}, {"kind": "label", "m": [7]}, {"kind": "pos", "m": [7]}], "fields": {"7": 1}}
+    bridge = RenamedFrameBridge([{"frame": "desktopFrame/#2", **strong}])
+    IeDriver(bridge, 3).fill(["frame=desktopFrame/main|id=txtCif", "frame=desktopFrame/main|label=CIF"], "1")
+    assert bridge.asked[1] == ["frame=*|id=txtCif", "frame=*|label=CIF"]
+    assert bridge.calls[0][1] == ["frame=desktopFrame/#2|src=7"]
+    with pytest.raises(runner.NeedsHelp):           # the same element in two frames: never a guess
+        IeDriver(RenamedFrameBridge([{"frame": "a", **strong}, {"frame": "b", **strong}]), 3).fill(["frame=main|id=txtCif"], "1")
 
 
 def test_a_missing_element_is_the_runners_own_not_found():
