@@ -373,7 +373,7 @@ def test_a_recorded_ie_session_is_sent_to_the_server_as_engine_ie(tmp_path):
     sent = []
 
     class Server(FakeServer):
-        def post_session(self, session_id, engine, events):
+        def post_session(self, session_id, engine, events, **extra):
             sent.append(engine)
 
     core, _ = ie_core(tmp_path, FakeIeBridge(after_stop=[ie_line("click", 2000)]), server_client=Server)

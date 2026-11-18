@@ -32,6 +32,9 @@ uvicorn app.main:app --reload --port 8000
 $env:ROOKIE_LLM_BASE_URL = "http://node:port/v1"; $env:ROOKIE_LLM_MODEL = "<tên model đang serve>"
 cd server; python -m app.llm.check
 
+# bản sao quy trình (Gate 9): sinh 30 ca synthetic GDV → KSV vào máy chủ đang chạy
+python ..\scripts\twin_seed.py http://localhost:8000 --cases 30
+
 # mock site (dùng chung venv ở server/.venv, đã kích hoạt ở trên)
 cd mock-site; pytest
 uvicorn app:app --reload --port 8001

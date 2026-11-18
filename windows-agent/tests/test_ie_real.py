@@ -748,9 +748,15 @@ class _InProcessServer:
     def health(self):
         return {"ok": True}
 
-    def post_session(self, session_id, engine, events):
-        body = {"schema_version": 2 if engine == "ie" else 1, "engine": engine, "session_id": session_id, "events": events}
-        assert self._client.post("/sessions", json=body).status_code == 201
+    def post_session(self, session_id, engine, events, role=None, case_key=None):
+        # Same body as ServerClient.post_session: ie events carry api_calls with timings since schema 3 (Gate 9).
+        body = {"schema_version": 3 if engine == "ie" else 1, "engine": engine, "session_id": session_id, "events": events}
+        if role:
+            body["role"] = role
+        if case_key:
+            body["case_key"] = case_key
+        reply = self._client.post("/sessions", json=body)
+        assert reply.status_code == 201, reply.text
 
     def plan_request(self, payload):
         reply = self._client.post("/assistant/plan", json=payload)

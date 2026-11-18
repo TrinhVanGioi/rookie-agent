@@ -7,11 +7,15 @@ field; the Recorder has already removed it.
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import json
 import re
+import secrets
 import threading
 import time
 import unicodedata
+import urllib.parse
 import uuid
 from collections.abc import Callable
 from pathlib import Path
@@ -24,6 +28,8 @@ from rookie_agent.server_client import ServerClient, ServerError
 DEFAULT_SERVER = "http://localhost:8000"
 DEFAULT_CACHE_SECONDS = 300   # task 8.7: a look-up answered in this session is shown again for 5 minutes without calling the server
 IE_PREFIX = "Internet Explorer: "
+DEFAULT_CASE_REGEX = r"LCT\d{5}"   # the transfer ids of the mock site
+ROLE_NAMES = ("maker", "checker")
 
 ACTION_WORDS = {
     "click": "Bấm", "input": "Nhập vào", "select": "Chọn ở", "submit": "Nhấn Enter ở", "navigate": "Mở màn hình",
@@ -36,6 +42,10 @@ MODE_WORDS = {"auto": "tự chạy", "review": "dừng cho bạn xem", "approve"
 HOOK_BLOCK_FILE = "request-hook-blocked-v2.json"
 DIAG_LEVELS = ("noread", "nolisten", "none", "only-click", "only-key", "only-field", "only-page",
                "only-focusin", "only-focusout", "only-change", "field-empty", "body-prop", "body-label", "body-place", "body-uid", "body-value", "body-meta")   # to find what upsets a page
+
+
+def replay_has_twin(api: list[dict[str, Any]]) -> bool:
+    return bool(api) and all(n.get("shape") for n in api)
 
 
 class UserError(Exception):
@@ -352,6 +362,14 @@ class Core:
                 kept = len(found)
         except Exception:  # noqa: BLE001  the recording itself is saved whatever happens here
             pass
+        try:    # Gate 9: the case this recording is about (a keyed hash, never the id) and the role it was recorded in
+            extra: dict[str, Any] = {"role": self._role()}
+            key = self._case_key([str(r.get(k) or "") for r in getattr(session, "requests", []) or [] for k in ("url", "req", "res")])
+            if key:
+                extra["case_key"] = key
+            self.store.update(session.session_id, **extra)
+        except Exception:  # noqa: BLE001
+            pass
         return {"id": document["session_id"], "trace_file": trace_path, "requests_kept": kept, **summarize_events(document["events"])}
 
     def _write_trace(self, session: Any) -> str | None:
@@ -452,7 +470,7 @@ class Core:
             for session_id in ids:
                 document = self.store.load(session_id)
                 try:
-                    client.post_session(session_id, document["engine"], document["events"])
+                    client.post_session(session_id, document["engine"], self._events_for_server(document), **self._process_fields(document))
                 except ServerError as error:
                     if getattr(error, "status", None) != 409:   # 409: the server already has this recording, from an earlier Học
                         raise
@@ -519,6 +537,8 @@ class Core:
                                "inputs": sorted(set(re.findall("⟦([a-z0-9_]+)⟧", n["url"] + n["body"] + n["headers"]))),
                                "links": {k: v["from"] for k, v in n["links"].items()}} for n in flow.get("api") or []],
                 "approved": workflow.get("status") == "approved", "engine": workflow.get("engine"),
+                "workflow_id": workflow.get("id"), "twin_ready": replay_has_twin(flow.get("api") or []), "has_api": bool(flow.get("api")),
+                "step_count": len(workflow.get("steps", [])),
                 "repair_pending": bool(flow.get("repair")), "repair": None, "fingerprint": None,
                 "step_ids": [step.get("id", "") for step in workflow.get("steps", [])],   # the canvas lights the node of the step running
                 "input_fields": [{"name": i["name"], "label": i.get("label") or i["name"]} for i in workflow.get("inputs", [])]}
@@ -884,7 +904,8 @@ class Core:
             current = "running"
         return {"state": current, "mode": state["mode"], "title": state["title"], "steps": list(controller.steps),
                 "ask": dict(controller.ask) if controller.ask else None, "result": result,
-                "details": dict(getattr(controller, "details", {}))}   # task 7.5: what each step sent and got back, in memory only
+                "details": dict(getattr(controller, "details", {})),
+                **({"twin": True, "banner": "BẢN SAO – không gửi hệ thống thật", "stages": state.get("stages", [])} if state.get("twin") else {})}   # task 7.5: what each step sent and got back, in memory only
 
     def run_decide(self, body: dict[str, Any]) -> dict[str, Any]:
         state = self._run
@@ -1062,6 +1083,214 @@ class Core:
         path.write_text(json.dumps(content, ensure_ascii=False, indent=2), encoding="utf-8")
         return {"path": str(path)}
 
+    # ---- Gate 9: the process twin (docs/design.md; plan Gate 9) ----------------------------------------------------------------
+
+    def _role(self) -> str:
+        role = self.store.get("role", "maker")
+        return role if role in ROLE_NAMES else "maker"
+
+    def _unit_key(self) -> str:
+        key = self.store.get("unit_key")
+        if not key:
+            key = secrets.token_hex(16)        # made once; the unit shares it so that every PC hashes a case id the same way
+            self.store.put("unit_key", key)
+        return str(key)
+
+    def _case_regex(self) -> str:
+        return str(self.store.get("case_regex") or DEFAULT_CASE_REGEX)
+
+    def _case_key(self, texts: list[str]) -> str | None:
+        """The first case id found in the texts, as HMAC-SHA256(unit key, id) cut to 32 hex chars. The id itself goes nowhere."""
+        try:
+            pattern = re.compile(self._case_regex())
+        except re.error:
+            return None
+        for text in texts:
+            found = pattern.search(text)
+            if found:
+                return hmac.new(self._unit_key().encode("utf-8"), found.group(0).encode("utf-8"), hashlib.sha256).hexdigest()[:32]
+        return None
+
+    def _process_fields(self, document: dict[str, Any]) -> dict[str, Any]:
+        extra: dict[str, Any] = {}
+        role = document.get("role") or self.store.get("role")
+        if role in ROLE_NAMES:
+            extra["role"] = role
+        if document.get("case_key"):
+            extra["case_key"] = document["case_key"]
+        return extra
+
+    @staticmethod
+    def _path_template(url: str) -> str:
+        """The path of a request as a template: no query, no host, long numbers and ids as {n} and {id} (a case id in a path)."""
+        path = urllib.parse.urlsplit(url).path or "/"
+        def one(segment: str) -> str:
+            if re.search(r"\d", segment) and re.search(r"[A-Za-z]", segment) and len(segment) >= 6:
+                return "{id}"
+            return "{n}" if re.fullmatch(r"\d{4,}", segment) else segment
+
+        return "/".join(one(part) for part in path.split("/"))[:200]
+
+    def _events_for_server(self, document: dict[str, Any]) -> list[dict[str, Any]]:
+        """The events of an ie recording, each with the calls the page made after it: method, path template, status, milliseconds."""
+        events = document["events"]
+        if document.get("engine") != "ie":
+            return events
+        calls: dict[int, list[dict[str, Any]]] = {}
+        for request in document.get("requests") or []:
+            seq, status = request.get("after_seq"), int(request.get("status") or 0)
+            if seq is None or status < 100:
+                continue
+            calls.setdefault(int(seq), []).append({"method": str(request.get("method") or "GET").upper(), "path": self._path_template(str(request.get("url") or "")),
+                                                   "status": status, "ms": max(0, int(request.get("ms") or 0))})
+        # Every event of the session carries the session's schema_version (3: api_calls with timings are allowed for ie).
+        return [{**e, "schema_version": 3, **({"api_calls": calls[int(e["seq"])][:20]} if int(e.get("seq", -1)) in calls else {})} for e in events]
+
+    def twin_settings(self, _: dict[str, Any]) -> dict[str, Any]:
+        return {"role": self._role(), "unit_key": self._unit_key(), "case_regex": self._case_regex(),
+                "roles": [{"id": "maker", "label": "GDV lập lệnh"}, {"id": "checker", "label": "Kiểm soát viên"}]}
+
+    def twin_settings_save(self, body: dict[str, Any]) -> dict[str, Any]:
+        if "role" in body:
+            if body["role"] not in ROLE_NAMES:
+                raise UserError("Vai trò chỉ có thể là GDV lập lệnh hoặc Kiểm soát viên.")
+            self.store.put("role", body["role"])
+        if body.get("unit_key"):
+            key = str(body["unit_key"]).strip()
+            if len(key) < 16:
+                raise UserError("Khoá của đơn vị cần dài ít nhất 16 ký tự.")
+            self.store.put("unit_key", key)
+        if body.get("case_regex"):
+            try:
+                re.compile(str(body["case_regex"]))
+            except re.error:
+                raise UserError("Mẫu nhận mã lệnh không hợp lệ.") from None
+            self.store.put("case_regex", str(body["case_regex"]))
+        return self.twin_settings({})
+
+    def _twin_call(self, name: str, *args: Any) -> dict[str, Any]:
+        client = self._server()
+        try:
+            return getattr(client, name)(*args)
+        except ServerError as error:
+            raise UserError(str(error)) from error
+
+    def twin_processes(self, _: dict[str, Any]) -> dict[str, Any]:
+        return self._twin_call("twin_processes")
+
+    def twin_process_save(self, body: dict[str, Any]) -> dict[str, Any]:
+        if not str(body.get("name") or "").strip() or not body.get("stages"):
+            raise UserError("Đặt tên quy trình và chọn ít nhất một chặng.")
+        return self._twin_call("twin_save", {k: body[k] for k in ("name", "stages", "handoffs") if k in body})
+
+    def twin_discover(self, body: dict[str, Any]) -> dict[str, Any]:
+        return self._twin_call("twin_discover", str(body.get("process_id") or ""))
+
+    def twin_suggest(self, _: dict[str, Any]) -> dict[str, Any]:
+        return self._twin_call("twin_suggest")
+
+    def twin_metrics(self, body: dict[str, Any]) -> dict[str, Any]:
+        if not body.get("process_id"):
+            raise UserError("Chọn quy trình trước.")
+        return self._twin_call("twin_metrics", str(body["process_id"]))
+
+    def twin_simulate(self, body: dict[str, Any]) -> dict[str, Any]:
+        if not body.get("process_id"):
+            raise UserError("Chọn quy trình trước.")
+        return self._twin_call("twin_simulate", str(body["process_id"]), {k: v for k, v in body.items() if k != "process_id"})
+
+    def _twin_flow(self, flow_id: str) -> dict[str, Any]:
+        flow = next((f for f in self.store.get("flows", []) if (f.get("workflow") or {}).get("id") == flow_id or f.get("title") == flow_id), None)
+        if flow is None or not flow.get("workflow"):
+            raise UserError("Không thấy luồng đã học cho một chặng của quy trình. Hãy Học lại luồng đó trên máy này.")
+        return flow
+
+    def _twin_stages(self, body: dict[str, Any]) -> list[dict[str, Any]]:
+        given = body.get("stages")
+        if not given and body.get("process_id"):
+            process = self._twin_call("twin_process", str(body["process_id"]))
+            given = [{"flow_id": s.get("workflow_id"), "role": s.get("role"), "label": s.get("label")} for s in process.get("stages", [])]
+        if not given:
+            raise UserError("Chọn quy trình hoặc ít nhất một chặng để chạy thử.")
+        out = []
+        for stage in given:
+            flow = self._twin_flow(str(stage.get("flow_id") or stage.get("workflow_id") or ""))
+            out.append({"flow": flow, "role": stage.get("role") if stage.get("role") in ROLE_NAMES else "maker", "label": str(stage.get("label") or flow["title"])})
+        return out
+
+    def twin_run(self, body: dict[str, Any]) -> dict[str, Any]:
+        """Chạy thử trên bản sao: the stages in order (maker, queue, checker), answered from the skeletons kept with each flow. Nothing is
+        sent to IE or the network. A node that writes or moves money, and a checker's stage, wait for a person's Duyệt."""
+        from rookie_agent.ie import replay, twin
+        from rookie_agent.webui.run import WebController
+
+        if self._run is not None and self._run["thread"].is_alive():
+            raise UserError("Đang chạy một luồng. Đợi xong hoặc bấm Dừng khẩn.")
+        if self._ie_session is not None:
+            raise UserError("Đang ghi. Bấm Dừng ghi trước khi chạy.")
+        stages = self._twin_stages(body)
+        plan = []
+
+        def describe(step: dict[str, Any]) -> str:
+            return friendly_step(step["action"], (step.get("target") or {}).get("label"))
+
+        for index, stage in enumerate(stages):
+            flow, workflow = stage["flow"], stage["flow"]["workflow"]
+            api = flow.get("api") or []
+            if api and not twin.has_twin(api):
+                raise UserError(twin.NO_TWIN)
+            raw = api or twin.screen_nodes(workflow, describe)
+            prefix = f"c{index + 1}."
+            plan.append({"workflow": workflow, "nodes": twin.prefixed(raw, prefix, stage["label"]), "role": stage["role"], "label": stage["label"]})
+        inputs = {str(k): str(v) for k, v in (body.get("inputs") or {}).items() if str(v) != ""}
+        stop = threading.Event()
+        controller = WebController(stop, dict(inputs), lambda: replay.TWIN_BANNER)
+        title = str(body.get("name") or " → ".join(p["label"] for p in plan))
+        state: dict[str, Any] = {"mode": "twin", "title": title, "controller": controller, "stop": stop, "result": None, "stops_before": None,
+                                 "started": time.time(), "via": None, "input_names": sorted(inputs), "twin": True,
+                                 "stages": [{"label": p["label"], "role": p["role"], "nodes": [n["id"] for n in p["nodes"]]} for p in plan]}
+        send = twin.make_twin_send(inputs, str(body.get("seed") or ""))
+
+        def work() -> None:
+            steps: list[dict[str, Any]] = []
+            simulated, result = 0, {"status": "finished", "message": "", "steps": []}
+            try:
+                for index, p in enumerate(plan):
+                    if index:
+                        queue = f"q{index}"
+                        controller.progress(queue, "done", "chuyển sang chặng sau, vào hàng chờ duyệt (mô phỏng)")
+                        controller.show(queue, {"action": "Bàn giao / Hàng chờ duyệt", "risk": "read", "requests": [], "inputs": [], "twin": replay.TWIN_BANNER})
+                    controller.context = {"twin": True, "banner": replay.TWIN_BANNER, "role": p["role"], "stage": p["label"]}
+                    result = replay.run_api(p["workflow"], p["nodes"], inputs, send, controller, stop, twin=True, role=p["role"])
+                    steps += result["steps"]
+                    simulated += int(result.get("simulated_ms") or 0)
+                    if result["status"] != "finished":
+                        break
+                else:
+                    result["message"] = f"Chạy thử xong {len(plan)} chặng trên bản sao. " + replay.TWIN_BANNER + "."
+            except Exception as error:  # noqa: BLE001
+                result = {"status": "failed", "message": f"Chạy thử bị lỗi: {error}", "steps": steps}
+            result = {**result, "steps": steps, "twin": True, "simulated_ms": simulated}
+            state["result"] = result
+            self._audit(state, result)       # flow names, step ids and states only, mode "twin": no value
+
+        state["thread"] = threading.Thread(target=work, name="twin-run", daemon=True)
+        self._run = state
+        state["thread"].start()
+        return {"started": True, "banner": replay.TWIN_BANNER}
+
+    def twin_export(self, body: dict[str, Any]) -> dict[str, Any]:
+        """The process as an n8n-style workflow file (templates only, no header, no value), for the page to offer as a download."""
+        from rookie_agent.ie import n8n
+
+        stages = []
+        for stage in self._twin_stages(body):
+            workflow = stage["flow"]["workflow"]
+            api = [{k: n[k] for k in ("label", "method", "url", "body", "risk")} for n in stage["flow"].get("api") or []]
+            steps = [{"label": friendly_step(s["action"], (s.get("target") or {}).get("label")), "risk": s.get("risk", "read")} for s in workflow.get("steps", [])]
+            stages.append({"label": stage["label"], "role": stage["role"], "api": api, "steps": steps})
+        return n8n.export(str(body.get("name") or "Quy trình"), stages)
+
     ROUTES = {
         "GET /api/state": "state", "GET /api/check": "check", "POST /api/enable-bridge": "enable_bridge",
         "POST /api/switch-bits": "switch_bits", "GET /api/windows": "windows", "POST /api/record/start": "record_start",
@@ -1070,6 +1299,11 @@ class Core:
         "POST /api/diagnostics": "diagnostics", "GET /api/flows": "flows",
         "GET /api/codie": "codie_status", "POST /api/codie/test": "codie_test", "GET /api/calls": "calls", "GET /api/seen": "seen", "GET /api/requests": "requests", "GET /api/live": "live", "GET /api/screen": "screen", "POST /api/ie/inspect": "ie_inspect", "POST /api/flow/approve": "flow_approve", "POST /api/run/start": "run_start", "GET /api/run/status": "run_status", "POST /api/run/decide": "run_decide", "POST /api/run/stop": "run_stop", "POST /api/assistant/plan": "assistant_plan", "POST /api/assistant/answer": "assistant_answer", "POST /api/assistant/run": "assistant_run", "GET /api/assistant/habits": "assistant_habits", "GET /api/trace/last": "last_trace",
         "POST /api/voucher/read": "voucher_read", "POST /api/voucher/confirm": "voucher_confirm", "POST /api/voucher/run": "voucher_run",
+        "GET /api/twin/settings": "twin_settings", "POST /api/twin/settings": "twin_settings_save",
+        "GET /api/twin/processes": "twin_processes", "POST /api/twin/processes": "twin_process_save",
+        "GET /api/twin/discover": "twin_discover", "GET /api/twin/suggest": "twin_suggest", "GET /api/twin/metrics": "twin_metrics",
+        "POST /api/twin/simulate": "twin_simulate", "POST /api/twin/run": "twin_run", "GET /api/twin/status": "run_status",
+        "POST /api/twin/decide": "run_decide", "POST /api/twin/stop": "run_stop", "POST /api/twin/export": "twin_export",
         "GET /api/server/log": "server_log", "POST /api/cache/clear": "cache_clear", "GET /api/cache": "cache_state",
     }
 

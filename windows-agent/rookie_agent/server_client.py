@@ -8,6 +8,7 @@ import json
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from typing import Any
 
@@ -81,9 +82,39 @@ class ServerClient:
     def health(self) -> dict[str, Any]:
         return self._call("GET", "/health")
 
-    def post_session(self, session_id: str, engine: str, events: list[dict[str, Any]]) -> dict[str, Any]:
-        body = {"schema_version": 2 if engine == "ie" else 1, "engine": engine, "session_id": session_id, "events": events}
+    def post_session(self, session_id: str, engine: str, events: list[dict[str, Any]], role: str | None = None,
+                     case_key: str | None = None) -> dict[str, Any]:
+        """`role` ("maker" or "checker") and `case_key` (a keyed hash of the case id, never the id) are for the process log (Gate 9);
+        events of an ie session may carry `api_calls` ({method, path (template, no query), status, ms}), which is schema 3."""
+        body: dict[str, Any] = {"schema_version": 3 if engine == "ie" else 1, "engine": engine, "session_id": session_id, "events": events}
+        if role:
+            body["role"] = role
+        if case_key:
+            body["case_key"] = case_key
         return self._call("POST", "/sessions", body)
+
+    # ---- Gate 9: the process twin on the server (the body of a reply is passed on as it is) -------------------------------------
+
+    def twin_processes(self) -> dict[str, Any]:
+        return self._call("GET", "/twin/processes")
+
+    def twin_process(self, process_id: str) -> dict[str, Any]:
+        return self._call("GET", f"/twin/processes/{urllib.parse.quote(process_id, safe='')}")
+
+    def twin_save(self, process: dict[str, Any]) -> dict[str, Any]:
+        return self._call("POST", "/twin/processes", process)
+
+    def twin_discover(self, process_id: str = "") -> dict[str, Any]:
+        return self._call("GET", "/twin/discover" + (f"?process_id={urllib.parse.quote(process_id, safe='')}" if process_id else ""))
+
+    def twin_suggest(self) -> dict[str, Any]:
+        return self._call("GET", "/twin/suggest")
+
+    def twin_metrics(self, process_id: str) -> dict[str, Any]:
+        return self._call("GET", f"/twin/processes/{urllib.parse.quote(process_id, safe='')}/metrics")
+
+    def twin_simulate(self, process_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        return self._call("POST", f"/twin/processes/{urllib.parse.quote(process_id, safe='')}/simulate", payload, timeout=120)
 
     def learn(self, workflow_id: str | None, session_ids: list[str], title: str | None = None, traces: list[dict[str, Any]] | None = None) -> dict[str, Any]:
         """Give the id, or the teller's own `title` and the server makes the id from it. `traces` are the masked traces of the same

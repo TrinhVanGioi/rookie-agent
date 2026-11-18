@@ -1,0 +1,12 @@
+{
+  "case": "a1b2c3d4e5f60718",
+  "session_id": "s-1",
+  "workflow_id": "lap-lenh",
+  "step_id": "s1_tra_cuu",
+  "label": "Tra cứu",
+  "role": "maker",
+  "start": "2026-11-12T09:00:00.000Z",
+  "end": "2026-11-12T09:00:20.000Z",
+  "outcome": "ok",
+  "api_ms": 150
+}

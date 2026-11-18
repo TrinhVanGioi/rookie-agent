@@ -32,6 +32,20 @@ CREATE TABLE IF NOT EXISTS test_runs (
     result TEXT NOT NULL,
     created_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS learn_sources (
+    workflow_id TEXT NOT NULL,
+    version INTEGER NOT NULL,
+    session_ids TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (workflow_id, version)
+);
+CREATE TABLE IF NOT EXISTS process_models (
+    id TEXT NOT NULL,
+    version INTEGER NOT NULL,
+    document TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (id, version)
+);
 """
 
 
@@ -50,18 +64,31 @@ class Storage:
         self._db.row_factory = sqlite3.Row
         with self._lock, self._db:
             self._db.executescript(_SCHEMA)
+            have = {row["name"] for row in self._db.execute("PRAGMA table_info(sessions)")}
+            for column, kind in (("role", "TEXT"), ("case_key", "TEXT"), ("synthetic", "INTEGER NOT NULL DEFAULT 0")):
+                if column not in have:   # a database made before Gate 9
+                    self._db.execute(f"ALTER TABLE sessions ADD COLUMN {column} {kind}")
 
     def close(self) -> None:
         self._db.close()
 
     # ---- sessions -----------------------------------------------------------------
 
-    def add_session(self, session_id: str, engine: str, events: list[dict[str, Any]]) -> bool:
-        """Store a session. Returns False when the id already exists."""
+    def add_session(
+        self,
+        session_id: str,
+        engine: str,
+        events: list[dict[str, Any]],
+        role: str | None = None,
+        case_key: str | None = None,
+        synthetic: bool = False,
+    ) -> bool:
+        """Store a session. Returns False when the id already exists. `case_key` is already a hash made on the PC."""
         with self._lock, self._db:
             try:
                 self._db.execute(
-                    "INSERT INTO sessions VALUES (?, ?, ?, ?)", (session_id, engine, _now(), _dump(events))
+                    "INSERT INTO sessions (id, engine, created_at, events, role, case_key, synthetic) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (session_id, engine, _now(), _dump(events), role, case_key, int(synthetic)),
                 )
             except sqlite3.IntegrityError:
                 return False
@@ -77,6 +104,9 @@ class Storage:
             "engine": row["engine"],
             "created_at": row["created_at"],
             "events": json.loads(row["events"]),
+            "role": row["role"],
+            "case_key": row["case_key"],
+            "synthetic": bool(row["synthetic"]),
         }
 
     def list_sessions(self, engine: str | None = None) -> list[dict[str, Any]]:
@@ -152,3 +182,61 @@ class Storage:
                 (workflow_id, version),
             ).fetchone()
         return row is not None
+
+    # ---- which sessions a workflow was learned from ------------------------------------
+
+    def add_learn_sources(self, workflow_id: str, version: int, session_ids: list[str]) -> None:
+        with self._lock, self._db:
+            self._db.execute(
+                "INSERT OR REPLACE INTO learn_sources VALUES (?, ?, ?, ?)", (workflow_id, version, _dump(session_ids), _now())
+            )
+
+    def learn_sources(self) -> list[tuple[str, int, list[str]]]:
+        """(workflow id, version, session ids), oldest first."""
+        with self._lock:
+            rows = self._db.execute("SELECT * FROM learn_sources ORDER BY created_at, rowid").fetchall()
+        return [(r["workflow_id"], r["version"], json.loads(r["session_ids"])) for r in rows]
+
+    def all_sessions(self) -> list[dict[str, Any]]:
+        with self._lock:
+            ids = [r["id"] for r in self._db.execute("SELECT id FROM sessions ORDER BY created_at, id")]
+        return [s for s in (self.get_session(i) for i in ids) if s is not None]
+
+    def agent_run_ms(self, workflow_id: str) -> dict[str, list[float]]:
+        """Measured agent run time per step id, from passed sandbox runs whose step records carry a duration in ms."""
+        with self._lock:
+            rows = self._db.execute("SELECT result FROM test_runs WHERE workflow_id = ? AND ok = 1", (workflow_id,)).fetchall()
+        found: dict[str, list[float]] = {}
+        for row in rows:
+            for step in json.loads(row["result"]).get("steps") or []:
+                ms = next((step[k] for k in ("duration_ms", "ms", "elapsed_ms") if isinstance(step.get(k), (int, float))), None)
+                step_id = step.get("id") or step.get("step_id")
+                if ms is not None and step_id:
+                    found.setdefault(step_id, []).append(float(ms))
+        return found
+
+    # ---- process models -------------------------------------------------------------------
+
+    def next_process_version(self, process_id: str) -> int:
+        with self._lock:
+            row = self._db.execute("SELECT MAX(version) AS v FROM process_models WHERE id = ?", (process_id,)).fetchone()
+        return (row["v"] or 0) + 1
+
+    def add_process(self, process: dict[str, Any]) -> None:
+        with self._lock, self._db:
+            self._db.execute("INSERT INTO process_models VALUES (?, ?, ?, ?)", (process["id"], process["version"], _dump(process), _now()))
+
+    def get_process(self, process_id: str, version: int | None = None) -> dict[str, Any] | None:
+        query, args = "SELECT document FROM process_models WHERE id = ?", [process_id]
+        if version is not None:
+            query, args = query + " AND version = ?", args + [version]
+        with self._lock:
+            row = self._db.execute(query + " ORDER BY version DESC LIMIT 1", args).fetchone()
+        return json.loads(row["document"]) if row else None
+
+    def list_processes(self) -> list[dict[str, Any]]:
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT id, version, created_at, json_extract(document, '$.name') AS name FROM process_models ORDER BY id, version"
+            ).fetchall()
+        return [dict(r) for r in rows]

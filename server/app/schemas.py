@@ -67,3 +67,27 @@ def validate_trace(document: Any) -> None:
             seen.add(event["eid"])
             if event["el_id"] is not None and event["el_id"] not in document["elements"]:
                 raise SchemaError(f"trace không hợp lệ: {event['eid']} trỏ tới phần tử {event['el_id']} không có trong elements")
+
+
+def validate_process(document: Any) -> None:
+    """A process model: stages (each one workflow, with a role) and the handoffs between them."""
+    _validate("process", document)
+    ids = [stage["id"] for stage in document["stages"]]
+    if len(set(ids)) != len(ids):
+        raise SchemaError("process không hợp lệ: id chặng bị trùng")
+    for handoff in document["handoffs"]:
+        for end in (handoff["from_stage"], handoff["to_stage"]):
+            if end not in ids:
+                raise SchemaError(f"process không hợp lệ: điểm bàn giao trỏ tới chặng {end} không có")
+
+
+@lru_cache
+def _log_row_validator() -> Draft202012Validator:
+    schema = json.loads((SCHEMA_DIR / "process.schema.json").read_text(encoding="utf-8"))
+    return Draft202012Validator({"$schema": schema["$schema"], "$defs": schema["$defs"], "$ref": "#/$defs/log_row"})
+
+
+def validate_log_row(document: Any) -> None:
+    errors = sorted(_log_row_validator().iter_errors(document), key=lambda e: list(e.absolute_path))
+    if errors:
+        raise SchemaError("dòng nhật ký không hợp lệ: " + "; ".join(e.message for e in errors))

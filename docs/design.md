@@ -438,3 +438,58 @@ Các tiêu chí qua cổng là đề xuất từ kịch bản demo, cần thốn
 - Quy trình thật đầu tiên để thử sau PoC: cuộc họp nhắc đối chiếu cuối ngày và hành trình chuyển tiền ngoại tệ.
 - Ai duyệt agent trước khi vào kho chung.
 - Chính sách cài extension và vị trí đặt LLM trong ngân hàng.
+
+## 12. Bản sao quy trình (Process Digital Twin)
+
+Từ Gate 8, mỗi luồng đã là một bản sao chạy được của một thao tác. Gate 9 nâng lên thành bản sao của cả quy trình đầu cuối nhiều vai trò, ví dụ GDV tra CIF và lập lệnh chuyển tiền, rồi KSV duyệt. Bản sao phục vụ bốn việc: chạy thử không đụng hệ thống thật, nhìn quy trình thật, đo và tìm điểm nghẽn, thử «nếu… thì…».
+
+```
+Máy GDV/KSV (agent, extension)       Máy chủ nội bộ (server/app/twin/)
+ ghi: sự kiện đã che + thời gian  ─►  Nhật ký quy trình
+ khung trả lời (đã xoá giá trị)       ├─ Khám phá: sơ đồ, biến thể, số ca
+ Chạy thử trên bản sao  ◄───────┐     ├─ Đo: thời gian bước, chờ, làm lại, lỗi, độ trễ API
+                                │     ├─ Mô hình quy trình đầu cuối (chặng, vai trò)
+ trang «Bản sao quy trình»  ◄───┴──── └─ Mô phỏng nếu… thì… (sự kiện rời rạc, có seed)
+```
+
+1. **Nhật ký quy trình** (`twin/log.py`). Dựng từ các phiên đã lưu. Mỗi dòng gồm:
+   - ca;
+   - bước của workflow: phiên đã dùng để Học thì theo bước đã học; phiên khác thì khớp theo phần tử đích, nhận khi ít nhất 60% thao tác khớp;
+   - vai trò (`maker` hoặc `checker`);
+   - thời điểm bắt đầu và kết thúc;
+   - kết quả: xong, làm lại hoặc lỗi;
+   - độ trễ API.
+
+   Sự kiện `schema_version` 3 cho phép `api_calls` ở hướng ie, có thêm `ms`. Đường dẫn của mỗi lời gọi bỏ query, không có body.
+
+   Phiên gửi kèm vai trò, kèm `case_key` nếu thấy mã lệnh, và cờ `synthetic` với dữ liệu demo. `case_key` là HMAC-SHA256 của mã lệnh, tính trên máy bằng khoá chung của đơn vị. Máy chủ chỉ thấy mã băm, dùng nó để nối chặng maker với chặng checker của cùng một lệnh.
+2. **Khám phá** (`twin/discover.py`). Dựng sơ đồ «bước nào theo sau bước nào» và các biến thể (chuỗi bước, số ca, tỉ lệ).
+   - Mô hình quy trình (`schemas/process.schema.json`) gồm các chặng. Mỗi chặng là một luồng đã học kèm vai trò; giữa các chặng có điểm bàn giao (hàng chờ).
+   - Mô hình có version. Chủ agent ghép các chặng; máy chủ gợi ý thứ tự theo các ca đã nối.
+3. **Đo** (`twin/metrics.py`). Theo từng bước, tính:
+   - thời gian xử lý (trung vị, p90);
+   - thời gian chờ;
+   - tỉ lệ làm lại và tỉ lệ lỗi;
+   - độ trễ API.
+
+   Theo từng hàng chờ, tính thời gian chờ. Điểm nghẽn là bước hoặc hàng chờ chiếm phần lớn thời gian một ca.
+
+   Chỉ hiện số khi có ít nhất 5 ca và không bao giờ tính theo từng người: bản sao không dùng để giám sát (mục 9).
+4. **Chạy thử trên bản sao** (máy GDV, `ie/shape.py`). Lúc Dừng ghi, trả lời của mỗi API thành khung: giữ cấu trúc, xoá mọi giá trị.
+   - JSON giữ khoá và kiểu.
+   - GWT giữ tên lớp.
+   - HTML giữ thẻ.
+
+   Khung lưu ở `flows[].api[].shape` trên máy. Khi chạy thử, agent tự trả lời từ khung bằng giá trị giả nhất quán theo đầu vào, nên luật nối `⟦lN⟧` vẫn chạy.
+
+   Không request nào ra ngoài. Nút ghi và nút tiền vẫn dừng chờ Duyệt, chặng KSV dừng cho người bấm Duyệt. Sau khi duyệt, bản sao đi tiếp vì không có gì gửi ra ngoài. Màn hình ghi rõ «BẢN SAO – không gửi hệ thống thật». Audit ghi chế độ `twin`, không có giá trị.
+5. **Mô phỏng «nếu… thì…»** (`twin/simulate.py`). Mô phỏng sự kiện rời rạc có seed, cùng seed thì cùng kết quả. Thời gian từng bước lấy mẫu từ số đo thật.
+   - Đầu vào thay đổi được: số ca mỗi giờ, số GDV và KSV, hệ số độ trễ API, bỏ một bước hoặc giao bước cho agent, số giờ làm.
+   - Đầu ra so kịch bản gốc với kịch bản thử: số ca xong, thời gian một ca, thời gian chờ từng hàng, mức bận từng vai trò, điểm nghẽn.
+   - **Hiệu chỉnh theo thực tế.** KSV còn việc khác nên không nhận lệnh ngay. Mô phỏng thêm độ trễ nhận lệnh cho mỗi vai trò nhận bàn giao, chọn sao cho thời gian chờ của kịch bản gốc bằng thời gian chờ đã đo (trung vị). Có thêm người thì lệnh được nhận sớm hơn. Độ trễ đã chọn trả về ở `inputs.pickup_s`.
+   - Lời giải thích đi qua `LLMClient`; `RuleBasedClient` soạn câu theo mẫu, chạy offline.
+6. **Cả quy trình thành một luồng kiểu n8n.** GDV ghi và học chặng lập lệnh, KSV ghi và học chặng duyệt. Bấm «Dựng quy trình từ các lần ghi»: máy chủ ghép các ca đã nối bằng `case_key` thành bản nháp quy trình (`/twin/suggest`). Chủ agent sửa nếu cần rồi lưu.
+   - Một sơ đồ duy nhất gồm: Bắt đầu, các nút API của từng chặng (hoặc bước màn hình nếu luồng không có API), nút «Bàn giao / Hàng chờ duyệt», nút «Duyệt» (người bấm), Kết thúc. Nhánh vẽ theo biến thể, nét dày theo số ca.
+   - Sơ đồ này dùng chung cho xem quy trình thật (thời gian, chờ, điểm nghẽn tô đỏ), chạy thử trên bản sao (nút sáng lần lượt) và mô phỏng.
+   - «Xuất JSON kiểu n8n» tải về một file trên máy. Nút API là `httpRequest` chỉ có mẫu `⟦…⟧`, không có giá trị, không có header cookie hoặc token. Duyệt là `wait`. File chỉ để xem và lưu: chạy thật vẫn phải trong phiên IE của GDV.
+7. **Dữ liệu demo.** `scripts/twin_seed.py` sinh ca synthetic đầu cuối (có hàng chờ duyệt dài cố ý), gắn cờ `synthetic`.

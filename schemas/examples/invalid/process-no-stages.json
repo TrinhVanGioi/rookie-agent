@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "id": "chuyen-tien-ksv",
+  "name": "Chuyển tiền có KSV duyệt",
+  "version": 1,
+  "stages": [],
+  "handoffs": [
+    {
+      "from_stage": "lap_lenh",
+      "to_stage": "duyet",
+      "queue": "cho_duyet"
+    }
+  ]
+}

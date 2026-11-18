@@ -1,0 +1,28 @@
+{
+  "schema_version": 3,
+  "engine": "ie",
+  "session_id": "s-0300",
+  "seq": 3,
+  "ts": "2026-11-16T03:20:11.250Z",
+  "type": "click",
+  "url": "TouchPoint/Main",
+  "target": {
+    "selectors": [
+      "frame=desktopFrame/rtop/main/fraProfileArea|id=btnMore",
+      "frame=desktopFrame/rtop/main/fraProfileArea|name=btnMore",
+      "label=THÊM"
+    ],
+    "label": "THÊM",
+    "tag": "button"
+  },
+  "value": null,
+  "value_class": null,
+  "api_calls": [
+    {
+      "method": "POST",
+      "path": "/api/cif/search",
+      "status": 200,
+      "ms": 182.5
+    }
+  ]
+}

@@ -22,9 +22,10 @@
     "schema_version": {
       "enum": [
         1,
-        2
+        2,
+        3
       ],
-      "description": "1: web và java. 2: thêm engine ie (trang web trong Internet Explorer, đọc bằng COM). Bản 1 vẫn hợp lệ."
+      "description": "1: web và java. 2: thêm engine ie. 3: api_calls cũng có ở engine ie, mỗi mục có thể kèm ms (độ trễ), path không có query. Bản 1 và 2 vẫn hợp lệ."
     },
     "engine": {
       "enum": [
@@ -118,10 +119,17 @@
           },
           "path": {
             "type": "string",
-            "minLength": 1
+            "minLength": 1,
+            "pattern": "^[^?#]+$",
+            "description": "Đường dẫn mẫu, không có query."
           },
           "status": {
             "type": "integer"
+          },
+          "ms": {
+            "type": "number",
+            "minimum": 0,
+            "description": "Độ trễ của lần gọi, mili giây (từ schema_version 3)."
           }
         }
       }
@@ -155,17 +163,14 @@
       }
     },
     {
-      "description": "Hướng B (java) và ie không quan sát được mạng.",
+      "description": "Hướng B java không quan sát được mạng.",
       "if": {
         "required": [
           "engine"
         ],
         "properties": {
           "engine": {
-            "enum": [
-              "java",
-              "ie"
-            ]
+            "const": "java"
           }
         }
       },
@@ -217,7 +222,65 @@
       "then": {
         "properties": {
           "schema_version": {
-            "const": 2
+            "enum": [
+              2,
+              3
+            ]
+          }
+        }
+      }
+    },
+    {
+      "description": "engine ie chỉ có api_calls từ schema_version 3.",
+      "if": {
+        "required": [
+          "engine"
+        ],
+        "properties": {
+          "engine": {
+            "const": "ie"
+          },
+          "schema_version": {
+            "enum": [
+              1,
+              2
+            ]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "api_calls": {
+            "maxItems": 0
+          }
+        }
+      }
+    },
+    {
+      "description": "ms chỉ có từ schema_version 3.",
+      "if": {
+        "required": [
+          "schema_version"
+        ],
+        "properties": {
+          "schema_version": {
+            "enum": [
+              1,
+              2
+            ]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "api_calls": {
+            "items": {
+              "not": {
+                "required": [
+                  "ms"
+                ]
+              }
+            }
           }
         }
       }

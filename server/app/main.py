@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.learner import LearnError, learn, slug
 from app.schemas import SchemaError, validate_event, validate_workflow
@@ -24,10 +24,16 @@ _TRANSITIONS = {("draft", "tested"), ("tested", "approved")}
 
 
 class SessionIn(BaseModel):
-    schema_version: Literal[1, 2]
+    """A recording. Unknown fields are refused, so nothing that identifies a person can ride along."""
+
+    model_config = ConfigDict(extra="forbid")
+    schema_version: Literal[1, 2, 3]
     engine: Literal["web", "java", "ie"]
     session_id: str = Field(min_length=1, max_length=64)
     events: list[dict[str, Any]] = Field(min_length=1)
+    role: Literal["maker", "checker"] | None = None
+    case_key: str | None = Field(default=None, pattern=r"^[0-9a-f]{16,64}$")   # HMAC of the case id, made on the PC; the server never sees the id
+    synthetic: bool = False
 
 
 class LearnIn(BaseModel):
@@ -101,7 +107,7 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
                 problems.append(f"sự kiện {index}: seq phải liên tục từ 0")
         if problems:
             raise HTTPException(422, problems[:20])
-        if not storage.add_session(body.session_id, body.engine, body.events):
+        if not storage.add_session(body.session_id, body.engine, body.events, body.role, body.case_key, body.synthetic):
             raise HTTPException(409, "Phiên ghi này đã được gửi")
         return {"session_id": body.session_id, "engine": body.engine, "event_count": len(body.events)}
 
@@ -148,6 +154,7 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
                 try:
                     built = model.build(body.traces, workflow_id, version, body.title)
                     storage.add_workflow(built.workflow, built.warnings)
+                    storage.add_learn_sources(workflow_id, version, body.session_ids)
                     return {**workflow_reply(built.workflow, built.warnings), "method": "codie", "questions": built.questions, "llm": {"calls": built.calls}}
                 except FlowBuildError as error:
                     extra["fallback_reason"] = error.reason
@@ -158,6 +165,7 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
             detail = str(error) + (f" (Trợ lý không dựng được: {extra['fallback_reason']})" if extra.get("fallback_reason") else "")
             raise HTTPException(422, detail) from error
         storage.add_workflow(workflow, warnings)
+        storage.add_learn_sources(workflow_id, version, body.session_ids)
         return {**workflow_reply(workflow, warnings), **extra}
 
     @app.post("/assistant/plan")
@@ -229,7 +237,19 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
         storage.set_status(workflow_id, version, body.status)
         return workflow_reply(*load(workflow_id, version))
 
+    from app.twin.routes import register as register_twin
+
+    register_twin(app, storage)
     return app
+
+
+def id_from_text(text: str, fallback: str, taken) -> str:
+    """An id made from a name (`Chuyển tiền` -> `chuyen-tien`), made unique with a number."""
+    base = slug(text, fallback).replace("_", "-")[:48].strip("-") or fallback
+    candidate, counter = base, 2
+    while taken(candidate):
+        candidate, counter = f"{base}-{counter}", counter + 1
+    return candidate
 
 
 app = create_app()

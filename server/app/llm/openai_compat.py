@@ -74,6 +74,19 @@ _LOCATE_SYSTEM = (
 )
 
 
+_SIM_SCHEMA = {
+    "type": "object",
+    "required": ["explanation"],
+    "additionalProperties": False,
+    "properties": {"explanation": {"type": "string"}},
+}
+_SIM_SYSTEM = (
+    "Bạn giải thích cho nhân viên ngân hàng kết quả mô phỏng quy trình: so ban_dau với thu_nghiem (số ca xong, thời gian một ca tính bằng giây, "
+    "thời gian chờ từng hàng, điểm nghẽn). Viết 2 đến 3 câu tiếng Việt, đơn giản, chỉ dùng các số đã cho. "
+    "Chỉ trả về JSON dạng {\"explanation\": \"...\"}."
+)
+
+
 def normalize_base_url(url: str) -> str:
     """Accept the base URL with or without the `/chat/completions` suffix."""
     url = url.strip().rstrip("/")
@@ -166,6 +179,15 @@ class OpenAICompatClient:
                 }
             )
         return result
+
+    def explain_simulation(self, baseline: dict[str, Any], scenario: dict[str, Any], changes: dict[str, Any] | None = None) -> str:
+        payload = {"ban_dau": baseline, "thu_nghiem": scenario, "thay_doi": changes or {}}
+        assert_masked(payload)
+        answer = self._chat(_SIM_SYSTEM, json.dumps(payload, ensure_ascii=False), "simulation_text", _SIM_SCHEMA)
+        text = answer.get("explanation") if isinstance(answer, dict) else None
+        if not isinstance(text, str) or not text.strip():
+            raise LLMError("LLM không trả lời giải thích kết quả mô phỏng.")
+        return text.strip()
 
     def locate(
         self, description: str, candidates: list[Candidate], screenshot: bytes | None = None

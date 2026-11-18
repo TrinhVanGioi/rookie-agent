@@ -21,7 +21,7 @@ import urllib.parse
 from datetime import datetime, timezone
 from typing import Any, Callable
 
-from rookie_agent.ie import response_view
+from rookie_agent.ie import response_view, shape as shaper
 
 MIN_TYPED = 3           # a shorter typed value could be found by chance in a request: it is left as it is
 MIN_LINKED = 4
@@ -190,7 +190,14 @@ def templates(raw: list[dict[str, Any]], events: list[dict[str, Any]], requests:
             "url": url, "headers": headers, "body": body, "links": links,
             "complete": not item.get("cut") and not hidden and "***" not in body and body != "[object]",
             "status": int(item.get("status") or 0), "answer": response_view.kind_of(str(item.get("res") or "")),
+            "ms": int(item.get("ms") or 0),
         })
+    for index, item in enumerate(out):   # task 9.4: the answer's skeleton (no value), made so that the links to it still find a value
+        rules = [rule for other in out for rule in other["links"].values() if rule["from"] == index]
+        try:
+            item["shape"] = shaper.shape(str(requests[index].get("res") or ""), rules)
+        except Exception:  # noqa: BLE001  a template without a skeleton only means no twin run for it
+            item["shape"] = None
     return out
 
 
@@ -240,6 +247,7 @@ def build_api(workflow: dict[str, Any], events: list[dict[str, Any]], found: lis
             "links": {name: {**rule, "from": f"a{rule['from']}"} for name, rule in item.get("links", {}).items()},
             # risk: the step's, as the Learner decided it; a screen opening only reads
             "risk": (step or {}).get("risk", "read"), "complete": item["complete"], "answer": item.get("answer", ""),
+            "ms": item.get("ms", 0), "shape": item.get("shape"),
         }
         names = set(_MARK.findall(url + body + headers))
         node["unresolved"] = sorted(n for n in names if n not in known and n not in node["links"])
@@ -266,6 +274,7 @@ def fill_in(text: str, values: dict[str, str]) -> tuple[str, list[str]]:
     return _MARK.sub(put, text), missing
 
 
+TWIN_BANNER = "BẢN SAO – không gửi hệ thống thật"
 REFUSED_WORDS = re.compile(r"<input[^>]+type=[\"']?password|đăng nhập lại|session (?:has )?expired|phiên làm việc đã hết", re.IGNORECASE)
 
 
@@ -294,14 +303,20 @@ def _sign_in_steps(workflow: dict[str, Any]) -> set[str]:
 
 
 def run_api(workflow: dict[str, Any], nodes: list[dict[str, Any]], values: dict[str, str],
-            send: Callable[[dict[str, Any], str, str, str], dict[str, Any]], controller: Any, stop: threading.Event) -> dict[str, Any]:
+            send: Callable[[dict[str, Any], str, str, str], dict[str, Any]], controller: Any, stop: threading.Event,
+            twin: bool = False, role: str = "maker") -> dict[str, Any]:
     """The nodes in order. Each node: its inputs (what the teller typed, values linked from the answers before), the request sent
     from the teller's page, the answer. A node of the sign-in is passed over (the open page's session is used); a node that writes
-    or moves money stops the run; anything missing or refused stops it and asks. `send(node, url, headers, body)` sends one."""
+    or moves money stops the run; anything missing or refused stops it and asks. `send(node, url, headers, body)` sends one.
+    `twin=True` (Gate 9): `send` answers from a fake, nothing leaves the PC; a node that writes or moves money then waits for the
+    person's Duyệt (never automatic) and goes on after it. In a `role` "checker" stage a stage with no such node still waits at its last one."""
     done: list[dict[str, Any]] = []
     answers: dict[str, str] = {}                       # this run's answers, in memory only, for the links of the next nodes
     started = time.monotonic()
     sign_in = _sign_in_steps(workflow)
+    simulated_ms = 0
+    last_id = next((n["id"] for n in reversed(nodes) if n.get("step_id") not in sign_in), None)
+    asks = any(n["risk"] != "read" for n in nodes if n.get("step_id") not in sign_in)
 
     def note(node: dict[str, Any], status: str, detail: str, shown: dict[str, Any]) -> None:
         done.append({"id": node["id"], "status": status, "detail": detail})
@@ -309,7 +324,10 @@ def run_api(workflow: dict[str, Any], nodes: list[dict[str, Any]], values: dict[
         controller.show(node["id"], shown)
 
     def end(status: str, message: str) -> dict[str, Any]:
-        return {"status": status, "message": message, "steps": done, "seconds": round(time.monotonic() - started, 1)}
+        result = {"status": status, "message": message, "steps": done, "seconds": round(time.monotonic() - started, 1)}
+        if twin:
+            result.update(twin=True, simulated_ms=simulated_ms)
+        return result
 
     for node in nodes:
         if stop.is_set():
@@ -319,7 +337,14 @@ def run_api(workflow: dict[str, Any], nodes: list[dict[str, Any]], values: dict[
             note(node, "skipped", "đăng nhập: dùng phiên đang mở của trang IE", shown)
             continue
         controller.progress(node["id"], "running", "")
-        if node["risk"] != "read":
+        if twin:
+            shown["twin"] = TWIN_BANNER
+        if twin and (node["risk"] != "read" or (role == "checker" and not asks and node["id"] == last_id)):
+            step = {"id": node["id"], "risk": node["risk"] if node["risk"] != "read" else "write", "action": "approve", "target": {"label": node["label"]}}
+            if not controller.approve(step, nodes.index(node), len(nodes)):
+                note(node, "rejected" if not stop.is_set() else "stopped", "người duyệt không đồng ý" if not stop.is_set() else "Dừng khẩn", shown)
+                return end("stopped", f"«{node['label']}» không được Duyệt: dừng (bản sao, chưa có gì gửi đi).")
+        elif node["risk"] != "read":
             note(node, "refused", "ghi dữ liệu hoặc tiền: không gửi bằng request", shown)
             return end("refused", f"«{node['label']}» ghi dữ liệu hoặc chuyển tiền: không chạy bằng request. Dùng «Chạy trên màn hình», có bước Duyệt.")
         if not node.get("complete") or node.get("unresolved"):
@@ -347,7 +372,13 @@ def run_api(workflow: dict[str, Any], nodes: list[dict[str, Any]], values: dict[
             why = "còn thiếu: " + ", ".join(sorted(set(m1 + m2 + m3)))
             note(node, "needs_help", why, shown)
             return end("needs_help", f"«{node['label']}»: {why}.")
+        if twin and node.get("kind") == "screen":
+            simulated_ms += int(node.get("ms") or 0)
+            shown["screen"] = True
+            note(node, "done", f"màn hình · {node.get('ms') or 0} ms (mô phỏng)", shown)
+            continue
         answer = send(node, url, headers, body)
+        simulated_ms += int(answer.get("ms") or 0)
         sent: dict[str, Any] = {"method": node["method"], "url": url, "body": body[:4000], "status": answer.get("status", 0), "ms": answer.get("ms", 0)}
         shown["requests"].append(sent)
         if not answer.get("ok"):
@@ -358,7 +389,7 @@ def run_api(workflow: dict[str, Any], nodes: list[dict[str, Any]], values: dict[
         text = str(answer.get("text") or "")
         answers[node["id"]] = text
         sent["view"] = response_view.summarize(text)
-        why = refused(int(answer.get("status") or 0), text)
+        why = "" if twin else refused(int(answer.get("status") or 0), text)
         if why:
             sent["error"] = why
             note(node, "needs_help", why, shown)

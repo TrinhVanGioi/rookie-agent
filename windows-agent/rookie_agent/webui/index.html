@@ -109,13 +109,18 @@
   .badge { display: inline-block; font-size: 12px; border-radius: 999px; padding: 1px 8px; background: var(--line); margin-right: 4px; }
   .link { width: 34px; height: 2px; background: var(--muted); position: relative; flex: none; }
   .link::after { content: ""; position: absolute; right: -1px; top: -4px; border-left: 7px solid var(--muted); border-top: 5px solid transparent; border-bottom: 5px solid transparent; }
+  .twin-banner { font-weight: 600; }
+  .twin-head { font-weight: 700; color: var(--bad); font-size: 13px; }
+  .twin-tag { font-size: 10px; color: var(--muted); margin-top: 4px; }
+  .variant { margin: 6px 0; } .vbar { height: 6px; border-radius: 3px; background: var(--accent); opacity: .7; }
+  .badge.hot { background: var(--bad-bg); color: var(--bad); }
   [hidden] { display: none !important; }
 </style>
 </head>
 <body>
 <main>
   <header><h1>Rookie Agent</h1><span class="chip" id="bits"></span></header>
-  <div class="tabs"><button id="tabWork" class="on">Ghi và Học</button><button id="tabFlow">Luồng</button><button id="tabAssist">Trợ lý</button><button id="tabLink">Kỹ thuật</button></div>
+  <div class="tabs"><button id="tabWork" class="on">Ghi và Học</button><button id="tabFlow">Luồng</button><button id="tabTwin">Bản sao quy trình</button><button id="tabAssist">Trợ lý</button><button id="tabLink">Kỹ thuật</button></div>
 
   <div id="paneWork">
 
@@ -234,6 +239,77 @@
       <div id="runAsk"></div>
       <div id="runSteps" class="detail"></div>
       <div id="runMsg"></div>
+    </section>
+  </div>
+
+  <div id="paneTwin" hidden>
+    <div class="msg bad twin-banner">BẢN SAO – không gửi hệ thống thật. Trang này vẽ, đo và thử quy trình trên bản sao; chạy thật vẫn phải làm trong phiên IE của GDV, và Duyệt luôn do người bấm.</div>
+    <section>
+      <h2>Vai trò của máy này</h2>
+      <p class="sub">Máy này ghi và học với vai trò nào? Vai trò đi kèm bản ghi để nối lệnh của GDV lập lệnh với lần duyệt của Kiểm soát viên. Mã lệnh không bao giờ rời máy: chỉ gửi mã băm bằng khoá chung của đơn vị.</p>
+      <div class="row"><select id="twRole" class="grow"></select><button id="twRoleSave">Lưu vai trò</button></div>
+      <label class="field" for="twUnitKey">Khoá của đơn vị (cả đơn vị dùng cùng một khoá, đưa cho máy khác để mã băm khớp nhau)</label>
+      <input type="text" id="twUnitKey">
+      <div id="twRoleMsg"></div>
+    </section>
+    <section>
+      <h2><span class="num">1</span>Sơ đồ quy trình</h2>
+      <p class="sub">Một quy trình gồm các chặng nối nhau, mỗi chặng là một luồng đã học (ví dụ GDV lập lệnh rồi Kiểm soát viên duyệt). Bấm «Dựng quy trình từ các lần ghi» để agent tự ghép từ các lần ghi của GDV và KSV, rồi chỉnh lại nếu cần và bấm Lưu. Nét nối càng dày thì càng nhiều ca đi qua; ô đỏ là điểm nghẽn.</p>
+      <div class="row"><select id="twPick" class="grow"></select><button id="twReload">Tải lại</button></div>
+      <label class="field" for="twName">Tên quy trình</label>
+      <input type="text" id="twName" placeholder="Ví dụ: Chuyển tiền: GDV lập lệnh, KSV duyệt">
+      <div id="twStages"></div>
+      <div class="row">
+        <select id="twAdd" class="grow"></select><button id="twAddBtn">Thêm chặng</button>
+      </div>
+      <div class="row">
+        <button class="primary" id="twAuto">Dựng quy trình từ các lần ghi</button>
+        <button id="twOrder" title="Sắp lại thứ tự các chặng theo các ca thật đã nối">Gợi ý thứ tự</button>
+        <button id="twSave">Lưu</button>
+        <button id="twExport" title="Chỉ để xem/lưu; chạy thật phải trong phiên IE của GDV">Xuất JSON kiểu n8n</button>
+        <button id="twOverlay">Hiện số đo và các nhánh thật</button>
+      </div>
+      <div class="detail">«Xuất JSON kiểu n8n»: tải về một file chỉ để xem hoặc lưu, chỉ có mẫu request (dấu ⟦…⟧ thay cho giá trị, không có header). Chỉ để xem/lưu; chạy thật phải trong phiên IE của GDV. File chỉ lưu trên máy này, không gửi đi đâu.</div>
+      <div id="twMsg"></div>
+      <div class="canvas" id="twCanvas" hidden><div class="flowrow" id="twRow"></div></div>
+      <div id="twLegend" class="detail"></div>
+      <div id="twDetail"></div>
+      <div id="twGraph"></div>
+      <div id="twVariants"></div>
+    </section>
+    <section>
+      <h2><span class="num">2</span>Số đo</h2>
+      <p class="sub">Thời gian từng bước, thời gian chờ, tỉ lệ làm lại và lỗi, tính từ các ca đã ghi. Chỉ hiện số tổng hợp, không theo từng người; cần ít nhất 5 ca.</p>
+      <div class="row"><button id="twMetrics">Xem số đo</button></div>
+      <div id="twMetricsBox"></div>
+    </section>
+    <section>
+      <h2><span class="num">3</span>Chạy thử trên bản sao</h2>
+      <p class="sub">Chạy cả quy trình từ chặng đầu tới chặng cuối trên bản sao: không gửi gì tới hệ thống thật, không cần mở IE. Các ô trên sơ đồ sáng lên theo thứ tự chạy. Bước ghi, bước tiền và chặng của Kiểm soát viên dừng chờ người bấm Duyệt.</p>
+      <div class="twin-banner msg bad">BẢN SAO – không gửi hệ thống thật</div>
+      <div id="twInputs"></div>
+      <div class="row"><button class="primary" id="twRun">Chạy</button><button class="stop" id="twStop">Dừng khẩn</button></div>
+      <div id="twAsk"></div>
+      <div id="twSteps" class="detail"></div>
+      <div id="twRunMsg"></div>
+    </section>
+    <section>
+      <h2><span class="num">4</span>Nếu… thì…</h2>
+      <p class="sub">Thử một thay đổi trước khi làm thật: thêm người, đổi số ca mỗi giờ, bỏ một bước hoặc để agent làm một bước. Kết quả là mô phỏng từ số đo thật, không đụng hệ thống nào.</p>
+      <div class="row">
+        <div class="grow"><label class="field" for="smRate">Số ca mỗi giờ</label><input type="text" id="smRate" value="6"></div>
+        <div class="grow"><label class="field" for="smMaker">Số GDV</label><input type="text" id="smMaker" value="2"></div>
+        <div class="grow"><label class="field" for="smChecker">Số KSV</label><input type="text" id="smChecker" value="1"></div>
+      </div>
+      <div class="row">
+        <div class="grow"><label class="field" for="smApi">Hệ số độ trễ API (1 là như hiện nay, 2 là chậm gấp đôi)</label><input type="text" id="smApi" value="1"></div>
+        <div class="grow"><label class="field" for="smHours">Số giờ làm việc mô phỏng</label><input type="text" id="smHours" value="8"></div>
+        <div class="grow"><label class="field" for="smSeed">Seed (để chạy lại ra đúng kết quả cũ)</label><input type="text" id="smSeed" value="1"></div>
+      </div>
+      <div id="smSteps"></div>
+      <div class="row"><button class="primary" id="smRun">Chạy mô phỏng</button></div>
+      <div id="smMsg"></div>
+      <div id="smOut"></div>
     </section>
   </div>
 
@@ -595,13 +671,14 @@ $("check").onclick = runCheck;
 })();
 
 function showTab(name) {
-  $("paneWork").hidden = name !== "work"; $("paneFlow").hidden = name !== "flow"; $("paneLink").hidden = name !== "link"; $("paneAssist").hidden = name !== "assist";
-  $("tabWork").className = name === "work" ? "on" : ""; $("tabFlow").className = name === "flow" ? "on" : ""; $("tabLink").className = name === "link" ? "on" : ""; $("tabAssist").className = name === "assist" ? "on" : "";
+  $("paneWork").hidden = name !== "work"; $("paneFlow").hidden = name !== "flow"; $("paneLink").hidden = name !== "link"; $("paneAssist").hidden = name !== "assist"; $("paneTwin").hidden = name !== "twin";
+  $("tabWork").className = name === "work" ? "on" : ""; $("tabFlow").className = name === "flow" ? "on" : ""; $("tabLink").className = name === "link" ? "on" : ""; $("tabAssist").className = name === "assist" ? "on" : ""; $("tabTwin").className = name === "twin" ? "on" : "";
   if (name === "flow") loadFlows();
   if (name === "link") loadLink();
   if (name === "assist") loadAssist();
+  if (name === "twin") loadTwin();
 }
-$("tabWork").onclick = () => showTab("work"); $("tabFlow").onclick = () => showTab("flow"); $("tabLink").onclick = () => showTab("link"); $("tabAssist").onclick = () => showTab("assist");
+$("tabWork").onclick = () => showTab("work"); $("tabFlow").onclick = () => showTab("flow"); $("tabLink").onclick = () => showTab("link"); $("tabAssist").onclick = () => showTab("assist"); $("tabTwin").onclick = () => showTab("twin");
 
 async function loadLink() {
   const s = await api("GET", "/api/codie");
@@ -860,6 +937,7 @@ function detailCard(run, stepId) {
   if (!d) return null;
   const s = (run.steps || []).find((x) => x.id === stepId) || {}, card = el("div", undefined, "msg " + (s.status === "done" ? "ok" : s.status === "skipped" ? "" : "bad"));
   card.append(el("strong", "Thao tác: " + d.action));
+  if (d.twin) card.append(el("div", d.twin, "twin-head"));
   card.append(el("div", "Trạng thái: " + (LIVE_WORDS[s.status] || s.status || "") + (s.detail ? " — " + s.detail : ""), "detail"));
   (d.inputs || []).forEach((x) => card.append(el("div", "Đầu vào «" + x.name + "»: " + x.from, "detail")));
   if (!d.requests.length) card.append(el("div", "Không có request: bước này chỉ là thao tác trên màn hình.", "detail"));
@@ -990,6 +1068,326 @@ $("asGo").onclick = async () => {
   } catch (e) { $("asMsg").append(el("div", e.message, "msg bad")); }
 };
 $("asStop").onclick = async () => { try { await api("POST", "/api/run/stop"); } catch (e) { /* the run may have ended */ } };
+
+// ---- Bản sao quy trình (Gate 9): one canvas for the real process (with its numbers), the run on the twin and the "what if" ----
+const ROLE_VN = { maker: "GDV lập lệnh", checker: "KSV" };
+const TWIN_BANNER = "BẢN SAO – không gửi hệ thống thật";
+let twFlows = [], twStages = [], twProcesses = [], twProcessId = "", twNodes = [], twMetrics = null, twDiscover = null, twScenario = null, twRunStatus = null, twPinned = null, twTimer = null;
+function fmtSec(s) {
+  if (s === null || s === undefined || isNaN(s)) return "—";
+  s = Math.round(s); if (s < 60) return s + " giây";
+  const m = Math.floor(s / 60), r = s % 60; if (m < 60) return m + " phút" + (r ? " " + r + " giây" : "");
+  return Math.floor(m / 60) + " giờ " + (m % 60) + " phút";
+}
+function twErr(target, e) { $(target).textContent = ""; $(target).append(el("div", e.message, "msg bad")); }
+function flowOf(id) { return twFlows.find((f) => f.workflow_id === id || f.title === id); }
+
+async function loadTwin() {
+  try {
+    const s = await api("GET", "/api/twin/settings");
+    const sel = $("twRole"); sel.textContent = ""; s.roles.forEach((r) => sel.append(new Option(r.label, r.id))); sel.value = s.role; $("twUnitKey").value = s.unit_key;
+  } catch (e) { twErr("twRoleMsg", e); }
+  twFlows = (await api("GET", "/api/flows")).flows;
+  const add = $("twAdd"); add.textContent = "";
+  twFlows.forEach((f, i) => add.append(new Option(f.title + (f.has_api && !f.twin_ready ? " (học trước khi có bản sao)" : ""), i)));
+  try { twProcesses = (await api("GET", "/api/twin/processes")).processes || []; } catch (e) { twProcesses = []; $("twMsg").textContent = ""; $("twMsg").append(el("div", e.message + " (vẫn dựng và chạy thử được trên máy này, chỉ chưa lưu và đo được.)", "msg bad")); }
+  const pick = $("twPick"); pick.textContent = ""; pick.append(new Option("(quy trình mới)", ""));
+  twProcesses.forEach((p) => pick.append(new Option(p.name || p.id, p.id))); pick.value = twProcessId;
+  drawTwin(); drawTwinInputs();
+}
+function stagesFromServer(list) {
+  return list.map((s) => { const f = flowOf(s.workflow_id); return { flowId: s.workflow_id, title: f ? f.title : s.workflow_id + " (chưa có luồng này trên máy)", label: s.label || (f && f.title) || s.workflow_id, role: s.role || "maker", missing: !f }; });
+}
+$("twReload").onclick = loadTwin;
+$("twPick").onchange = async () => {
+  twProcessId = $("twPick").value; twMetrics = null; twDiscover = null; twScenario = null;
+  if (twProcessId) {
+    try { const p = await api("GET", "/api/twin/processes"); const found = (p.processes || []).find((x) => x.id === twProcessId); if (found) { $("twName").value = found.name || ""; twStages = stagesFromServer(found.stages || []); } } catch (e) { twErr("twMsg", e); }
+  } else { twStages = []; $("twName").value = ""; }
+  drawTwin(); drawTwinInputs();
+};
+$("twAddBtn").onclick = () => {
+  const f = twFlows[$("twAdd").value]; if (!f) return;
+  twStages.push({ flowId: f.workflow_id || f.title, title: f.title, label: f.title, role: twStages.length ? "checker" : "maker" });
+  drawTwin(); drawTwinInputs();
+};
+$("twAuto").onclick = async () => {
+  $("twMsg").textContent = "";
+  try {
+    const d = await api("GET", "/api/twin/suggest");
+    if (!(d.stages || []).length) { $("twMsg").append(el("div", "Chưa đủ lần ghi để tự dựng quy trình. Ghi một lần với vai trò GDV lập lệnh và một lần với vai trò Kiểm soát viên (đặt vai trò ở trên), Học cả hai, rồi bấm lại.", "msg bad")); return; }
+    twProcessId = ""; $("twPick").value = ""; $("twName").value = d.name || "Quy trình mới"; twStages = stagesFromServer(d.stages);
+    $("twMsg").append(el("div", "Đã dựng bản nháp " + twStages.length + " chặng từ các lần ghi. Kiểm tra thứ tự và vai trò, rồi bấm Lưu.", "msg ok"));
+    drawTwin(); drawTwinInputs();
+  } catch (e) { twErr("twMsg", e); }
+};
+$("twOrder").onclick = async () => {
+  $("twMsg").textContent = "";
+  try {
+    const d = await api("GET", "/api/twin/suggest"), order = (d.stages || []).map((s) => s.workflow_id);
+    if (!order.length) { $("twMsg").append(el("div", "Chưa đủ ca đã nối để gợi ý thứ tự.", "msg bad")); return; }
+    twStages.sort((a, b) => { const x = order.indexOf(a.flowId), y = order.indexOf(b.flowId); return (x < 0 ? 99 : x) - (y < 0 ? 99 : y); });
+    drawTwin();
+  } catch (e) { twErr("twMsg", e); }
+};
+$("twSave").onclick = async () => {
+  $("twMsg").textContent = "";
+  try {
+    const stages = twStages.map((s, i) => ({ id: "s" + (i + 1), workflow_id: s.flowId, label: s.label, role: s.role }));
+    const handoffs = stages.slice(1).map((s, i) => ({ from_stage: stages[i].id, to_stage: s.id, queue: "Hàng chờ duyệt " + (i + 1) }));
+    const r = await api("POST", "/api/twin/processes", { name: $("twName").value.trim(), stages, handoffs });
+    twProcessId = r.id || twProcessId; $("twMsg").append(el("div", "Đã lưu quy trình.", "msg ok")); await loadTwin();
+  } catch (e) { twErr("twMsg", e); }
+};
+$("twExport").onclick = async () => {
+  $("twMsg").textContent = "";
+  try {
+    const doc = await api("POST", "/api/twin/export", { name: $("twName").value.trim() || "Quy trình", stages: twStagesBody() });
+    const url = URL.createObjectURL(new Blob([JSON.stringify(doc, null, 2)], { type: "application/json" }));
+    const a = el("a"); a.href = url; a.download = "quy-trinh-n8n.json"; document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 2000);
+    $("twMsg").append(el("div", "Đã tải file về máy. Chỉ để xem/lưu; chạy thật phải trong phiên IE của GDV.", "msg ok"));
+  } catch (e) { twErr("twMsg", e); }
+};
+function twStagesBody() { return twStages.map((s) => ({ flow_id: s.flowId, role: s.role, label: s.label })); }
+$("twRoleSave").onclick = async () => {
+  try { await api("POST", "/api/twin/settings", { role: $("twRole").value, unit_key: $("twUnitKey").value.trim() }); say("twRoleMsg", "Đã lưu.", "ok"); } catch (e) { twErr("twRoleMsg", e); }
+};
+
+function drawStageRows() {
+  const box = $("twStages"); box.textContent = "";
+  twStages.forEach((s, i) => {
+    const row = el("div", undefined, "row"), name = el("input"), role = el("select");
+    name.type = "text"; name.value = s.label; name.className = "grow"; name.oninput = () => { s.label = name.value; };
+    name.onchange = drawTwin;
+    role.append(new Option("GDV lập lệnh", "maker"), new Option("Kiểm soát viên (KSV)", "checker")); role.value = s.role; role.onchange = () => { s.role = role.value; drawTwin(); };
+    const up = el("button", "↑"), down = el("button", "↓"), del = el("button", "Bỏ chặng");
+    up.onclick = () => { if (i) { [twStages[i - 1], twStages[i]] = [twStages[i], twStages[i - 1]]; drawTwin(); } };
+    down.onclick = () => { if (i < twStages.length - 1) { [twStages[i + 1], twStages[i]] = [twStages[i], twStages[i + 1]]; drawTwin(); } };
+    del.onclick = () => { twStages.splice(i, 1); drawTwin(); drawTwinInputs(); };
+    row.append(el("span", "Chặng " + (i + 1) + ":", "detail"), name, role, up, down, del);
+    if (s.missing) row.append(el("div", "Chưa có luồng «" + s.flowId + "» trên máy này: Học lại luồng đó để chạy thử được.", "detail"));
+    box.append(row);
+  });
+}
+
+// The graph: Bắt đầu → for each stage its nodes under a header → Bàn giao / Hàng chờ duyệt → … → Kết thúc. A write or money node has a Duyệt in front of it.
+function buildTwinGraph() {
+  const out = [{ key: "__start", cls: "start", n: "Bắt đầu", t: $("twName").value || "Quy trình", lines: ["Nhập mỗi lần: xem phần «Chạy thử»."] }];
+  twStages.forEach((s, i) => {
+    const f = flowOf(s.flowId), pre = "c" + (i + 1) + ".", role = ROLE_VN[s.role] || s.role;
+    if (i) out.push({ key: "q" + i, cls: "start", n: "Bàn giao / Hàng chờ duyệt", t: "Lệnh chờ chặng sau", lines: ["Lệnh nằm trong hàng chờ; không gửi gì đi."], queue: "Hàng chờ duyệt " + i });
+    out.push({ key: "head" + i, cls: "start", n: "Chặng " + (i + 1) + " · " + role, t: s.label, lines: ["Vai trò: " + role], head: true });
+    if (s.role === "checker") out.push({ key: "duyet:head" + i, cls: "write", n: "Duyệt (người kiểm soát)", t: "KSV bấm Duyệt", lines: ["Agent không tự duyệt."] });
+    const seen = ((twDiscover && twDiscover.nodes) || []).filter((d) => d.stage === (twProcessId ? "s" + (i + 1) : s.flowId));
+    if (!f && !seen.length) { out.push({ key: "x" + i, cls: "read", n: "Chưa có luồng", t: s.title || s.flowId, lines: ["Học luồng này trên máy này."] }); return; }
+    // A flow learned on another PC: draw the steps the process log saw (no API details here).
+    const items = !f ? seen.map((d, j) => ({ id: d.step_id, stepId: d.step_id, risk: "read", n: "Bước " + (j + 1) + " · đã thấy " + d.count + " ca", t: d.label, lines: ["Luồng học ở máy khác"] }))
+      : (f.api_nodes || []).length ? f.api_nodes.map((a, j) => ({ id: a.id, stepId: a.step_id, risk: a.risk, n: "API " + (j + 1) + " · " + a.method, t: a.label, lines: ["Mức rủi ro: " + a.risk].concat(a.inputs.map((x) => "Đầu vào «" + x + "»")) }))
+      : f.steps.map((st, j) => ({ id: (f.step_ids || [])[j], stepId: (f.step_ids || [])[j], risk: st.risk_key, n: "Màn hình · bước " + (j + 1), t: st.text, lines: ["Mức rủi ro: " + st.risk, "Khi chạy: " + st.mode] }));
+    items.forEach((it) => {
+      if (it.risk !== "read") out.push({ key: "duyet:" + pre + it.id, cls: it.risk, n: "Duyệt", t: "Chờ người bấm Duyệt", lines: ["Bước " + (it.risk === "money" ? "tiền" : "ghi dữ liệu") + " luôn dừng chờ người Duyệt."] });
+      // Server ids are "stage:step": the stage id is "s<n>" once saved as a process, the workflow id before that.
+      const stageKey = twProcessId ? "s" + (i + 1) : s.flowId;
+      out.push({ key: pre + it.id, cls: it.risk, n: it.n, t: it.t, lines: it.lines, stepId: it.stepId, stage: i, sk: it.stepId ? stageKey + ":" + it.stepId : null });
+    });
+  });
+  out.push({ key: "__end", cls: "start", n: "Kết thúc", t: "Xong", lines: ["Bước ghi và bước tiền luôn dừng chờ người duyệt."] });
+  return out;
+}
+function drawTwin() {
+  drawStageRows();
+  twNodes = buildTwinGraph();
+  $("twCanvas").hidden = !twStages.length; const row = $("twRow"); row.textContent = "";
+  const edgeCount = {}; ((twDiscover && twDiscover.edges) || []).forEach((e) => { edgeCount[e.from + ">" + e.to] = e.count; });
+  const maxEdge = Math.max(1, ...Object.values(edgeCount)), hot = twMetrics && twMetrics.bottleneck ? twMetrics.bottleneck : null;
+  twNodes.forEach((node, i) => {
+    if (i) { const link = el("div", undefined, "link"), prev = twNodes[i - 1]; const c = edgeCount[(prev.sk || prev.key) + ">" + (node.sk || node.key)];
+      if (c) { link.style.height = (2 + 8 * c / maxEdge) + "px"; link.title = c + " ca"; } row.append(link); }
+    const b = el("button", undefined, "node " + node.cls); b.dataset.step = node.key;
+    b.append(el("div", node.n, "n"), el("div", node.t, "t"), el("div", "", "live"));
+    const badges = el("div");
+    if (twMetrics && !twMetrics.hidden) {
+      const m = (twMetrics.steps || []).find((x) => node.sk && x.stage + ":" + x.step_id === node.sk), q = (twMetrics.queues || []).find((x) => node.queue && x.name === node.queue);
+      if (m) badges.append(el("span", "trung vị " + fmtSec(m.median_s) + (m.wait_median_s ? " · chờ " + fmtSec(m.wait_median_s) : ""), "badge"));
+      if (q) badges.append(el("span", "chờ " + fmtSec(q.wait_median_s) + " (p90 " + fmtSec(q.wait_p90_s) + ")", "badge"));
+      if (hot && ((hot.kind === "step" && node.sk && hot.id === node.sk) || (hot.kind === "queue" && node.queue && hot.id === node.queue))) { b.classList.add("st-bad"); badges.append(el("span", "điểm nghẽn", "badge hot")); }
+    }
+    if (twScenario && node.queue && twScenario.scenario && twScenario.scenario.waits && twScenario.scenario.waits[node.queue] !== undefined) badges.append(el("span", "nếu…thì…: chờ " + fmtSec(twScenario.scenario.waits[node.queue]), "badge"));
+    b.append(badges, el("div", TWIN_BANNER, "twin-tag"));
+    b.onclick = () => {
+      row.querySelectorAll(".node").forEach((x) => x.classList.remove("sel")); b.classList.add("sel");
+      if (twRunStatus && twRunStatus.details && twRunStatus.details[node.key]) { twPinned = node.key; renderTwinDetail(node.key); return; }
+      const box = $("twDetail"); box.textContent = ""; const d = el("div", undefined, "msg ok"); d.append(el("strong", node.n + ": " + node.t)); node.lines.forEach((l) => d.append(el("div", l, "detail"))); box.append(d);
+    };
+    row.append(b);
+  });
+  $("twLegend").textContent = twMetrics ? (twMetrics.hidden ? "Chưa đủ 5 ca để hiện số đo." : "Số trên ô: thời gian xử lý trung vị và thời gian chờ. Ô đỏ: điểm nghẽn.") : "";
+  paintTwin();
+}
+function renderTwinDetail(key) {
+  const card = detailCard(twRunStatus, key), box = $("twDetail"); if (!card) return; box.textContent = ""; box.append(card);
+}
+$("twOverlay").onclick = async () => {
+  $("twMsg").textContent = "";
+  try {
+    twDiscover = await api("GET", "/api/twin/discover" + (twProcessId ? "?process_id=" + encodeURIComponent(twProcessId) : ""));
+    if (twProcessId) twMetrics = await api("GET", "/api/twin/metrics?process_id=" + encodeURIComponent(twProcessId)); else $("twMsg").append(el("div", "Lưu quy trình trước để xem số đo theo từng bước.", "detail"));
+    drawTwin(); drawGraph(); drawVariants(); drawMetrics();
+  } catch (e) { twErr("twMsg", e); }
+};
+function drawGraph() {
+  const box = $("twGraph"); box.textContent = ""; const d = twDiscover;
+  if (!d || !(d.nodes || []).length) return;
+  box.append(el("h3", "Các nhánh thật đã thấy (" + (d.cases || 0) + " ca)"));
+  const depth = {}; (d.nodes || []).forEach((n) => { depth[n.id] = 0; });
+  for (let k = 0; k < d.nodes.length; k++) (d.edges || []).forEach((e) => { if (depth[e.to] <= depth[e.from] && depth[e.from] < d.nodes.length) depth[e.to] = depth[e.from] + 1; });
+  const cols = {}; d.nodes.forEach((n) => { (cols[depth[n.id]] = cols[depth[n.id]] || []).push(n); });
+  const W = 150, H = 46, GX = 70, GY = 22, pos = {}; let maxRows = 1;
+  Object.keys(cols).forEach((c) => { cols[c].forEach((n, r) => { pos[n.id] = [c * (W + GX) + 10, r * (H + GY) + 10]; }); maxRows = Math.max(maxRows, cols[c].length); });
+  const svgNS = "http://www.w3.org/2000/svg", svg = document.createElementNS(svgNS, "svg"), total = Math.max(1, d.cases || 1), maxE = Math.max(1, ...(d.edges || []).map((e) => e.count));
+  const ncols = Object.keys(cols).length; svg.setAttribute("viewBox", "0 0 " + (ncols * (W + GX)) + " " + (maxRows * (H + GY) + 20)); svg.setAttribute("width", "100%"); svg.style.maxWidth = (ncols * (W + GX)) + "px";
+  const mk = (tag, attrs, text) => { const e = document.createElementNS(svgNS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); if (text !== undefined) e.textContent = text; return e; };
+  (d.edges || []).forEach((e) => { if (!pos[e.from] || !pos[e.to]) return;
+    const x1 = pos[e.from][0] + W, y1 = pos[e.from][1] + H / 2, x2 = pos[e.to][0], y2 = pos[e.to][1] + H / 2;
+    svg.append(mk("path", { d: "M" + x1 + "," + y1 + " C" + (x1 + GX / 2) + "," + y1 + " " + (x2 - GX / 2) + "," + y2 + " " + x2 + "," + y2, fill: "none", stroke: "var(--accent)", "stroke-opacity": "0.55", "stroke-width": 1.5 + 9 * e.count / maxE }));
+    svg.append(mk("text", { x: (x1 + x2) / 2, y: (y1 + y2) / 2 - 6, "text-anchor": "middle", "font-size": 11, fill: "var(--text)" }, e.count + " ca (" + Math.round(100 * e.count / total) + "%)")); });
+  const hot = twMetrics && twMetrics.bottleneck ? twMetrics.bottleneck.id : null;
+  d.nodes.forEach((n) => { const p = pos[n.id], isHot = hot && (hot === n.id);
+    svg.append(mk("rect", { x: p[0], y: p[1], width: W, height: H, rx: 8, fill: "var(--card)", stroke: isHot ? "var(--bad)" : "var(--line)", "stroke-width": isHot ? 3 : 1.5 }));
+    svg.append(mk("text", { x: p[0] + 8, y: p[1] + 19, "font-size": 12, "font-weight": 600, fill: "var(--text)" }, String(n.label || n.id).slice(0, 22)));
+    svg.append(mk("text", { x: p[0] + 8, y: p[1] + 36, "font-size": 11, fill: "var(--muted)" }, (ROLE_VN[n.role] || n.role || "") + " · " + n.count + " lần")); });
+  box.append(svg);
+}
+function drawVariants() {
+  const box = $("twVariants"); box.textContent = ""; const v = (twDiscover && twDiscover.variants) || [];
+  if (!v.length) return;
+  box.append(el("h3", "Các cách làm khác nhau"));
+  v.forEach((x) => { const row = el("div", undefined, "variant"), bar = el("div", undefined, "vbar"); bar.style.width = Math.max(4, Math.round((x.share || 0) * 100)) + "%";
+    row.append(el("div", x.count + " ca (" + Math.round((x.share || 0) * 100) + "%): " + (x.steps || []).join(" → "), "detail"), bar); box.append(row); });
+}
+function drawMetrics() {
+  const box = $("twMetricsBox"); box.textContent = ""; const m = twMetrics;
+  if (!m) return;
+  if (m.hidden) { box.append(el("div", "Chưa đủ 5 ca để hiện số đo (hiện có " + (m.cases || 0) + " ca).", "msg bad")); return; }
+  box.append(el("div", "Số liệu từ " + m.cases + " ca.", "detail"));
+  const t = el("table"), head = el("tr"); ["Chặng", "Bước", "Số ca", "Xử lý (trung vị)", "Xử lý chậm nhất 1/10 ca", "Chờ trước bước", "Làm lại", "Lỗi", "Độ trễ API (ms)"].forEach((h) => head.append(el("th", h)));
+  t.append(head);
+  (m.steps || []).forEach((s) => { const tr = el("tr"); [s.stage, s.label || s.step_id, s.n, fmtSec(s.median_s), fmtSec(s.p90_s), fmtSec(s.wait_median_s), Math.round(100 * (s.rework_rate || 0)) + "%", Math.round(100 * (s.error_rate || 0)) + "%", s.api_ms_median === null || s.api_ms_median === undefined ? "—" : Math.round(s.api_ms_median)].forEach((c) => tr.append(el("td", String(c)))); t.append(tr); });
+  box.append(t);
+  if ((m.queues || []).length) { const q = el("table"), h = el("tr"); ["Hàng chờ", "Chờ (trung vị)", "Chờ chậm nhất 1/10 ca"].forEach((x) => h.append(el("th", x))); q.append(h);
+    m.queues.forEach((x) => { const tr = el("tr"); [x.name, fmtSec(x.wait_median_s), fmtSec(x.wait_p90_s)].forEach((c) => tr.append(el("td", c))); q.append(tr); }); box.append(q); }
+  if (m.bottleneck) box.append(el("div", "Điểm nghẽn: " + (m.bottleneck.kind === "queue" ? "hàng chờ «" : "bước «") + m.bottleneck.id + "», chiếm khoảng " + Math.round(100 * (m.bottleneck.share || 0)) + "% thời gian của một ca.", "msg bad"));
+  drawSimSteps();
+}
+$("twMetrics").onclick = async () => {
+  if (!twProcessId) { twErr("twMetricsBox", new Error("Chọn hoặc Lưu một quy trình trước.")); return; }
+  try { twMetrics = await api("GET", "/api/twin/metrics?process_id=" + encodeURIComponent(twProcessId)); drawMetrics(); drawTwin(); } catch (e) { twErr("twMetricsBox", e); }
+};
+
+// ---- the run on the twin ----
+function drawTwinInputs() {
+  const box = $("twInputs"); box.textContent = ""; const seen = new Set();
+  twStages.forEach((s) => { const f = flowOf(s.flowId); (f ? f.input_fields || [] : []).forEach((x) => { if (seen.has(x.name)) return; seen.add(x.name); box.append(el("label", x.label, "field")); const i = el("input"); i.type = "text"; i.dataset.name = x.name; box.append(i); }); });
+}
+$("twRun").onclick = async () => {
+  const inputs = {}; $("twInputs").querySelectorAll("input").forEach((i) => { inputs[i.dataset.name] = i.value; });
+  $("twRunMsg").textContent = ""; twPinned = null;
+  if (!twStages.length) { twErr("twRunMsg", new Error("Thêm ít nhất một chặng ở phần Sơ đồ quy trình.")); return; }
+  try { await api("POST", "/api/twin/run", { name: $("twName").value.trim(), stages: twStagesBody(), inputs }); pollTwin(); } catch (e) { twErr("twRunMsg", e); }
+};
+$("twStop").onclick = async () => { try { await api("POST", "/api/twin/stop"); } catch (e) { /* ended already */ } };
+function paintTwin() {
+  const status = twRunStatus; const row = $("twRow");
+  const last = {}; if (status && status.twin) for (const s of status.steps) last[s.id] = s;
+  let current = null;
+  row.querySelectorAll(".node[data-step]").forEach((b) => {
+    const key = b.dataset.step, own = key.startsWith("duyet:") ? last[key.slice(6)] : last[key], s = own;
+    ["st-run", "st-done", "st-wait", "st-skip"].forEach((c) => b.classList.remove(c)); if (!b.classList.contains("st-bad") || !(twMetrics && twMetrics.bottleneck)) b.classList.remove("st-bad");
+    const live = b.querySelector(".live"); live.textContent = key.startsWith("duyet:") ? (s && s.status.startsWith("waiting") ? "⏸ chờ Duyệt" : "") : (s ? (LIVE_WORDS[s.status] || s.status) : "");
+    if (!s || (key.startsWith("duyet:") && !s.status.startsWith("waiting"))) return;
+    const cls = s.status === "running" ? "st-run" : (s.status === "done" || s.status === "auto_approved") ? "st-done" : s.status === "skipped" ? "st-skip" : s.status.startsWith("waiting") ? "st-wait" : "st-bad";
+    b.classList.add(cls); if (cls !== "st-done" && cls !== "st-skip") current = b;
+  });
+  const end = row.querySelector('.node[data-step="__end"]');
+  if (end && status && status.twin && status.result) { const ok = status.result.status === "finished"; end.classList.add(ok ? "st-done" : "st-bad"); end.querySelector(".live").textContent = ok ? "✓ hoàn tất" : "■ " + (STEP_WORDS[status.result.status] || status.result.status); }
+  if (current && current !== paintTwin.shown) { current.scrollIntoView({ block: "nearest", inline: "center", behavior: "smooth" }); paintTwin.shown = current; }
+}
+async function pollTwin() {
+  if (twTimer) return;
+  const tick = async () => {
+    let status;
+    try { status = await api("GET", "/api/twin/status"); } catch (e) { clearInterval(twTimer); twTimer = null; return; }
+    if (!status.twin) { clearInterval(twTimer); twTimer = null; return; }
+    twRunStatus = status;
+    const steps = $("twSteps"); steps.textContent = ""; steps.append(el("div", status.banner, "twin-head"));
+    for (const s of status.steps) steps.append(el("div", s.id + ": " + (STEP_WORDS[s.status] || s.status) + (s.detail ? " (" + s.detail + ")" : "")));
+    paintTwin();
+    const ids = status.steps.filter((s) => status.details[s.id]).map((s) => s.id);
+    if (twPinned) renderTwinDetail(twPinned); else if (ids.length) renderTwinDetail(ids[ids.length - 1]);
+    const ask = $("twAsk"); ask.textContent = "";
+    if (status.ask) {
+      const a = status.ask, card = el("div", undefined, "msg bad");
+      card.append(el("div", TWIN_BANNER, "twin-head"));
+      card.append(el("strong", (a.role === "checker" ? "Kiểm soát viên Duyệt: " : "GDV Duyệt: ") + (a.label || a.step_id) + " (" + (a.risk === "money" ? "tiền" : a.risk === "write" ? "ghi dữ liệu" : "chỉ xem") + ")"));
+      card.append(el("div", "Đây là bản sao: bấm Duyệt chỉ để chạy tiếp, không có gì được gửi đi. Người bấm Duyệt phải là bạn.", "detail"));
+      const yes = el("button", "Duyệt", "primary"), no = el("button", "Không duyệt");
+      yes.tabIndex = -1; yes.disabled = true; setTimeout(() => { yes.disabled = false; }, (a.lock_seconds || 0.8) * 1000);
+      const answer = (approve) => async () => { try { await api("POST", "/api/twin/decide", { approve, ask_id: a.id }); } catch (e) { $("twRunMsg").append(el("div", e.message, "msg bad")); } };
+      yes.onclick = answer(true); no.onclick = answer(false);
+      const r = el("div", undefined, "row"); r.append(yes, no); card.append(r); ask.append(card);
+    }
+    if (status.result) {
+      clearInterval(twTimer); twTimer = null;
+      $("twRunMsg").textContent = ""; $("twRunMsg").append(el("div", status.result.message + (status.result.simulated_ms ? " Thời gian mô phỏng: " + fmtSec(status.result.simulated_ms / 1000) + "." : ""), status.result.status === "finished" ? "msg ok" : "msg bad"));
+    }
+  };
+  twTimer = setInterval(tick, 500); tick();
+}
+
+// ---- Nếu… thì… ----
+const smChoices = {};
+function drawSimSteps() {
+  const box = $("smSteps"); box.textContent = "";
+  const steps = (twMetrics && twMetrics.steps) || [];
+  if (!steps.length) return;
+  box.append(el("label", "Từng bước: giữ nguyên, bỏ, hay để agent làm?", "field"));
+  steps.forEach((s) => { const row = el("div", undefined, "row"), sel = el("select");
+    sel.append(new Option("Giữ nguyên", "keep"), new Option("Bỏ bước này", "remove"), new Option("Agent làm", "agent")); sel.value = smChoices[s.step_id] || "keep"; sel.onchange = () => { smChoices[s.step_id] = sel.value; };
+    row.append(el("span", (s.stage ? s.stage + " · " : "") + (s.label || s.step_id), "grow"), sel); box.append(row); });
+}
+$("smRun").onclick = async () => {
+  $("smMsg").textContent = ""; $("smOut").textContent = "";
+  if (!twProcessId) { twErr("smMsg", new Error("Chọn hoặc Lưu một quy trình trước.")); return; }
+  const num = (id) => parseFloat(String($(id).value).replace(",", "."));
+  const steps = {}; Object.keys(smChoices).forEach((k) => { if (smChoices[k] !== "keep") steps[k] = smChoices[k]; });
+  const body = { process_id: twProcessId, seed: parseInt($("smSeed").value, 10) || 1, hours: num("smHours") || 8, arrivals_per_hour: num("smRate") || 1,
+    staff: { maker: Math.max(1, parseInt($("smMaker").value, 10) || 1), checker: Math.max(1, parseInt($("smChecker").value, 10) || 1) }, api_factor: num("smApi") || 1, steps };
+  try { twScenario = await api("POST", "/api/twin/simulate", body); drawSim(); drawTwin(); } catch (e) { twErr("smMsg", e); }
+};
+function drawSim() {
+  const box = $("smOut"); box.textContent = ""; const r = twScenario; if (!r) return;
+  const b = r.baseline || {}, s = r.scenario || {};
+  const rows = [["Số ca xong", b.completed, s.completed, false], ["Thời gian một ca (trung bình)", b.cycle_mean_s, s.cycle_mean_s, true], ["Thời gian một ca (chậm nhất 1/10 ca)", b.cycle_p90_s, s.cycle_p90_s, true]];
+  Object.keys(Object.assign({}, b.waits, s.waits)).forEach((k) => rows.push(["Chờ ở «" + k + "»", (b.waits || {})[k], (s.waits || {})[k], true]));
+  Object.keys(Object.assign({}, b.utilization, s.utilization)).forEach((k) => rows.push(["Mức bận: " + (ROLE_VN[k] || k), (b.utilization || {})[k], (s.utilization || {})[k], false, true]));
+  const t = el("table"), h = el("tr"); ["Chỉ số", "Hiện nay", "Nếu thay đổi", "Chênh"].forEach((x) => h.append(el("th", x))); t.append(h);
+  rows.forEach(([name, x, y, time, pct]) => { const tr = el("tr"), f = (v) => v === undefined || v === null ? "—" : time ? fmtSec(v) : pct ? Math.round(100 * v) + "%" : String(v);
+    const diff = (typeof x === "number" && typeof y === "number") ? (y - x) : null;
+    [name, f(x), f(y), diff === null ? "—" : (diff > 0 ? "+" : "") + (time ? fmtSec(Math.abs(diff)).replace(/^/, diff < 0 ? "-" : "") : pct ? Math.round(100 * diff) + "%" : diff)].forEach((c) => tr.append(el("td", c))); t.append(tr); });
+  box.append(t);
+  const chart = rows.filter((x) => x[3] && typeof x[1] === "number" && typeof x[2] === "number");
+  if (chart.length) { // a simple bar chart: hiện nay (grey) and nếu thay đổi (blue), in minutes
+    const svgNS = "http://www.w3.org/2000/svg", rowH = 34, W = 560, svg = document.createElementNS(svgNS, "svg"), maxV = Math.max(1, ...chart.flatMap((x) => [x[1], x[2]]));
+    svg.setAttribute("viewBox", "0 0 " + W + " " + (chart.length * rowH + 30)); svg.setAttribute("width", "100%"); svg.setAttribute("role", "img"); svg.setAttribute("aria-label", "So sánh thời gian chờ và thời gian một ca");
+    const mk = (tag, attrs, text) => { const e = document.createElementNS(svgNS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); if (text !== undefined) e.textContent = text; return e; };
+    chart.forEach((x, i) => { const y = i * rowH + 4;
+      svg.append(mk("text", { x: 0, y: y + 11, "font-size": 12, fill: "var(--text)" }, x[0]));
+      svg.append(mk("rect", { x: 0, y: y + 15, width: Math.max(2, 380 * x[1] / maxV), height: 7, rx: 2, fill: "var(--muted)" })); svg.append(mk("text", { x: 386, y: y + 22, "font-size": 11, fill: "var(--muted)" }, "hiện nay " + fmtSec(x[1])));
+      svg.append(mk("rect", { x: 0, y: y + 23, width: Math.max(2, 380 * x[2] / maxV), height: 7, rx: 2, fill: "var(--accent)" })); svg.append(mk("text", { x: 386, y: y + 30, "font-size": 11, fill: "var(--accent)" }, "nếu thay đổi " + fmtSec(x[2]))); });
+    box.append(svg);
+  }
+  if (r.explanation) box.append(el("div", r.explanation, "msg ok"));
+}
 </script>
 </body>
 </html>

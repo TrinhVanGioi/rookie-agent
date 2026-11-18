@@ -198,6 +198,20 @@ Thiết kế: `docs/design.md` mục 6.4. Nút «Chạy» ở tab «Luồng đã
 | 8.6 | Tài liệu, đóng gói | **Xong**. Chưa thử trên TouchPoint UAT |
 | 8.7 | Bộ nhớ phiên cho tra cứu; Trợ lý chạy tra cứu bằng API | Test: cùng khách lần hai không gọi máy chủ, «Làm mới» và khách khác thì gọi; xoá khi đóng tab, trang đăng nhập, nút xoá, hết hạn; lần chạy dừng ở nút ghi không được nhớ; audit không có giá trị; Trợ lý chọn chạy API chỉ khi mọi nút là `read`. **Xong**: `Core._cache*`, `/api/cache`, `/api/cache/clear`, nút «Làm mới», «Xoá bộ nhớ phiên»; `tests/test_replay.py`. Bộ ghi: dòng `nav`/`form` có `uid` (test đăng nhập khung lồng nhau đạt lại ở 5/8/9) |
 
+## Gate 9: bản sao quy trình (Process Digital Twin)
+
+Quy trình đầu cuối nhiều vai trò: GDV tra CIF và lập lệnh chuyển tiền, sau đó KSV duyệt. Bản sao dùng cho bốn việc: chạy thử không đụng hệ thống thật, nhìn quy trình thật, đo và tìm điểm nghẽn, thử «nếu… thì…». Thiết kế ở `docs/design.md` mục 12.
+
+| Task | Nội dung | Tiêu chí nghiệm thu |
+| --- | --- | --- |
+| 9.1 | Nhật ký quy trình | Test: dựng dòng nhật ký (ca, bước, vai trò, thời điểm, kết quả, độ trễ API) từ phiên mẫu; nối ca maker/checker bằng mã băm. Không có mã người, không có giá trị. Sự kiện `schema_version` 3 có `api_calls[].ms` cho ie. **Xong** |
+| 9.2 | Khám phá quy trình, mô hình đầu cuối | Test: sơ đồ «bước nào theo sau bước nào», biến thể có số ca và tỉ lệ đúng; mô hình quy trình (`schemas/process.schema.json`) có version; gợi ý thứ tự chặng. **Xong** |
+| 9.3 | Đo và tìm điểm nghẽn | Test: thời gian xử lý, thời gian chờ, làm lại, lỗi, độ trễ API đúng trên dữ liệu có đáp án; dưới 5 ca thì ẩn số; điểm nghẽn đúng. **Xong** |
+| 9.4 | Chạy thử trên bản sao | Test: khung trả lời không còn giá trị gốc (JSON, GWT, HTML); chạy đầu cuối trên bản sao qua các nút nối nhau, dừng chờ Duyệt ở nút ghi/tiền và chặng KSV; không request nào ra ngoài. **Xong** |
+| 9.5 | Mô phỏng «nếu… thì…» | Test: cùng seed thì cùng kết quả; thêm 1 KSV thì giảm chờ duyệt; bỏ một bước thì thời gian ca giảm tương ứng; lời giải thích qua `LLMClient` (`RuleBasedClient` chạy offline). **Xong** |
+| 9.6 | Trang «Bản sao quy trình», cả quy trình thành một luồng kiểu n8n | Nút «Dựng quy trình từ các lần ghi» ghép chặng maker và checker thành một sơ đồ: nút API, Bàn giao, Duyệt, nhánh theo biến thể. Cùng sơ đồ đó dùng cho số đo, chạy thử và nếu… thì…. «Xuất JSON kiểu n8n» là file trên máy, test chứng minh không có giá trị gốc. Chữ tiếng Việt. **Xong** |
+| 9.7 | Dữ liệu demo, tài liệu, đóng gói | `scripts/twin_seed.py` sinh ca synthetic; tài liệu; gói `patch-ie.7z`. **Xong**. Test IE thật đạt ở 5/8/9; trang chưa mở bằng trình duyệt (chỉ kiểm cú pháp JS); chưa thử trên UAT |
+
 ## Phần để sau PoC
 
 - Đánh giá độ chính xác của LLM nội bộ (Learner, giải thích lệch, self-healing) trên bộ mẫu; self-healing bằng ảnh nếu model nhận được ảnh.

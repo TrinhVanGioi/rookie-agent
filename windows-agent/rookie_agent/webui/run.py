@@ -30,6 +30,7 @@ class WebController:
         self.ask: dict[str, Any] | None = None     # the open question, or None
         self.steps: list[dict[str, str]] = []      # id, status, detail: never a value
         self.decisions: list[dict[str, Any]] = []  # who answered what: the step, the kind of question, the risk, yes or no
+        self.context: dict[str, Any] = {}          # extra fields of every card (the twin: «BẢN SAO», the stage and its role)
         self.details: dict[str, dict[str, Any]] = {}   # task 7.5: per step, what a simulated run sent and got back; memory only, never audited
 
     def show(self, step_id: str, shown: dict[str, Any]) -> None:
@@ -55,7 +56,7 @@ class WebController:
             seen = "không đọc được màn hình lúc này"
         card = {"id": uuid.uuid4().hex, "kind": kind, "step_id": step["id"], "label": (step.get("target") or {}).get("label"),
                 "action": step.get("action"), "risk": step["risk"], "index": index, "total": total,
-                "will_send": self._resolve(step), "manual": bool(step.get("manual")), "seen": seen, "lock_seconds": ASK_LOCK_SECONDS, "asked_at": time.time()}
+                "will_send": self._resolve(step), "manual": bool(step.get("manual")), "seen": seen, "lock_seconds": ASK_LOCK_SECONDS, "asked_at": time.time(), **self.context}
         with self._cv:
             self._answer, self.ask = None, card
             while self._answer is None and not self._stop.is_set():

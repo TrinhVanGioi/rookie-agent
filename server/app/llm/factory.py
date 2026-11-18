@@ -46,6 +46,13 @@ class FallbackClient:
             self.last_error = error
             return self.fallback.explain(rows, rounding_threshold)
 
+    def explain_simulation(self, baseline: dict, scenario: dict, changes: dict | None = None) -> str:
+        try:
+            return self.primary.explain_simulation(baseline, scenario, changes)
+        except LLMError as error:
+            self.last_error = error
+            return self.fallback.explain_simulation(baseline, scenario, changes)
+
     def locate(
         self, description: str, candidates: list[Candidate], screenshot: bytes | None = None
     ) -> Location | None:

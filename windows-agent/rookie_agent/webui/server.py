@@ -128,7 +128,10 @@ def make_handler(core: Core, port: int, on_shutdown: Any):
             elif path == "/api/ping":
                 self._json(200, {"rookie": True})
             else:
-                status, data = core.dispatch("GET", path, {})
+                import urllib.parse
+
+                query = {k: v[0] for k, v in urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query).items()}
+                status, data = core.dispatch("GET", path, query)
                 self._json(status, data)
 
         def do_POST(self) -> None:

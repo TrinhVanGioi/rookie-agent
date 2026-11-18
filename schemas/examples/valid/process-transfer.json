@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "id": "chuyen-tien-ksv",
+  "name": "Chuyển tiền có KSV duyệt",
+  "version": 1,
+  "stages": [
+    {
+      "id": "lap_lenh",
+      "workflow_id": "lap-lenh",
+      "label": "Lập lệnh",
+      "role": "maker"
+    },
+    {
+      "id": "duyet",
+      "workflow_id": "duyet-lenh",
+      "label": "Duyệt lệnh",
+      "role": "checker"
+    }
+  ],
+  "handoffs": [
+    {
+      "from_stage": "lap_lenh",
+      "to_stage": "duyet",
+      "queue": "cho_duyet"
+    }
+  ]
+}

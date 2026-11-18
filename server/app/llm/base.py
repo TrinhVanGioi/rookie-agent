@@ -67,6 +67,31 @@ class LLMClient(Protocol):
         """
         ...
 
+    def explain_simulation(self, baseline: dict[str, Any], scenario: dict[str, Any], changes: dict[str, Any]) -> str:
+        """Say in Vietnamese what a what-if run changed. Only aggregate numbers go in (no person, no value)."""
+        ...
+
+
+def rule_simulation_text(baseline: dict[str, Any], scenario: dict[str, Any], changes: dict[str, Any] | None = None) -> str:
+    """The sentence the rules write from the numbers. Also the fallback when a model fails."""
+    def minutes(seconds: float | None) -> str:
+        return "không có số liệu" if seconds is None else f"{seconds / 60:.1f} phút"
+
+    parts = [
+        f"Thời gian một ca (trung bình) đổi từ {minutes(baseline.get('cycle_mean_s'))} sang {minutes(scenario.get('cycle_mean_s'))}.",
+        f"Số ca xong đổi từ {baseline.get('completed', 0)} sang {scenario.get('completed', 0)}.",
+    ]
+    queue, base_waits = None, baseline.get("waits") or {}
+    for name, value in (scenario.get("waits") or {}).items():
+        if queue is None or base_waits.get(name, 0) - value > base_waits.get(queue, 0) - (scenario["waits"].get(queue) or 0):
+            queue = name
+    if queue is not None and queue in base_waits:
+        parts.append(f"Chờ ở «{queue}» đổi từ {minutes(base_waits[queue])} sang {minutes(scenario['waits'][queue])}.")
+    bottleneck = scenario.get("bottleneck")
+    if bottleneck:
+        parts.append(f"Điểm nghẽn lúc này là {'hàng chờ' if bottleneck.get('kind') == 'queue' else 'bước'} «{bottleneck.get('id')}» (khoảng {round(bottleneck.get('share', 0) * 100)}% thời gian một ca).")
+    return " ".join(parts)
+
 
 # Account numbers, CCCD and phone numbers are runs of 10 digits or more.
 _LONG_DIGITS = re.compile(r"\d{10,}")

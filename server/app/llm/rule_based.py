@@ -5,7 +5,7 @@ from __future__ import annotations
 import unicodedata
 from difflib import SequenceMatcher
 
-from app.llm.base import DEFAULT_ROUNDING_THRESHOLD, Candidate, ExplainRow, Explanation, Location, assert_masked
+from app.llm.base import DEFAULT_ROUNDING_THRESHOLD, Candidate, ExplainRow, Explanation, Location, assert_masked, rule_simulation_text
 
 
 def _normalize(text: str) -> str:
@@ -55,6 +55,9 @@ class RuleBasedClient:
                     }
                 )
         return result
+
+    def explain_simulation(self, baseline: dict, scenario: dict, changes: dict | None = None) -> str:
+        return rule_simulation_text(baseline, scenario, changes)
 
     def locate(
         self, description: str, candidates: list[Candidate], screenshot: bytes | None = None
