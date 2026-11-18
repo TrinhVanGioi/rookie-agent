@@ -1,0 +1,85 @@
+{
+  "schema_version": 3,
+  "engine": "ie",
+  "id": "dang-nhap-chon-vai-tro",
+  "version": 1,
+  "status": "draft",
+  "inputs": [
+    {
+      "name": "ma_dang_nhap",
+      "type": "string",
+      "value_class": "username",
+      "label": "User Account"
+    },
+    {
+      "name": "vai_tro",
+      "type": "string",
+      "label": "Role",
+      "required": false
+    }
+  ],
+  "steps": [
+    {
+      "id": "s1_user",
+      "action": "fill",
+      "value": "{ma_dang_nhap}",
+      "target": {
+        "selectors": [
+          "frame=top|id=txtUser",
+          "frame=top|label=User Account"
+        ],
+        "label": "User Account",
+        "tag": "input"
+      },
+      "risk": "read",
+      "mode": "auto"
+    },
+    {
+      "id": "s2_role",
+      "action": "select",
+      "value": "{vai_tro}",
+      "target": {
+        "selectors": [
+          "frame=desktopFrame/rhidden|id=currentRole"
+        ],
+        "label": "Role",
+        "tag": "select"
+      },
+      "risk": "read",
+      "mode": "auto",
+      "optional": {
+        "mode": "if_different"
+      }
+    },
+    {
+      "id": "s3_ok",
+      "action": "click",
+      "target": {
+        "selectors": [
+          "frame=desktopFrame/rhidden|id=btnSelect"
+        ],
+        "label": "OK",
+        "tag": "button"
+      },
+      "risk": "read",
+      "mode": "auto"
+    },
+    {
+      "id": "s4_close",
+      "action": "click",
+      "target": {
+        "selectors": [
+          "frame=top|id=btnClose"
+        ],
+        "label": "Đóng",
+        "tag": "button"
+      },
+      "risk": "write",
+      "mode": "approve",
+      "optional": {
+        "mode": "if_present",
+        "wait_ms": 2000
+      }
+    }
+  ]
+}

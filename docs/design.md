@@ -297,6 +297,26 @@ flowchart TD
 | Mất kết nối | Bước cần máy chủ hoặc LLM thì dừng an toàn và báo GDV; log và ảnh được đệm trên máy, đẩy lên khi có mạng lại |
 | Kiểm thử | Workflow web chạy thử bằng Playwright trên sandbox ở máy chủ trước khi được phát xuống máy. Workflow Java chạy thử bằng Windows agent ở chế độ thử trên một máy Windows có JRE 8 và mock Swing |
 
+### 6.1 Giao diện đổi mà không phải học lại
+
+Mục tiêu: hệ thống ngân hàng đổi giao diện (id đổi, ô dời chỗ, thêm cột) thì agent vẫn chạy được; chỗ nào không chắc thì hỏi đúng một bước, không bắt GDV ghi 3 lần rồi Học lại.
+
+1. **Nhiều dấu hiệu cho mỗi bước.** `target` giữ id, name, nhãn đứng cạnh, loại ô, khung trang, vị trí theo loại thẻ và chữ xung quanh (không giữ giá trị nhập). Runner chấm điểm từng ứng viên theo các dấu hiệu (điểm bằng chứng của task 2.15) và chọn khi điểm cao nhất vượt ngưỡng và cách xa ứng viên thứ hai. Không đạt thì dừng và hỏi (quy tắc 9).
+2. **Sửa một bước khi không tìm thấy.** Runner khoanh tối đa 3 ứng viên trên màn hình (viền màu trong trang, không bấm gì) và hỏi GDV «Có phải ô này?». GDV chọn một ô hoặc chọn «Không có» (dừng). Lựa chọn thành bản sửa của agent: version mới, chỉ đổi `target` của bước đó, giữ nguyên `risk`/`mode`, ghi audit, và chỉ dùng chung sau khi người duyệt agent Duyệt lại. Trong lúc chờ Duyệt, chỉ GDV đã chọn mới chạy được bản sửa, và chỉ các bước `read`.
+3. **Dấu vân tay màn hình.** Lúc Học, mỗi màn lưu một dấu vân tay: tập (loại ô, nhãn) và tên khung, không có giá trị. Trước khi chạy, Runner so với màn đang mở; lệch quá ngưỡng thì báo «Màn hình đã đổi» và đề nghị «Chạy thử (chỉ đọc)» để biết bước nào cần chỉ lại, trước khi dùng với khách thật.
+4. **Lời gọi lên máy chủ làm bằng chứng.** Với bước `read`, request đã ghi (phương thức, đường dẫn bỏ phần sau `?`, mã trạng thái) là dấu hiệu phụ: sau khi thao tác, có lời gọi cùng hình dạng trả về thành công thì tăng độ tin cậy. Không gọi thẳng máy chủ thay cho thao tác; bước `write`/`money` luôn đi qua giao diện và chờ Duyệt.
+
+### 6.2 Nhận lệnh từ chứng từ (giấy uỷ nhiệm chi)
+
+GDV đưa giấy uỷ nhiệm chi (UNC) vào thay vì gõ lệnh; agent tách các trường làm tham số cho luồng chuyển tiền đã học.
+
+1. **Đầu vào.** Ảnh quét hoặc chụp (PNG/JPG/PDF) chọn trong tab Trợ lý. PoC chỉ dùng mẫu UNC giả lập trong `mock-site/`.
+2. **Đọc trên máy hoặc máy chủ nội bộ.** OCR chạy qua một interface `DocReader`, luôn có bản chạy offline để test (đọc từ file mẫu có sẵn nội dung). Ảnh không rời máy GDV khi chưa che: nếu phải gửi máy chủ nội bộ thì chỉ gửi qua kênh nội bộ, không lưu ảnh ở máy chủ sau khi đọc xong.
+3. **Tách trường.** Kết quả là các trường có tên theo bảng phân loại trường: `so_tai_khoan_chuyen`, `ten_nguoi_chuyen`, `so_tai_khoan_nhan`, `ten_nguoi_nhan`, `ngan_hang_nhan`, `so_tien`, `so_tien_bang_chu`, `noi_dung`, `ngay`, mỗi trường kèm độ tin cậy. Số tiền bằng số và bằng chữ phải khớp nhau, không khớp thì đánh dấu đỏ.
+4. **GDV soát từng trường (bắt buộc).** Hiện ảnh gốc cạnh từng trường, GDV sửa hoặc xác nhận. Trường dưới ngưỡng tin cậy hoặc lệch số/chữ không cho qua khi chưa sửa. Chỉ sau khi xác nhận, các trường mới thành tham số `{...}` của luồng.
+5. **Chạy như lệnh gõ.** Từ đây giống Gate 5: Trợ lý chọn agent đã duyệt khớp loại chứng từ, Runner chạy, bước `write` chờ GDV Duyệt, bước `money` dừng chờ người kiểm soát bấm Duyệt. Agent làm tới đúng phần việc của vai trò người đang chạy (chính sách mục 6, quyền của chính phiên đăng nhập), phần còn lại chuyển cho người có vai trò tiếp theo.
+6. **Lưu và audit.** Không lưu ảnh và giá trị trường trong trace hay audit; audit chỉ ghi loại chứng từ, tên các trường, độ tin cậy và ai đã xác nhận.
+
 ## 7. Bước tư duy: đối chiếu 2 báo cáo
 
 Ngoài lấy dữ liệu, agent so sánh theo rule của người dùng và giải thích chênh lệch.

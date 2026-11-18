@@ -9,8 +9,10 @@ from __future__ import annotations
 
 import json
 import re
+import threading
 import time
 import unicodedata
+import uuid
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -28,6 +30,11 @@ ACTION_WORDS = {
 }
 RISK_WORDS = {"read": "chỉ xem", "write": "ghi dữ liệu, luôn hỏi trước khi làm", "money": "liên quan tiền, luôn hỏi trước khi làm"}
 MODE_WORDS = {"auto": "tự chạy", "review": "dừng cho bạn xem", "approve": "chờ bạn duyệt"}
+
+
+HOOK_BLOCK_FILE = "request-hook-blocked-v2.json"
+DIAG_LEVELS = ("noread", "nolisten", "none", "only-click", "only-key", "only-field", "only-page",
+               "only-focusin", "only-focusout", "only-change", "field-empty", "body-prop", "body-label", "body-place", "body-uid", "body-value", "body-meta")   # to find what upsets a page
 
 
 class UserError(Exception):
@@ -145,6 +152,9 @@ class Core:
         self._ie_bridge: Any = None
         self._ie_error: str | None = None
         self._ie_session: Any = None
+        self._run: dict[str, Any] | None = None   # the flow being run now, or the last one run
+        self._last_requests: list[dict[str, Any]] = []   # the requests of the last recording, in memory only
+        self._last_seen: list[dict[str, Any]] = []   # what the screen showed in the last recording, in memory only
 
     # ---- web pages in Internet Explorer ---------------------------------------------------
 
@@ -195,7 +205,7 @@ class Core:
         host = self._host
         recording = bool(host and host._recorder is not None) or self._ie_session is not None
         return {
-            "version": __version__, "bits": self._own_bits, "recording": recording,
+            "version": __version__, "bits": self._own_bits, "recording": recording, "preview": bool(getattr(self._ie_session, "preview", False)),
             "server": self.store.get("server_url", DEFAULT_SERVER), "recordings": len(self.store.listing()),
         }
 
@@ -235,27 +245,81 @@ class Core:
 
     def windows(self, _: dict[str, Any]) -> dict[str, Any]:
         java = self._windows()
-        pages = [IE_PREFIX + tab["title"] for tab in self._ie_tabs()]
-        return {"windows": java + pages, "error": None if pages else self._session_error}
+        tabs = self._ie_tabs()
+        pages = [IE_PREFIX + tab["title"] for tab in tabs]
+        return {"windows": java + pages, "ie": [{"id": tab["id"], "title": tab["title"]} for tab in tabs],
+                "error": None if pages else self._session_error}
+
+    def _find_ie_tab(self, window: str) -> dict[str, Any] | None:
+        """The tab the teller chose. By its id when the choice has one (the title of a page changes after the sign in, the tab does
+        not). By title otherwise; a title that no longer matches finds the page only when it is the one Internet Explorer page open:
+        with several, nothing is guessed."""
+        tabs = self._ie_tabs()
+        if window.startswith("ie-tab:"):
+            try:
+                wanted = int(window.split(":", 1)[1])
+            except ValueError:
+                return None
+            return next((t for t in tabs if t["id"] == wanted), None)
+        title = window[len(IE_PREFIX):] if window.startswith(IE_PREFIX) else window
+        found = next((t for t in tabs if t["title"] == title), None)
+        return found or (tabs[0] if len(tabs) == 1 else None)
 
     # ---- recording ---------------------------------------------------------------------
 
-    def _record_start_ie(self, title: str) -> dict[str, Any]:
+    # -v2: the sites blocked before the fix of the TouchPoint tabs (VML) were blocked by mistake; that list is no longer read.
+    def _hook_blocked(self) -> set[str]:
+        """Sites (host names only) where recording the requests upset the page: they are recorded without it from then on."""
+        try:
+            return set(json.loads((self.store.home / HOOK_BLOCK_FILE).read_text(encoding="utf-8")))
+        except (OSError, ValueError, TypeError):
+            return set()
+
+    def _hook_block(self, host: str) -> None:
+        blocked = self._hook_blocked() | {host}
+        (self.store.home / HOOK_BLOCK_FILE).write_text(json.dumps(sorted(blocked)), encoding="utf-8")
+
+    def _record_start_ie(self, window: str, preview: bool = False, requests: bool | None = None, diag: str = "") -> dict[str, Any]:
         from rookie_agent.ie.session import IeSession
 
         if self._ie_session is not None:
             raise UserError("Đang ghi rồi. Bấm Dừng ghi trước.")
-        tab = next((t for t in self._ie_tabs() if t["title"] == title), None)
+        tab = self._find_ie_tab(window)
         if tab is None:
-            raise UserError("Không thấy trang này trong Internet Explorer. Mở màn hình cần ghi rồi thử lại.")
-        session = IeSession(self._ie_bridge, tab["id"], title)
+            raise UserError("Không thấy trang này trong Internet Explorer (trang có thể đã đổi tên). Bấm Tải lại rồi chọn lại màn hình cần ghi.")
+        host = str(tab.get("host") or "")
+        if requests is None:       # automatic: record the requests unless this site once upset by it
+            blocked = self._hook_blocked()
+            requests = host not in blocked and "*" not in blocked     # "*" in the file: no site is hooked (to tell a page error from the recorder's)
+        if diag:                      # a diagnosis run changes nothing else: the requests are left alone too
+            requests = False
+        session = IeSession(self._ie_bridge, tab["id"], tab["title"], requests=requests, diag=diag)
+        session.on_hook_failed = self._hook_block
+        words = {"noread": "không đọc lại màn hình sau mỗi thao tác", "nolisten": "không nghe sự kiện nào (chỉ đọc màn hình)",
+                 "none": "không chạy script nào trong trang (chỉ nhìn qua cửa sổ)",
+                 "only-click": "chỉ nghe click", "only-key": "chỉ nghe phím", "only-field": "chỉ nghe ô nhập (vào ô, rời ô, đổi giá trị)",
+                 "only-page": "chỉ nghe việc tải và rời trang", "only-focusin": "chỉ nghe việc vào ô", "only-focusout": "chỉ nghe việc rời ô",
+                 "only-change": "chỉ nghe việc đổi giá trị", "field-empty": "có gắn trình nghe vào ô nhưng trình nghe không làm gì",
+                 "body-prop": "trình nghe ô chỉ đọc thuộc tính của ô", "body-label": "trình nghe ô chỉ đọc nhãn của ô",
+                 "body-place": "trình nghe ô chỉ đọc vị trí của ô và tiêu đề trang",
+                 "body-uid": "trình nghe ô chỉ đọc uniqueID", "body-value": "trình nghe ô chỉ đọc giá trị", "body-meta": "trình nghe ô chỉ đọc kiểu, tên và id"}
+        if diag:
+            session.notes.append(f"{time.strftime('%H:%M:%S')} Chẩn đoán lỗi trang: {words[diag]}. Ghi yêu cầu: tắt.")
+        else:
+            session.notes.append(f"{time.strftime('%H:%M:%S')} Ghi yêu cầu: " + ("bật." if requests else f"tắt (trang «{host or '?'}» từng bị lỗi khi ghi yêu cầu, hoặc đã tắt bằng cấu hình)."))
+        session.preview = preview           # a preview follows what the teller does and keeps nothing
         try:
             info = session.start()
         except Exception as error:
             raise UserError(f"Chưa ghi được trang Internet Explorer: {error}") from error
-        if info.get("frames") and not info.get("attached"):
+        if not info.get("frames") and diag != "none":
             session.stop()
-            raise UserError("Không gắn được bộ ghi vào trang này (trang bị chặn hoặc các khung khác nguồn). "
+            raise UserError("Không thấy khung nào của trang để ghi (trang đang tải lại hoặc đã đóng). Đợi trang tải xong, bấm Tải lại rồi Bắt đầu ghi lại.")
+        if info.get("frames") and not info.get("attached") and diag not in ("nolisten", "none"):
+            session.stop()
+            reason = str(info.get("inject_error") or "").strip()
+            raise UserError((f"Trang từ chối bộ ghi: {reason[:200]}. " if reason else "") +
+                            "Không gắn được bộ ghi vào trang này (trang bị chặn hoặc các khung khác nguồn). "
                             "Chạy lệnh ie-probe trong thư mục windows-agent rồi gửi kết quả cho nhóm phát triển.")
         self._ie_session = session
         return {"recording": True}
@@ -263,18 +327,55 @@ class Core:
     def _record_stop_ie(self, name: str) -> dict[str, Any]:
         session, self._ie_session = self._ie_session, None
         events = session.stop()
+        self._last_seen = session.seen
+        self._last_requests = session.requests
+        if getattr(session, "preview", False):
+            return {"preview": True, **summarize_events(events)}       # nothing is saved, no trace file is written
+        trace_path = self._write_trace(session)
         if not events:
             hint = f" ({session.error})" if session.error else ""
             if session.info.get("frames"):
                 hint += f" Bộ ghi đã gắn vào {session.info.get('attached', 0)}/{session.info['frames']} khung của trang."
+            if trace_path:
+                hint += f" Bản ghi thô đã che để xem: {trace_path}"
             raise UserError("Chưa ghi được thao tác nào. Hãy thao tác trên ứng dụng sau khi bấm Bắt đầu ghi, rồi mới Dừng." + hint)
         document = self.store.save(session.session_id, events, name, engine="ie")
-        return {"id": document["session_id"], **summarize_events(document["events"])}
+        kept = 0
+        try:   # Gate 7: the page's requests as templates, on this PC only (what was typed is a mark, never a value)
+            from rookie_agent.ie import replay
+
+            found = replay.templates(getattr(session, "raw", []), document["events"], list(getattr(session, "requests", []) or []))
+            if found:
+                self.store.update(session.session_id, requests=found)
+                kept = len(found)
+        except Exception:  # noqa: BLE001  the recording itself is saved whatever happens here
+            pass
+        return {"id": document["session_id"], "trace_file": trace_path, "requests_kept": kept, **summarize_events(document["events"])}
+
+    def _write_trace(self, session: Any) -> str | None:
+        """Everything the page reported, masked, as one file the teller or the team can open to see what was recorded.
+        It never breaks the stop: a failure here only means no file."""
+        try:
+            from rookie_agent.ie.trace import TraceBuilder
+
+            builder = TraceBuilder(app_title=session.app_title, trace_id=session.session_id)
+            builder.add_session(session.session_id, session.raw)
+            builder.add_screens(session.session_id, getattr(session, "seen", []))
+            builder.add_requests(session.session_id, getattr(session, "requests", []))
+            folder = self.store.home / "traces"
+            folder.mkdir(parents=True, exist_ok=True)
+            path = folder / f"{session.session_id}.trace.json"
+            path.write_text(json.dumps(builder.build(), ensure_ascii=False, indent=2), encoding="utf-8")
+            (folder / f"{session.session_id}.reach.txt").write_text("\n".join(getattr(session, "notes", [])), encoding="utf-8")
+            return str(path)
+        except Exception:  # noqa: BLE001
+            return None
 
     def record_start(self, body: dict[str, Any]) -> dict[str, Any]:
         title = str(body.get("window") or "")
-        if title.startswith(IE_PREFIX):
-            return self._record_start_ie(title[len(IE_PREFIX):])
+        if title.startswith(IE_PREFIX) or title.startswith("ie-tab:"):
+            return self._record_start_ie(title, preview=bool(body.get("preview")), requests=None if body.get("requests") is None else bool(body.get("requests")),
+                                         diag=str(body.get("diag") or "") if str(body.get("diag") or "") in DIAG_LEVELS else "")
         host = self._ensure_host()
         if self._session is None:
             raise UserError(self._session_error or "Chưa dùng được cầu nối Java. Mở mục Kiểm tra máy.")
@@ -310,7 +411,14 @@ class Core:
     # ---- server and learning -------------------------------------------------------------
 
     def _server(self) -> Any:
-        return self._server_client(self.store.get("server_url", DEFAULT_SERVER))
+        url = self.store.get("server_url", DEFAULT_SERVER)
+        if self._server_starter is not None and url.rstrip("/") in (DEFAULT_SERVER, "http://127.0.0.1:8000"):
+            # the bundled server stops with the agent: start it again on use instead of "cannot connect" (it returns at once when it already runs)
+            try:
+                url = self._server_starter()
+            except RuntimeError as error:
+                raise UserError(str(error)) from error
+        return self._server_client(url)
 
     def server_check(self, body: dict[str, Any]) -> dict[str, Any]:
         url = str(body.get("url") or self.store.get("server_url", DEFAULT_SERVER)).strip()
@@ -333,19 +441,26 @@ class Core:
     def learn(self, body: dict[str, Any]) -> dict[str, Any]:
         ids = [str(i) for i in body.get("ids") or []]
         title = str(body.get("title") or "").strip()
-        if len(ids) < 2:
-            raise UserError("Chọn ít nhất 2 bản ghi của cùng một việc. Nên ghi 3 lần.")
+        if not ids:
+            raise UserError("Chọn ít nhất 1 bản ghi. Nên ghi 3 lần với dữ liệu khác nhau để agent học chắc hơn.")
         if not title:
             raise UserError("Đặt tên cho việc này, ví dụ: Vấn tin tài khoản.")
         client = self._server()
         try:
             for session_id in ids:
                 document = self.store.load(session_id)
-                client.post_session(session_id, document["engine"], document["events"])
+                try:
+                    client.post_session(session_id, document["engine"], document["events"])
+                except ServerError as error:
+                    if getattr(error, "status", None) != 409:   # 409: the server already has this recording, from an earlier Học
+                        raise
                 self.store.update(session_id, uploaded=True)
-            reply = client.learn(None, ids, title)
+            reply = client.learn(None, ids, title, traces=self._traces_of(ids))
         except ServerError as error:
             raise UserError(str(error)) from error
+        for call in (reply.get("llm") or {}).get("calls", []):
+            self._call_log().add("codie", str(call.get("mode") or ""), bool(call.get("ok")), float(call.get("seconds") or 0),
+                                 prompt_chars=int(call.get("prompt_chars") or 0), note=str(call.get("note") or ""))
         workflow = reply["workflow"]
         shown = {
             "title": workflow.get("title") or title,
@@ -353,17 +468,505 @@ class Core:
             "steps": [
                 {"text": friendly_step(step["action"], (step.get("target") or {}).get("label")),
                  "risk": RISK_WORDS.get(step["risk"], step["risk"]), "mode": MODE_WORDS.get(step["mode"], step["mode"]),
-                 "risk_key": step["risk"], "mode_key": step["mode"]}
+                 "risk_key": step["risk"], "mode_key": step["mode"], "optional": (step.get("optional") or {}).get("mode")}
                 for step in workflow["steps"]
             ],
             "warnings": reply["warnings"],
+            "method": reply.get("method", "rule"), "questions": list(reply.get("questions") or []),
+            "fallback_reason": reply.get("fallback_reason"),
         }
+        by_step = self._requests_for(workflow, ids)
+        shown["request_steps"] = len(by_step)
         flows = [flow for flow in self.store.get("flows", []) if flow.get("title") != shown["title"]]
-        self.store.put("flows", flows + [{**shown, "learned_at": time.strftime("%Y-%m-%d %H:%M:%S")}])
+        self.store.put("flows", flows + [{**shown, "workflow": workflow, "requests": by_step, "learned_at": time.strftime("%Y-%m-%d %H:%M:%S")}])
         return shown
 
+    def _requests_for(self, workflow: dict[str, Any], ids: list[str]) -> dict[str, list[dict[str, Any]]]:
+        """Task 7.2: the request templates of the first chosen recording that has them, under the steps of the learned flow."""
+        from rookie_agent.ie import replay
+
+        for session_id in ids:
+            try:
+                document = self.store.load(session_id)
+            except (OSError, ValueError):
+                continue
+            if document.get("requests"):
+                return replay.attach(workflow, document["events"], document["requests"])
+        return {}
+
+    def _traces_of(self, ids: list[str]) -> list[dict[str, Any]] | None:
+        """The masked traces of the chosen recordings, in the order chosen. None unless there is one for every recording: the model
+        needs all of them to compare, and a recording without a trace (a Java one, an older one) is learned the old way."""
+        found = []
+        for session_id in ids:
+            path = self.store.home / "traces" / f"{session_id}.trace.json"
+            try:
+                found.append(json.loads(path.read_text(encoding="utf-8")))
+            except (OSError, ValueError):
+                return None
+        return found
+
     def flows(self, _: dict[str, Any]) -> dict[str, Any]:
-        return {"flows": self.store.get("flows", [])}
+        def listed(flow: dict[str, Any]) -> dict[str, Any]:
+            workflow = flow.get("workflow") or {}
+            return {k: v for k, v in flow.items() if k not in ("workflow", "requests")} | {
+                "request_steps": sorted((flow.get("requests") or {}).keys()),   # the steps a simulated run can send
+                "approved": workflow.get("status") == "approved", "engine": workflow.get("engine"),
+                "repair_pending": bool(flow.get("repair")), "repair": None, "fingerprint": None,
+                "step_ids": [step.get("id", "") for step in workflow.get("steps", [])],   # the canvas lights the node of the step running
+                "input_fields": [{"name": i["name"], "label": i.get("label") or i["name"]} for i in workflow.get("inputs", [])]}
+
+        return {"flows": [listed(flow) for flow in self.store.get("flows", [])]}
+
+    # ---- running a learned flow (tasks 4.42 to 4.45) -------------------------------------------
+
+    def _flow(self, title: str) -> dict[str, Any]:
+        flow = next((f for f in self.store.get("flows", []) if f.get("title") == title), None)
+        if flow is None or not flow.get("workflow"):
+            raise UserError("Không thấy luồng này. Hãy Học lại rồi chạy.")
+        return flow
+
+    def flow_approve(self, body: dict[str, Any]) -> dict[str, Any]:
+        """The person approves this agent: only then can it run (outside a trial). The approval is of this version of the flow."""
+        title = str(body.get("title") or "")
+        flows = self.store.get("flows", [])
+        flow = next((f for f in flows if f.get("title") == title), None)
+        if flow is None or not flow.get("workflow"):
+            raise UserError("Không thấy luồng này. Hãy Học lại rồi duyệt.")
+        repaired = flow.pop("repair", None)
+        if repaired:                      # the corrected version is what the person approves now (task 6.3)
+            flow["workflow"] = repaired["workflow"]
+            self._audit_line({"time": time.strftime("%Y-%m-%d %H:%M:%S"), "title": title, "mode": "repair", "status": "approved",
+                              "version": flow["workflow"].get("version"), "steps": [{"id": s, "status": "selectors_changed", "detail": ""} for s in repaired.get("steps", [])]})
+        flow["workflow"]["status"] = "approved"
+        self.store.put("flows", flows)
+        return {"approved": True}
+
+    def run_start(self, body: dict[str, Any], via: str | None = None) -> dict[str, Any]:
+        from rookie_agent.ie.driver import IeDriver
+        from rookie_agent.runner import required_inputs, run_workflow
+        from rookie_agent.webui.run import WebController, trial_of
+        from rookie_agent.ie import read
+
+        if self._run is not None and self._run["thread"].is_alive():
+            raise UserError("Đang chạy một luồng. Đợi xong hoặc bấm Dừng khẩn.")
+        if self._ie_session is not None:
+            raise UserError("Đang ghi. Bấm Dừng ghi trước khi chạy.")
+        flow = self._flow(str(body.get("title") or ""))
+        if body.get("mode") == "simulate":
+            return self._simulate_start(flow, body, via)
+        workflow = flow["workflow"]
+        mode = "dry" if body.get("mode") == "dry" else "run"
+        inputs = {str(k): str(v) for k, v in (body.get("inputs") or {}).items() if str(v) != ""}
+        if workflow.get("engine") != "ie":
+            raise UserError("Luồng này không phải của Internet Explorer; chạy luồng Java bằng lệnh `run`.")
+        stops_before = None
+        pending = (flow.get("repair") or {}).get("workflow")
+        if pending:
+            # task 6.3: a corrected agent not yet approved again: only its read-only part runs, on this PC (where it was corrected)
+            workflow, stops_before = trial_of(pending)
+            if not workflow["steps"]:
+                raise UserError("Agent này có bản sửa đang chờ Duyệt và bắt đầu bằng bước ghi hoặc tiền. Bấm «Duyệt agent này» trước khi chạy.")
+            mode = "dry"
+        if mode == "dry" and not pending:
+            workflow, stops_before = trial_of(workflow)
+            if not workflow["steps"]:
+                raise UserError("Luồng này bắt đầu bằng bước ghi hoặc tiền, nên không có phần chỉ-đọc để chạy thử.")
+        elif workflow.get("status") != "approved":
+            raise UserError("Luồng này chưa được duyệt. Bấm «Duyệt agent này» trước khi chạy.")
+        missing = [name for name in required_inputs(workflow) if name not in inputs]
+        if missing:
+            raise UserError("Còn thiếu thông tin cần nhập: " + ", ".join(missing))
+        bridge = self._ie()
+        if bridge is None:
+            raise UserError("Chưa dùng được cầu nối Internet Explorer. Mở mục Kiểm tra máy.")
+        tab = self._find_ie_tab(str(body.get("window") or ""))
+        if tab is None:
+            raise UserError("Không thấy trang Internet Explorer để chạy. Mở màn hình rồi chọn lại.")
+        # task 6.4: the start screen against the one of the last run that went through; changed -> say so before a real run
+        from rookie_agent.ie import locate
+
+        try:
+            now_print = IeDriver(bridge, tab["id"]).fingerprint()
+        except Exception:  # noqa: BLE001  no fingerprint: nothing to compare, the run is as before
+            now_print = []
+        before = flow.get("fingerprint") or []
+        changed = bool(now_print and before and locate.screen_similarity(before, now_print) < locate.SAME_SCREEN)
+        if changed and mode == "run" and not body.get("confirm_changed"):
+            try:
+                bridge.unbind()
+            except Exception:  # noqa: BLE001
+                pass
+            raise UserError("Màn hình đã đổi so với lần chạy trước (ô hoặc nút khác đi). Bấm «Chạy thử (chỉ đọc)» để xem bước nào cần chỉ lại, "
+                            "hoặc bấm Chạy lần nữa nếu vẫn muốn chạy.")
+        stop = threading.Event()
+
+        def see() -> str:
+            return read.describe(read.parse(bridge.read()))
+
+        shared: dict[str, Any] = {**{i["name"]: str(i["default"]) for i in workflow.get("inputs", []) if i.get("default") is not None}, **inputs}
+        controller = WebController(stop, shared, see)       # the run and the card read and write the same values, in memory only
+        state: dict[str, Any] = {"mode": mode, "title": flow["title"], "controller": controller, "stop": stop, "result": None,
+                                 "stops_before": stops_before, "started": time.time(), "via": via, "input_names": sorted(inputs)}
+
+        def work() -> None:
+            try:
+                driver = IeDriver(bridge, tab["id"])
+                result = run_workflow(workflow, inputs, driver, controller, stop, values=shared, engine="ie", versions=(2, 3),
+                                      allow_write_on_real=bool(self.store.get("ie_allow_write_on_real", False)))
+                if mode == "dry" and result["status"] == "finished":
+                    result["message"] = "Chạy thử xong" + (f", dừng trước bước «{stops_before}» (bước ghi hoặc tiền)." if stops_before else ".")
+            except Exception as error:  # noqa: BLE001  the person sees a plain sentence, never a stack
+                result = {"status": "failed", "message": f"Chạy bị lỗi: {error}", "steps": []}
+            finally:
+                try:
+                    bridge.unbind()
+                except Exception:  # noqa: BLE001
+                    pass
+            if changed and mode == "dry":
+                result["message"] = "Màn hình đã đổi so với lần chạy trước. " + str(result.get("message") or "")
+            state["result"] = result
+            if result["status"] == "finished" and mode == "run" and now_print:
+                self._keep_fingerprint(flow["title"], now_print)
+            if result.get("repairs"):
+                self._save_repair(flow["title"], result["repairs"])
+            self._audit(state, result)
+
+        state["thread"] = threading.Thread(target=work, name="ie-run", daemon=True)
+        self._run = state
+        state["thread"].start()
+        return {"started": True}
+
+    def _simulate_start(self, flow: dict[str, Any], body: dict[str, Any], via: str | None) -> dict[str, Any]:
+        """Task 7.5: the flow run by its learned requests, sent from inside the teller's IE page (the page's own session). The screen is
+        not touched; only read-only steps send; what comes back is shown on the canvas and kept in memory only."""
+        from rookie_agent.ie import replay
+        from rookie_agent.runner import required_inputs
+        from rookie_agent.webui.run import WebController
+
+        workflow, by_step = flow["workflow"], flow.get("requests") or {}
+        if workflow.get("engine") != "ie":
+            raise UserError("Chạy mô phỏng chỉ có ở luồng Internet Explorer.")
+        if not by_step:
+            raise UserError("Luồng này chưa có request nào để chạy mô phỏng. Ghi lại việc này khi «Ghi yêu cầu: bật», rồi Học lại.")
+        inputs = {str(k): str(v) for k, v in (body.get("inputs") or {}).items() if str(v) != ""}
+        needed = {name for items in by_step.values() for item in items for name in replay._MARK.findall(item["url"] + item["body"])}
+        missing = sorted(n for n in needed if n not in inputs and n in set(required_inputs(workflow)) | {i["name"] for i in workflow.get("inputs", [])})
+        if missing:
+            labels = {i["name"]: i.get("label") or i["name"] for i in workflow.get("inputs", [])}
+            raise UserError("Còn thiếu thông tin cần nhập: " + ", ".join(labels.get(n, n) for n in missing))
+        bridge = self._ie()
+        if bridge is None:
+            raise UserError("Chưa dùng được cầu nối Internet Explorer. Mở mục Kiểm tra máy.")
+        tab = self._find_ie_tab(str(body.get("window") or ""))
+        if tab is None:
+            raise UserError("Chọn trang Internet Explorer đã đăng nhập (request đi trong phiên của trang đó; giao diện không bị đụng tới).")
+        stop = threading.Event()
+        controller = WebController(stop, dict(inputs), lambda: "")
+        state: dict[str, Any] = {"mode": "simulate", "title": flow["title"], "controller": controller, "stop": stop, "result": None,
+                                 "stops_before": None, "started": time.time(), "via": via, "input_names": sorted(inputs)}
+        texts = {s["id"]: friendly_step(s["action"], (s.get("target") or {}).get("label")) for s in workflow["steps"]}
+
+        def work() -> None:
+            try:
+                bridge.bind(tab["id"])
+
+                def send(item: dict[str, Any], url: str, body_text: str) -> dict[str, Any]:
+                    return bridge.send(item["frame"], item["method"], url, item.get("headers") or "", body_text)
+
+                result = replay.simulate(workflow, by_step, inputs, send, controller, stop, describe=lambda s: texts.get(s["id"], s["id"]))
+            except Exception as error:  # noqa: BLE001
+                result = {"status": "failed", "message": f"Chạy mô phỏng bị lỗi: {error}", "steps": []}
+            finally:
+                try:
+                    bridge.unbind()
+                except Exception:  # noqa: BLE001
+                    pass
+            state["result"] = result
+            self._audit(state, result)        # step ids and states only: no request, no answer
+
+        state["thread"] = threading.Thread(target=work, name="ie-simulate", daemon=True)
+        self._run = state
+        state["thread"].start()
+        return {"started": True}
+
+    def _save_repair(self, title: str, repairs: list[dict[str, Any]]) -> None:
+        """Task 6.3: the elements the teller pointed at make a new version of the agent that changes only those steps' selectors
+        (risk and mode as they were). It waits for an approval; until then only its read-only part runs, on this PC."""
+        flows = self.store.get("flows", [])
+        flow = next((f for f in flows if f.get("title") == title), None)
+        if flow is None or not flow.get("workflow"):
+            return
+        base = (flow.get("repair") or {}).get("workflow") or flow["workflow"]
+        fixed = json.loads(json.dumps(base))
+        changed = {r["step_id"]: r["selectors"] for r in repairs}
+        for step in fixed["steps"]:
+            if step["id"] in changed and changed[step["id"]]:
+                step["target"] = {**(step.get("target") or {}), "selectors": list(changed[step["id"]])}
+        fixed["version"] = int(flow["workflow"].get("version") or 1) + 1
+        fixed["status"] = "draft"
+        steps = sorted(set((flow.get("repair") or {}).get("steps", [])) | set(changed))
+        flow["repair"] = {"workflow": fixed, "steps": steps, "time": time.strftime("%Y-%m-%d %H:%M:%S")}
+        self.store.put("flows", flows)
+        self._audit_line({"time": flow["repair"]["time"], "title": title, "mode": "repair", "status": "waiting_approval",
+                          "version": fixed["version"], "steps": [{"id": s, "status": "selectors_changed", "detail": ""} for s in sorted(changed)]})
+
+    def _keep_fingerprint(self, title: str, lines: list[str]) -> None:
+        flows = self.store.get("flows", [])
+        for flow in flows:
+            if flow.get("title") == title:
+                flow["fingerprint"] = lines
+        self.store.put("flows", flows)
+
+    def _audit_line(self, line: dict[str, Any]) -> None:
+        try:
+            with (self.store.home / "audit.jsonl").open("a", encoding="utf-8") as handle:
+                handle.write(json.dumps(line, ensure_ascii=False) + chr(10))
+        except OSError:
+            pass
+
+    def _audit(self, state: dict[str, Any], result: dict[str, Any]) -> None:
+        """One line per run in `audit.jsonl`: what ran, how it ended, who decided what. Never a value that was typed or read."""
+        controller = state["controller"]
+        line = {"time": time.strftime("%Y-%m-%d %H:%M:%S"), "title": state["title"], "mode": state["mode"], "status": result["status"],
+                "seconds": round(time.time() - state["started"], 1), "decisions": list(controller.decisions),
+                "steps": [{"id": s["id"], "status": s["status"], "detail": s["detail"]} for s in controller.steps]}
+        if state.get("via"):
+            line["via"], line["input_names"] = state["via"], state.get("input_names", [])
+        try:
+            with (self.store.home / "audit.jsonl").open("a", encoding="utf-8") as handle:
+                handle.write(json.dumps(line, ensure_ascii=False) + chr(10))
+        except OSError:
+            pass  # a log that cannot be written must not hide the result from the person
+
+    # ---- the Assistant (Gate 5): a sentence in, a card out, a click to run ---------------------
+
+    def _assistant(self) -> Any:
+        from rookie_agent.assistant import habits
+        from rookie_agent.assistant.planner import Planner
+
+        if getattr(self, "_planner", None) is None:
+            def runs() -> dict[str, int]:
+                stats = self._habits()
+                return {t: v["runs"] for t, v in (stats or {}).get("workflows", {}).items()}
+
+            self._planner = Planner(lambda payload: self._server().plan_request(payload), lambda: self.store.get("flows", []), runs)
+        return self._planner
+
+    def _habits(self) -> dict[str, Any] | None:
+        from rookie_agent.assistant import habits
+
+        titles = {f.get("title") for f in self.store.get("flows", []) if (f.get("workflow") or {}).get("status") == "approved"}
+        stats = habits.build_habits(self.store.home / "audit.jsonl", titles, habits.load_habits(self.store.home))
+        habits.save_habits(self.store.home, stats)
+        return stats
+
+    def assistant_plan(self, body: dict[str, Any]) -> dict[str, Any]:
+        if self._run is not None and self._run["thread"].is_alive():
+            return {"plan_id": None, "state": "blocked", "message": "Đang chạy một luồng. Đợi xong hoặc bấm Dừng khẩn.", "candidates": [], "inputs": [], "questions": [], "workflow": None}
+        if self._ie_session is not None:
+            return {"plan_id": None, "state": "blocked", "message": "Đang ghi. Bấm Dừng ghi trước.", "candidates": [], "inputs": [], "questions": [], "workflow": None}
+        return self._assistant().plan(str(body.get("text") or ""))
+
+    def assistant_answer(self, body: dict[str, Any]) -> dict[str, Any]:
+        return self._assistant().answer(str(body.get("plan_id") or ""), body.get("choice"), body.get("inputs") or {})
+
+    def assistant_run(self, body: dict[str, Any]) -> dict[str, Any]:
+        """The person clicked Chạy on a ready card. The run goes through the same door as the flows tab: approval of the agent,
+        required inputs and every step's own rule are checked there; this only hands over the title and the inputs."""
+        taken = self._assistant().take(str(body.get("plan_id") or ""))
+        if taken is None:
+            raise UserError("Thẻ này không còn dùng được (đã hết hạn, đã chạy hoặc còn thiếu thông tin). Hãy hỏi lại.")
+        title, inputs = taken
+        return self.run_start({"title": title, "inputs": inputs, "window": body.get("window"), "mode": "run"}, via="assistant")
+
+    def assistant_habits(self, _: dict[str, Any]) -> dict[str, Any]:
+        from rookie_agent.assistant import habits
+
+        stats = self._habits()
+        return {"frequent": habits.frequent(stats)}
+
+    def run_status(self, _: dict[str, Any]) -> dict[str, Any]:
+        state = self._run
+        if state is None:
+            return {"state": "idle", "steps": [], "ask": None, "result": None}
+        controller = state["controller"]
+        result = state["result"]
+        if result is not None:
+            current = result["status"]
+        elif controller.ask is not None:
+            current = {"approve": "waiting_approval", "pick": "waiting_pick"}.get(controller.ask["kind"], "waiting_review")
+        else:
+            current = "running"
+        return {"state": current, "mode": state["mode"], "title": state["title"], "steps": list(controller.steps),
+                "ask": dict(controller.ask) if controller.ask else None, "result": result,
+                "details": dict(getattr(controller, "details", {}))}   # task 7.5: what each step sent and got back, in memory only
+
+    def run_decide(self, body: dict[str, Any]) -> dict[str, Any]:
+        state = self._run
+        choice = body.get("choice")
+        if state is None or not state["controller"].decide(str(body.get("ask_id") or ""), bool(body.get("approve")),
+                                                          choice if isinstance(choice, int) and not isinstance(choice, bool) else None):
+            raise UserError("Câu hỏi này không còn mở (hoặc không đúng câu hỏi). Xem lại màn hình.")
+        return {"answered": True}
+
+    def run_stop(self, _: dict[str, Any]) -> dict[str, Any]:
+        """Dừng khẩn: wins over every answer, also over an open question."""
+        if self._run is not None:
+            self._run["stop"].set()
+        return {"stopped": True}
+
+    # ---- connection to Codie and the log of calls ------------------------------------------------
+
+    def _call_log(self) -> Any:
+        from rookie_agent.codie import CallLog
+
+        if not hasattr(self, "_calls"):
+            self._calls = CallLog(self.store.home)
+        return self._calls
+
+    def codie_status(self, _: dict[str, Any]) -> dict[str, Any]:
+        from rookie_agent import codie
+
+        command = str(self.store.get("codie_command", codie.DEFAULT_COMMAND))
+        mode = str(self.store.get("codie_mode", "rookie-design"))
+        found = codie.find_command(command)
+        return {"command": command, "mode": mode, "found": found,
+                "message": f"Tìm thấy lệnh Codie: {found}" if found else f"Chưa thấy lệnh «{command}» trên máy này. Cài Genie Codie CLI hoặc nhập đường dẫn đầy đủ."}
+
+    def codie_test(self, body: dict[str, Any]) -> dict[str, Any]:
+        """One real call to Codie with a prompt that holds no data, to see that the whole way works. It is logged like any call."""
+        from rookie_agent import codie
+
+        command = str(body.get("command") or codie.DEFAULT_COMMAND).strip()
+        mode = str(body.get("mode") or "rookie-design").strip()
+        self.store.put("codie_command", command)
+        self.store.put("codie_mode", mode)
+        run = codie.call(mode, codie.TEST_PROMPT, timeout_s=120, command=command, keep_tail=True)
+        ok = run.ok and isinstance(run.result, dict) and run.result.get("pong") is True
+        reason = "" if ok else (run.reason or "Codie trả lời nhưng không đúng nội dung thử.")
+        self._call_log().add("codie", mode, ok, run.seconds, prompt_chars=len(codie.TEST_PROMPT),
+                             note="Thử kết nối: Codie trả lời đúng." if ok else "Thử kết nối: " + reason)
+        message = f"Gọi được Codie (mode {mode}) trong {run.seconds:.1f} giây." if ok else reason
+        if not ok and "không có khối kết quả" in reason:
+            message += " Kiểm tra mode «" + mode + "» đã được thêm vào cấu hình Codie chưa (config/codie-modes.json)."
+        return {"ok": ok, "message": message, "seconds": round(run.seconds, 1), "tail": "" if ok else run.tail}
+
+    def ie_inspect(self, body: dict[str, Any]) -> dict[str, Any]:
+        """What the open Internet Explorer screen holds, in plain words, and a file with the detail (no values, no text of the page)."""
+        title = str(body.get("window") or "")
+        if not (title.startswith(IE_PREFIX) or title.startswith("ie-tab:")):
+            raise UserError("Chọn một trang Internet Explorer ở mục «Màn hình cần ghi» (tab Ghi và Học) rồi mở đúng màn cần soi.")
+        tab = self._find_ie_tab(title)
+        if tab is None:
+            raise UserError("Không thấy trang này trong Internet Explorer. Bấm Tải lại, chọn lại màn hình rồi thử lại.")
+        try:
+            info = self._ie_bridge.probe(tab["id"])
+        except Exception as error:
+            raise UserError(f"Chưa soi được trang: {error}") from error
+        frames, unreadable = info.get("frames") or [], info.get("unreadable") or []
+        total: dict[str, int] = {}
+        for frame in frames:
+            for key, count in (frame.get("counts") or {}).items():
+                total[key] = total.get(key, 0) + int(count)
+        lines = [f"Đọc được {len(frames)} khung của trang." + (f" Có {len(unreadable)} khung KHÔNG đọc được." if unreadable else "")]
+        lines.append("Trong các khung đọc được: " + ", ".join(f"{total.get(k, 0)} {label}" for k, label in
+                     (("select", "ô chọn"), ("input", "ô nhập/nút"), ("button", "nút"), ("a", "liên kết"), ("iframe", "khung nhúng"),
+                      ("object", "object/ActiveX"), ("embed", "embed"), ("applet", "applet"))) + ".")
+        for frame in frames:  # where the fields are, and whether the teller can see them
+            controls = frame.get("controls") or []
+            if controls:
+                shown = sum(1 for c in controls if c.get("visible"))
+                lines.append(f"Khung «{frame.get('name') or '(trang chính)'}» có {len(controls)} ô/nút "
+                             f"({shown} đang hiện trên màn hình, {len(controls) - shown} bị ẩn); kích thước khung {frame.get('size') or '?'}.")
+        if unreadable:
+            lines.append("Khung không đọc được thường là trang khác tên miền hoặc bị chặn: bộ ghi không thấy gì bên trong khung đó, "
+                         "và màn đang xem có thể nằm ở đó.")
+        if total.get("object", 0) + total.get("embed", 0) + total.get("applet", 0) and not total.get("select", 0) + total.get("input", 0):
+            lines.append("Màn này không có ô nhập HTML nhưng có object/ActiveX/applet: nội dung có thể được vẽ bởi một plugin, bộ ghi trang không thấy được.")
+        elif not total.get("select", 0) + total.get("input", 0) + total.get("button", 0) and not unreadable:
+            lines.append("Không thấy ô nhập hay nút nào: màn này có thể chưa tải xong hoặc không phải HTML.")
+        path = self.store.home / "soi-man-hinh.json"
+        path.write_text(json.dumps(info, ensure_ascii=False, indent=2), encoding="utf-8")
+        return {"summary": lines, "path": str(path)}
+
+    def last_trace(self, _: dict[str, Any]) -> dict[str, Any]:
+        """What the recorder heard in the latest recording, one line per action, to read on screen. Already masked."""
+        files = sorted((self.store.home / "traces").glob("*.trace.json"), key=lambda p: p.stat().st_mtime, reverse=True)
+        if not files:
+            raise UserError("Chưa có bản ghi nào. Ghi một lần (Bắt đầu ghi, thao tác, Dừng ghi) rồi quay lại đây.")
+        trace = json.loads(files[0].read_text(encoding="utf-8"))
+        elements = trace["elements"]
+        lines = []
+        per_frame: dict[str, int] = {}
+        for session in trace["sessions"]:
+            lines.append(f"Phiên {session['session_id']}: {len(session['events'])} hành động nghe được.")
+            for event in session["events"]:
+                element = elements.get(event["el_id"] or "", {})
+                frame = element.get("frame", "-")
+                per_frame[frame] = per_frame.get(frame, 0) + 1
+                name = element.get("label") or (element.get("selectors") or ["-"])[0]
+                extra = f" [{event['value_class']}]" if event.get("value_class") else (f" = {event['value']}" if event.get("value") else "")
+                key = f" ({event['key_class']})" if event.get("key_class") else ""
+                lines.append(f"{event['seq']:>3}  {event['kind']:<9} {frame} › {name}{key}{extra}")
+        masking = trace["masking"]
+        head = [f"Bỏ hẳn {masking['dropped_count']} hành động ở ô mật khẩu/OTP.",
+                "Số hành động theo khung: " + (", ".join(f"{k}: {v}" for k, v in sorted(per_frame.items())) or "không có")]
+        reach_file = files[0].with_name(files[0].name.replace(".trace.json", ".reach.txt"))
+        reach = reach_file.read_text(encoding="utf-8").splitlines() if reach_file.is_file() else []
+        reach_lines = ["", "Bộ ghi đã gắn vào các khung (mỗi dòng là một lần thay đổi; «listen» là cách gắn, «inject_error» là lỗi khi gắn):"]
+        for note in reach[-6:]:
+            reach_lines += ["  " + part.strip() for part in note.split(" | ")]
+        return {"lines": head + lines[:300] + (reach_lines if reach else []), "path": str(files[0])}
+
+    def screen(self, _: dict[str, Any]) -> dict[str, Any]:
+        """The screen as data the steps can call: an object (frames, fields, tables of row objects), the key-values, the rows, each with the
+        name to call it by. For the teller's eyes and for the flow; in memory only."""
+        from rookie_agent.ie import read
+
+        session = self._ie_session
+        snaps = session.seen if session is not None else self._last_seen
+        if not snaps:
+            return {"model": {"frames": {}, "messages": []}, "list": []}
+        data = read.model(snaps[-1]["frames"])
+        return {"model": data, "list": read.listing(data)}
+
+    def live(self, _: dict[str, Any]) -> dict[str, Any]:
+        """The steps the teller has done so far (while recording or previewing), in plain words, for the panel."""
+        session = self._ie_session
+        if session is None:
+            return {"recording": False, "preview": False, "count": 0, "steps": []}
+        summary = summarize_events(session.recorder.current())
+        hint = ""
+        failed = [n for n in session.notes if "tự tắt" in n or "Lỗi bộ ghi" in n or "Lỗi JavaScript" in n or "Đã nhớ trang" in n or " Ghi yêu cầu: " in n or "Chẩn đoán lỗi trang" in n]
+        if failed:
+            hint = "Bộ ghi báo: " + " | ".join(n[:300] for n in failed[-3:])
+        elif not summary["events"] and session.notes:      # nothing yet: say what the recorder reached, so a silent page is not a mystery
+            hint = "Bộ ghi báo: " + session.notes[-1][:400]
+        return {"recording": True, "preview": bool(getattr(session, "preview", False)), "count": summary["events"], "steps": summary["steps"][-40:], "hint": hint}
+
+    def requests(self, _: dict[str, Any]) -> dict[str, Any]:
+        """The requests the page made, with what was sent and what came back, for the teller's own eyes on this PC. In memory only."""
+        session = self._ie_session
+        found = session.requests if session is not None else self._last_requests
+        return {"recording": session is not None, "requests": list(found[-100:])}
+
+    def seen(self, _: dict[str, Any]) -> dict[str, Any]:
+        """What the agent saw on the screen after the teller's actions (tables, label-value pairs, messages), full values, for the
+        teller's own eyes on this PC. Kept in memory only; it is never written to disk or sent anywhere."""
+        session = self._ie_session
+        snaps = session.seen if session is not None else self._last_seen
+        if not snaps:
+            return {"recording": session is not None, "count": 0, "last": None, "history": []}
+        last = snaps[-1]
+        return {
+            "recording": session is not None, "count": len(snaps),
+            "last": {k: last[k] for k in ("after", "summary", "region", "frames", "changed")},
+            "history": [{"after": s["after"], "summary": s["summary"], "region": s["region"]} for s in snaps[-10:]],
+        }
+
+    def calls(self, _: dict[str, Any]) -> dict[str, Any]:
+        return {"calls": self._call_log().recent(100)}
 
     # ---- a file to send back to the developers -----------------------------------------------
 
@@ -381,7 +984,101 @@ class Core:
         "POST /api/record/stop": "record_stop", "GET /api/recordings": "recordings", "POST /api/recordings/delete": "delete_recording",
         "POST /api/server/check": "server_check", "POST /api/server/start": "server_start", "POST /api/learn": "learn",
         "POST /api/diagnostics": "diagnostics", "GET /api/flows": "flows",
+        "GET /api/codie": "codie_status", "POST /api/codie/test": "codie_test", "GET /api/calls": "calls", "GET /api/seen": "seen", "GET /api/requests": "requests", "GET /api/live": "live", "GET /api/screen": "screen", "POST /api/ie/inspect": "ie_inspect", "POST /api/flow/approve": "flow_approve", "POST /api/run/start": "run_start", "GET /api/run/status": "run_status", "POST /api/run/decide": "run_decide", "POST /api/run/stop": "run_stop", "POST /api/assistant/plan": "assistant_plan", "POST /api/assistant/answer": "assistant_answer", "POST /api/assistant/run": "assistant_run", "GET /api/assistant/habits": "assistant_habits", "GET /api/trace/last": "last_trace",
+        "POST /api/voucher/read": "voucher_read", "POST /api/voucher/confirm": "voucher_confirm", "POST /api/voucher/run": "voucher_run",
+        "GET /api/server/log": "server_log",
     }
+
+    def server_log(self, _: dict[str, Any]) -> dict[str, Any]:
+        """What this agent sent to the server and got back, newest first; it lives in this process only."""
+        from rookie_agent import server_client
+
+        return {"exchanges": server_client.exchanges()}
+
+    # ---- a payment order brought in instead of a sentence (tasks 6.8, 6.9; docs/design.md 6.2) -----------------
+    # The picture is read in this process and dropped; the fields stay in memory until the run starts. Nothing of either is written:
+    # the audit keeps the names of the fields, their confidence and who confirmed them.
+
+    def voucher_read(self, body: dict[str, Any]) -> dict[str, Any]:
+        import base64
+
+        from rookie_agent.voucher import extract
+        from rookie_agent.voucher.reader import SampleReader, UnreadableDocument
+
+        try:
+            data = base64.b64decode(str(body.get("data") or ""), validate=True)
+        except ValueError:
+            raise UserError("Không đọc được file ảnh này.") from None
+        if not data or len(data) > 10_000_000:
+            raise UserError("File ảnh trống hoặc lớn quá 10 MB.")
+        try:
+            text = (getattr(self, "doc_reader", None) or SampleReader()).read(data)
+        except UnreadableDocument as error:
+            raise UserError(str(error)) from None
+        found = extract.extract(text)
+        self._voucher = {"id": uuid.uuid4().hex, "fields": found["fields"], "confirmed": False}
+        return {"id": self._voucher["id"], "fields": found["fields"], "ready": found["ready"]}
+
+    def _voucher_open(self, voucher_id: str) -> dict[str, Any]:
+        voucher = getattr(self, "_voucher", None)
+        if not voucher or voucher["id"] != voucher_id:
+            raise UserError("Chứng từ này không còn mở. Đưa ảnh vào lại.")
+        return voucher
+
+    def voucher_confirm(self, body: dict[str, Any]) -> dict[str, Any]:
+        """The teller checked every field (and corrected some): only then do the fields become the inputs of a flow."""
+        from rookie_agent.voucher import extract
+
+        voucher = self._voucher_open(str(body.get("id") or ""))
+        typed = {str(f.get("name")): str(f.get("value") or "").strip() for f in body.get("fields") or []}
+        fields = [{**f, "value": typed.get(f["name"], f["value"])} for f in voucher["fields"]]
+        problems = extract.check_confirmed(fields)
+        if problems:
+            raise UserError("Chưa xác nhận được: " + "; ".join(problems) + ".")
+        import getpass
+
+        corrected = sorted(f["name"] for f, g in zip(voucher["fields"], fields) if f["value"] != g["value"])
+        voucher["fields"], voucher["confirmed"] = fields, True
+        self._audit_line({"time": time.strftime("%Y-%m-%d %H:%M:%S"), "mode": "voucher", "status": "confirmed", "kind": "uy_nhiem_chi",
+                          "fields": [f["name"] for f in fields], "confidence": {f["name"]: f["confidence"] for f in fields},
+                          "corrected": corrected, "by": getpass.getuser()})
+        return {"confirmed": True, "flows": self._voucher_flows(fields)}
+
+    def _voucher_flows(self, fields: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """The approved IE flows, each input with the field of the voucher that most likely fills it (the teller can change it)."""
+        from rookie_agent.voucher.extract import plain
+
+        def guess(name: str, label: str) -> str:
+            words = set(plain(name.replace("_", " ") + " " + label).split())
+            best, score = "", 0
+            for f in fields:
+                common = len(words & set(plain(f["name"].replace("_", " ") + " " + f["label"]).split()))
+                if f["name"] == name:
+                    common += 10
+                if common > score:
+                    best, score = f["name"], common
+            return best
+
+        out = []
+        for flow in self.store.get("flows", []):
+            workflow = flow.get("workflow") or {}
+            if workflow.get("engine") != "ie" or workflow.get("status") != "approved":
+                continue
+            inputs = [{"name": i["name"], "label": i.get("label") or i["name"], "field": guess(i["name"], i.get("label") or "")} for i in workflow.get("inputs", [])]
+            out.append({"title": flow["title"], "inputs": inputs, "matched": sum(1 for i in inputs if i["field"])})
+        return sorted(out, key=lambda f: -f["matched"])
+
+    def voucher_run(self, body: dict[str, Any]) -> dict[str, Any]:
+        """Run the chosen approved flow with the confirmed fields; the same door as any run (approvals, money waits for a checker)."""
+        voucher = self._voucher_open(str(body.get("id") or ""))
+        if not voucher["confirmed"]:
+            raise UserError("Bạn chưa xác nhận các trường của chứng từ.")
+        values = {f["name"]: f["value"] for f in voucher["fields"]}
+        mapping = {str(k): str(v) for k, v in (body.get("mapping") or {}).items() if str(v) in values}
+        inputs = {name: values[field] for name, field in mapping.items()}
+        reply = self.run_start({"title": body.get("title"), "inputs": inputs, "window": body.get("window"), "mode": "run"}, via="voucher")
+        self._voucher = None                     # the values now live only in the run, in memory
+        return reply
 
     def dispatch(self, method: str, path: str, body: dict[str, Any]) -> tuple[int, dict[str, Any]]:
         name = self.ROUTES.get(f"{method} {path}")

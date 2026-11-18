@@ -66,6 +66,17 @@ class Result:
     counts: list[int] = field(default_factory=list)
 
 
+SAME_SCREEN = 0.8   # task 6.4: below this share of common fields and buttons the screen counts as changed
+
+
+def screen_similarity(before: list[str], now: list[str]) -> float:
+    """How much of two fingerprints is common (1.0: the same fields and buttons, with the same labels)."""
+    a, b = set(before), set(now)
+    if not a and not b:
+        return 1.0
+    return len(a & b) / len(a | b)
+
+
 def choose(probes: list[Probe], elements: dict[int, dict], want: str, risk: str) -> Result:
     """`elements[uid]` says whether the element is a `field` and/or `press`able; `want` is field, press or any."""
     counts = [len(p.matches) for p in probes]

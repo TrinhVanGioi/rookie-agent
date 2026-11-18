@@ -152,3 +152,96 @@ def test_learning_an_ie_recording_gives_a_version_2_workflow_with_the_save_waiti
     assert [step["risk"] for step in workflow["steps"]] == ["read", "read", "write"]
     assert workflow["steps"][2]["mode"] == "approve"
     assert workflow["inputs"][0]["value_class"] == "cif_number"
+
+
+# ---- task 4.13: a field typed twice with other fields in between is one step; a button is the same button in any language ----
+
+def ie_event(seq, kind, element, label=None, value=None, value_class=None, session="s"):
+    return {
+        "schema_version": 2, "engine": "ie", "session_id": session, "seq": seq, "ts": "2026-11-16T09:00:00.000Z", "type": kind,
+        "url": "TouchPoint/Main",
+        "target": {"selectors": [f"frame=top|id={element}", f"frame=top|label={label}"] if label else [f"frame=top|id={element}"],
+                   "label": label, "tag": "button" if kind == "click" else "input"},
+        "value": value, "value_class": value_class, "api_calls": [],
+    }
+
+
+def test_a_field_typed_twice_with_another_field_between_is_one_step_with_the_last_value():
+    events = [ie_event(0, "input", "txtUser", "User Account", value_class="username"),
+              ie_event(1, "input", "txtBranch", "Chi nhanh", value="HN01"),
+              ie_event(2, "input", "txtUser", "User Account", value_class="username"),
+              ie_event(3, "click", "btnOk", "OK")]
+    merged = normalize(events)
+    assert [e["target"]["selectors"][0] for e in merged] == ["frame=top|id=txtUser", "frame=top|id=txtBranch", "frame=top|id=btnOk"]
+
+
+def test_a_click_between_two_edits_of_a_field_keeps_both_because_the_page_may_have_changed():
+    events = [ie_event(0, "input", "txtUser", "User Account", value="a"),
+              ie_event(1, "click", "btnNext", "Next"),
+              ie_event(2, "input", "txtUser", "User Account", value="b")]
+    assert len(normalize(events)) == 3
+
+
+def test_the_same_button_with_a_different_caption_is_the_same_step():
+    english = [ie_event(0, "input", "txtUser", "User Account", value_class="username"), ie_event(1, "click", "btnLogoff", "LOGOFF")]
+    vietnamese = [ie_event(0, "input", "txtUser", "User Account", value_class="username", session="s2"), ie_event(1, "click", "btnLogoff", "ĐĂNG XUẤT", session="s2")]
+    workflow, _ = learn([english, vietnamese], "wf-logoff")
+    assert len(workflow["steps"]) == 2
+
+
+# ---- tasks 4.15 and 4.16: steps that are not in every recording (the role the teller did not need to choose) ----
+
+def signin_run(session, role=None, confirm=False):
+    events = [ie_event(0, "input", "txtUser", "User Account", value_class="username", session=session)]
+    if role:
+        events.append(ie_event(len(events), "select", "currentRole", "Role", value=role, session=session))
+    events.append(ie_event(len(events), "click", "btnOk", "OK", session=session))
+    if confirm:
+        events.append(ie_event(len(events), "click", "btnClose", "Đóng", session=session))
+    return events
+
+
+def test_a_choice_made_in_some_recordings_only_becomes_an_optional_step_with_an_optional_input():
+    workflow, warnings = learn([signin_run("a", role="KSV"), signin_run("b"), signin_run("c", role="GDV")], "wf-signin")
+    assert workflow["schema_version"] == 3
+    assert [s["action"] for s in workflow["steps"]] == ["fill", "select", "click"]
+    role_step = workflow["steps"][1]
+    assert role_step["optional"] == {"mode": "if_different"}
+    role_input = next(i for i in workflow["inputs"] if i["name"] == role_step["value"].strip("{}"))
+    assert role_input["required"] is False
+    assert all("optional" not in s for s in (workflow["steps"][0], workflow["steps"][2]))   # what is in every recording stays required
+    assert any("tuỳ chọn" in w and "2/3" in w for w in warnings)
+
+
+def test_a_read_only_click_that_appears_sometimes_is_a_click_if_the_element_is_there():
+    workflow, _ = learn([signin_run("a", confirm=True), signin_run("b"), signin_run("c", confirm=True)], "wf-confirm")
+    assert workflow["steps"][-1]["optional"]["mode"] == "if_present"
+
+
+def test_recordings_that_are_alike_do_not_get_optional_steps_and_keep_their_old_version():
+    workflow, _ = learn([signin_run("a", role="KSV"), signin_run("b", role="KSV"), signin_run("c", role="KSV")], "wf-same")
+    assert workflow["schema_version"] == 2 and all("optional" not in s for s in workflow["steps"])
+
+
+def test_a_write_step_missing_from_some_recordings_is_refused_never_made_optional():
+    sessions = [signin_run("a"), signin_run("b")]
+    sessions[0].insert(1, ie_event(9, "click", "btnLuu", "Lưu", session="a"))
+    with pytest.raises(LearnError) as error:
+        learn(sessions + [signin_run("c")], "wf-write")
+    assert "Lưu" in str(error.value) or "ghi" in str(error.value)
+
+
+def test_the_same_actions_in_a_different_order_are_refused_not_guessed():
+    a = [ie_event(0, "click", "btnA", "A", session="a"), ie_event(1, "click", "btnB", "B", session="a")]
+    b = [ie_event(0, "click", "btnB", "B", session="b"), ie_event(1, "click", "btnA", "A", session="b")]
+    with pytest.raises(LearnError) as error:
+        learn([a, b], "wf-order")
+    assert "thứ tự" in str(error.value)
+
+
+def test_recordings_with_too_little_in_common_are_not_one_task():
+    a = [ie_event(i, "click", f"b{i}", f"B{i}", session="a") for i in range(6)]
+    b = [ie_event(0, "click", "b0", "B0", session="b")] + [ie_event(i, "click", f"x{i}", f"X{i}", session="b") for i in range(1, 6)]
+    with pytest.raises(LearnError) as error:
+        learn([a, b], "wf-different")
+    assert "cùng một việc" in str(error.value)

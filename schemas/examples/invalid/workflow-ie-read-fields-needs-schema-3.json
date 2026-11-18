@@ -1,0 +1,65 @@
+{
+  "schema_version": 2,
+  "engine": "ie",
+  "id": "tra-cuu-roi-dien",
+  "version": 1,
+  "status": "draft",
+  "inputs": [
+    {
+      "name": "so_tai_khoan",
+      "type": "string",
+      "value_class": "account_number",
+      "label": "Số tài khoản"
+    }
+  ],
+  "steps": [
+    {
+      "id": "s1_tim",
+      "action": "fill",
+      "value": "{so_tai_khoan}",
+      "target": {
+        "selectors": [
+          "frame=main|id=txtAcct"
+        ],
+        "label": "Số tài khoản",
+        "tag": "input"
+      },
+      "risk": "read",
+      "mode": "auto"
+    },
+    {
+      "id": "s2_bam",
+      "action": "click",
+      "target": {
+        "selectors": [
+          "frame=main|id=btnFind"
+        ],
+        "label": "TÌM KIẾM",
+        "tag": "button"
+      },
+      "risk": "read",
+      "mode": "auto"
+    },
+    {
+      "id": "s3_doc",
+      "action": "read_fields",
+      "save_as": "kq",
+      "risk": "read",
+      "mode": "auto"
+    },
+    {
+      "id": "s4_dien",
+      "action": "fill",
+      "value": "{kq.grid.0.so_tk}",
+      "target": {
+        "selectors": [
+          "frame=main|id=txtCopy"
+        ],
+        "label": "Số tài khoản (kiểm tra)",
+        "tag": "input"
+      },
+      "risk": "read",
+      "mode": "auto"
+    }
+  ]
+}

@@ -1,0 +1,56 @@
+{
+  "schema_version": 1,
+  "engine": "ie",
+  "trace_id": "t-login-001",
+  "app": "TouchPoint",
+  "sessions": [],
+  "elements": {
+    "e1": {
+      "frame": "top",
+      "tag": "input",
+      "type": "text",
+      "label": "Ma dang nhap",
+      "selectors": [
+        "frame=top|id=txtUser",
+        "frame=top|name=txtUser"
+      ],
+      "is_control": true
+    },
+    "e2": {
+      "frame": "top",
+      "tag": "input",
+      "type": "password",
+      "label": "Mat khau",
+      "selectors": [
+        "frame=top|id=txtPw"
+      ],
+      "is_control": true
+    },
+    "e3": {
+      "frame": "main",
+      "tag": "select",
+      "type": "select-one",
+      "label": "Vai tro",
+      "selectors": [
+        "frame=main|id=selRole",
+        "frame=main|label=Vai tro"
+      ],
+      "is_control": true
+    },
+    "e4": {
+      "frame": "main",
+      "tag": "input",
+      "type": "button",
+      "label": "OK",
+      "selectors": [
+        "frame=main|id=btnOk",
+        "frame=main|label=OK"
+      ],
+      "is_control": true
+    }
+  },
+  "masking": {
+    "rules_version": "1",
+    "dropped_count": 2
+  }
+}

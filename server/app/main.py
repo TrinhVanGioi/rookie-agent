@@ -36,6 +36,7 @@ class LearnIn(BaseModel):
     workflow_id: str | None = Field(default=None, pattern=_ID)
     title: str | None = Field(default=None, min_length=1, max_length=80)
     session_ids: list[str] = Field(min_length=1)
+    traces: list[dict[str, Any]] | None = None   # the masked traces of the same recordings (trace.schema.json): the model builds from these
 
 
 class ReviseIn(BaseModel):
@@ -62,6 +63,11 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
     app = FastAPI(title="Rookie Agent Server")
     storage = Storage(db_path or os.environ.get("ROOKIE_DB") or DEFAULT_DB)
     app.state.storage = storage
+    # The model that builds a workflow from traces (Genie Codie on this PC). None: the rule-based learner builds it. A test can replace it.
+    from app.llm.flow import CodieFlowBuilder
+
+    builder = CodieFlowBuilder()
+    app.state.flow_builder = builder if builder.available else None
 
     def workflow_reply(workflow: dict[str, Any], warnings: list[str]) -> dict[str, Any]:
         return {"workflow": workflow, "digest": digest(workflow), "warnings": warnings}
@@ -130,12 +136,38 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
             if session is None:
                 raise HTTPException(404, f"Không tìm thấy phiên ghi {session_id}")
             sessions.append(session["events"])
+        version = storage.next_version(workflow_id)
+        extra: dict[str, Any] = {"method": "rule"}
+        if body.traces:
+            from app.llm.flow import FlowBuildError
+
+            model = app.state.flow_builder
+            if model is None:
+                extra["fallback_reason"] = "Trợ lý (Codie) chưa bật hoặc chưa cài trên máy này, nên dùng cách học bằng luật."
+            else:
+                try:
+                    built = model.build(body.traces, workflow_id, version, body.title)
+                    storage.add_workflow(built.workflow, built.warnings)
+                    return {**workflow_reply(built.workflow, built.warnings), "method": "codie", "questions": built.questions, "llm": {"calls": built.calls}}
+                except FlowBuildError as error:
+                    extra["fallback_reason"] = error.reason
+                    extra["llm"] = {"calls": error.calls}
         try:
-            workflow, warnings = learn(sessions, workflow_id, storage.next_version(workflow_id), body.title)
+            workflow, warnings = learn(sessions, workflow_id, version, body.title)
         except LearnError as error:
-            raise HTTPException(422, str(error)) from error
+            detail = str(error) + (f" (Trợ lý không dựng được: {extra['fallback_reason']})" if extra.get("fallback_reason") else "")
+            raise HTTPException(422, detail) from error
         storage.add_workflow(workflow, warnings)
-        return workflow_reply(workflow, warnings)
+        return {**workflow_reply(workflow, warnings), **extra}
+
+    @app.post("/assistant/plan")
+    def assistant_plan(body: dict[str, Any]) -> dict[str, Any]:
+        from app import assistant
+
+        problems = assistant.check_request(body)
+        if problems:
+            raise HTTPException(422, problems[0])
+        return assistant.plan(body, getattr(app.state, "assistant_client", None))
 
     @app.get("/workflows")
     def list_workflows() -> dict[str, Any]:

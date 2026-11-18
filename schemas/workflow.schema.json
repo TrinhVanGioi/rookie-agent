@@ -18,9 +18,10 @@
     "schema_version": {
       "enum": [
         1,
-        2
+        2,
+        3
       ],
-      "description": "1: web và java. 2: thêm engine ie (trang web trong Internet Explorer, đọc bằng COM). Bản 1 vẫn hợp lệ."
+      "description": "1: web và java. 2: thêm engine ie (trang web trong Internet Explorer, đọc bằng COM). 3: thêm bước tuỳ chọn (step.optional) và đầu vào không bắt buộc (input.required). Bản 1 và 2 vẫn hợp lệ."
     },
     "engine": {
       "enum": [
@@ -83,6 +84,10 @@
               "string",
               "null"
             ]
+          },
+          "required": {
+            "type": "boolean",
+            "description": "Chỉ từ schema_version 3. false: người chạy có thể để trống (ví dụ role, khi màn hình đã có sẵn giá trị mặc định). Chỉ dùng cho đầu vào của bước optional if_different."
           }
         }
       }
@@ -114,6 +119,7 @@
               "read_value",
               "wait_for",
               "extract_table",
+              "read_fields",
               "compare",
               "save"
             ]
@@ -185,9 +191,99 @@
               "review",
               "approve"
             ]
+          },
+          "optional": {
+            "type": "object",
+            "description": "Chỉ từ schema_version 3. if_different: ô chọn hoặc ô nhập chỉ làm khi người chạy có nhập giá trị. if_present: nút chỉ bấm nếu có trên màn hình. Không bao giờ dùng cho bước write hoặc money.",
+            "required": [
+              "mode"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "mode": {
+                "enum": [
+                  "if_different",
+                  "if_present"
+                ]
+              },
+              "wait_ms": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 5000
+              }
+            }
           }
         },
         "allOf": [
+          {
+            "description": "optional if_present: chỉ một cú bấm chỉ xem.",
+            "if": {
+              "required": [
+                "optional"
+              ],
+              "properties": {
+                "optional": {
+                  "properties": {
+                    "mode": {
+                      "const": "if_present"
+                    }
+                  },
+                  "required": [
+                    "mode"
+                  ]
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "action": {
+                  "const": "click"
+                },
+                "risk": {
+                  "const": "read"
+                }
+              },
+              "required": [
+                "risk"
+              ]
+            }
+          },
+          {
+            "description": "optional if_different: chọn hoặc nhập, chỉ xem.",
+            "if": {
+              "required": [
+                "optional"
+              ],
+              "properties": {
+                "optional": {
+                  "properties": {
+                    "mode": {
+                      "const": "if_different"
+                    }
+                  },
+                  "required": [
+                    "mode"
+                  ]
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "action": {
+                  "enum": [
+                    "fill",
+                    "select"
+                  ]
+                },
+                "risk": {
+                  "const": "read"
+                }
+              },
+              "required": [
+                "risk"
+              ]
+            }
+          },
           {
             "description": "Bước money không bao giờ là auto.",
             "if": {
@@ -303,7 +399,10 @@
       "then": {
         "properties": {
           "schema_version": {
-            "const": 2
+            "enum": [
+              2,
+              3
+            ]
           }
         }
       }

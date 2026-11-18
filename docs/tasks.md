@@ -65,6 +65,112 @@ Task 3.3 (self-healing bằng `LLMClient.locate`) chỉ áp dụng cho hướng 
 
 **Nghiệm thu Gate 3 (e2e):** 8 bước của kịch bản demo chạy được liền mạch, kèm số đo thời gian và độ đúng.
 
+## Gate 4: học bằng trợ lý (LLM)
+
+Lý do: bộ ghi chỉ ghi những gì có luật mô tả (danh sách cứng phần tử bấm được) và learner luật chỉ học khi các phiên ghi khớp tuyệt đối từng bước. Gate này đảo lại: ghi tất cả (chỉ lọc để an toàn), rồi để LLM thiết kế workflow trên bản ghi đã che. Thiết kế (Fable 5.2) và quyết định: LLM chạy trên máy GDV qua Genie Codie CLI (agent nội bộ, self-host), hai mode `rookie-design` (Fable 5.2) và `rookie-workflow` (Sonnet 5.5), chỉ có quyền đọc; kết quả lấy từ marker `<<<MV_RESULT ... MV_RESULT>>>`. LLM chỉ trỏ tới `eid` và `el_id` có trong trace; code bơm selector, server tự tính `risk` và `mode` bằng `risk.py`. Không có Codie hoặc kiểm chứng sai nhiều lần thì rơi về learner luật, báo rõ lý do và hướng dẫn GDV. Cho học từ một phiên, nhưng chữ không phải control bị che thành `#` và hiện cảnh báo; nhánh điều kiện để sau PoC. Task đánh dấu (*) làm trước, chưa cần LLM.
+
+| # | Task | Nghiệm thu |
+|---|---|---|
+| 4.1* | `schemas/trace.schema.json` (v1) và `validate_trace`: mọi sự kiện, danh mục phần tử, không có ký tự phím | Mẫu đúng qua; mẫu sai (thiếu `eid`, `kind` lạ, có ký tự phím, không phiên, `eid` trùng, `el_id` không có) bị từ chối |
+| 4.2* | Dựng trace đã che trên máy GDV (`windows-agent/rookie_agent/ie/trace.py`) | Tìm chuỗi: không có mật khẩu, OTP, số dài, ký tự phím; chữ không phải control khác nhau giữa các phiên (hoặc chỉ một phiên) thành `#`; `eid` ổn định |
+| 4.3* | `page_recorder.js` ghi thô, bỏ danh sách cứng phần tử bấm được | Trong `htmlfile` quirks: bấm vào TD, IMG, SPAN không có handler vẫn được báo; ô mật khẩu và ẩn vẫn không đọc giá trị |
+| 4.4 | `LLMClient.build_workflow(traces, ...)`; `RuleBasedClient` bọc `learn()` | Offline: fixture trace ra workflow hợp lệ, `method: "rule"` |
+| 4.5 | Cổng kiểm chứng V1 đến V11 (`learn_gate.py`) | Mỗi mã có một test đúng và một test sai |
+| 4.6 | Bơm selector từ danh mục phần tử; server gán `risk` và `mode` | Selector trùng khít trace; `money` không bao giờ `auto`; `write` luôn `approve` |
+| 4.7 | Bộ gọi Codie (subprocess, file prompt, marker, timeout, thử lại) | Với codie giả: ok, thiếu marker, hai marker, JSON hỏng, timeout, exit khác 0 |
+| 4.8 | Cấu hình hai custom mode và mẫu prompt | Chỉ group `read`; prompt dựng ra qua `assert_masked`; khớp file mẫu |
+| 4.9 | `CodieClient.build_workflow`: hai giai đoạn, vòng sửa tối đa 2 lần, rơi về luật | Kịch bản giả: qua ngay; sai rồi sửa được; sai quá lượt thì rơi về kèm lý do; dữ liệu chưa che thì không gọi Codie |
+| 4.10 | `workflow.schema.json` v3 (thêm `learned_by`, `title`, `evidence`, `confidence`, tuỳ chọn); server kiểm chứng lại khi nhận | v1, v2 vẫn qua; bản nháp tự khai `risk` thấp bị server ghi đè |
+| 4.11 | Trang "Học": tiến độ, câu hỏi cho GDV, lý do rơi về bằng lời thường kèm hướng dẫn | Test Core với client giả |
+| 4.12 | Bộ fixture phát lại (tra CIF, chuyển tiền, phiên có bấm thừa) | E2E: 3 phiên có nhiễu ra workflow đúng; bước chuyển tiền là `money` và `approve`; không gọi mạng |
+
+**Bước optional và bắt hết thao tác (thiết kế chốt, 16/11/2026).** Bước chọn giá trị (role, ngôn ngữ, nơi làm việc) là bước «đảm bảo giá trị» (đọc giá trị đang có, bằng đích thì bỏ qua, khác thì chọn rồi đọc lại; so theo `option.value`); ô đó là tham số tuỳ chọn (`input.required:false`). Cú bấm chỉ đôi khi có là «nếu có thì bấm», chỉ khi rủi ro `read` và bước ngay trước không phải ghi hoặc tiền. Căn các phiên bằng code (`server/app/align.py`), LLM chỉ đặt tên và gợi ý; người dùng quyết định khi Học. Role chọn sau khi đăng nhập; GDV có thể có 2 role, 1 location: role là tham số bắt buộc, location đảm bảo bằng giá trị đã ghi và dừng hỏi nếu khác. Đăng nhập là bước `manual` (mật khẩu không bao giờ qua agent). Không dùng BHO (máy GDV không cài thêm gì). Chạy thử trên UAT chỉ thực hiện bước `read` và dừng trước bước ghi/tiền đầu tiên. Mọi task chạm phần IE phải qua test trên Internet Explorer thật (`tests/test_ie_real.py`).
+
+| # | Task | Nghiệm thu |
+|---|---|---|
+| 4.13 | (đã làm) Gộp thao tác lặp không liền kề, khớp phần tử theo id/name (`server/app/learner.py`) | Hai bản ghi thật: «User Account» còn 1 bước; LOGOFF và ĐĂNG XUẤT là 1 bước |
+| 4.14 | (đã làm) Ghi giá trị ban đầu, danh sách lựa chọn, giá trị trước khi đổi của ô chọn (`page_recorder.js`, `ie/trace.py`, `trace.schema.json`) | IE thật: `initial` đúng khi script đặt mặc định sau onload; ô mật khẩu không có `initial` |
+| 4.15 | (đã làm) `align.py`: căn các phiên cho phép thiếu bước, thay đoạn so khớp tuyệt đối | Fixture: thiếu select, đổi thứ tự fill, click write thiếu (từ chối), dưới 60% (từ chối), 1 phiên, 2 phiên |
+| 4.16 | (đã làm) Schema workflow v3 (`optional`, `required`, ràng buộc engine ie là 2 hoặc 3) và V2 mới | v1, v2 vẫn qua; `if_present` kèm write bị từ chối; optional ngoài danh sách ứng viên bị từ chối |
+| 4.17 | (đã làm) Runner `if_different` | IE thật: bằng thì bỏ qua; khác thì chọn và chờ nạp lại; đích không có thì dừng; để trống thì bỏ qua; ô khoá thì dừng |
+| 4.18 | Trang Học: câu hỏi optional và `decided_by` | Chưa trả lời thì không duyệt được |
+| 4.19 | (đã làm) Runner `if_present` | IE thật: hiện, không hiện, hiện muộn, hộp sau bước write thì dừng |
+| 4.20 | Trace v2: nhiều nguồn một dòng thời gian, mã trang và số thứ tự để phát hiện mất dòng | IE thật: 50 click qua 3 khung có điều hướng không hở; ép tràn cookie thì báo mất dòng |
+| 4.21 | Dừng hai pha, `screen_change`, `attach` | Dừng khi khung nạp chậm vẫn có click cuối; trang tự đổi bằng timer sinh `screen_change` |
+| 4.22 | Độ phủ lúc Dừng ghi và chặn Học (`coverage.py`) | Trang tự đổi thì vàng; tiêu điểm vào OBJECT thì đỏ |
+| 4.23 | Hộp thoại JS (`alert`/`confirm`/`prompt`) và hộp thoại Windows gốc | `confirm` sau click ghi đúng kết quả; `alert` lúc onload vẫn thấy qua Windows |
+| 4.24 | press, contextmenu, paste, phím tắt, kéo thả, hover | `fireEvent` từng loại ra đúng sự kiện; Enter thật kiểm tay |
+| 4.25 | `window.open` và `showModalDialog` | Click trong modal có `window=modal`; poll không treo khi modal mở |
+| 4.26 | Thử nghiệm bọc XHR (mặc định tắt) | Trang dùng XHR gốc chạy y hệt khi bật; không đạt thì để tắt |
+| 4.27 | Nguồn Java Access Bridge cho khung `fiApplet` | Applet thử ra sự kiện đúng thứ tự; không có JAB thì ra đỏ |
+| 4.28 | Cổng Học: mọi sự kiện gây ra khớp một bước hoặc có lý do bỏ qua | Trace từ IE thật qua cổng; bỏ một sự kiện thì cổng chặn |
+| 4.29 | Chạy thử khô trên UAT | Dừng đúng trước bước «Lưu»; đổi id trong trang thì báo đúng bước |
+| 4.30 | Chính sách role và location | Trang chọn ngôn ngữ nạp lại danh sách role; sai role thì dừng |
+
+Thứ tự làm: 4.13, 4.14, 4.20, 4.21, 4.22 trước (cho GDV biết ngay bản ghi có thiếu hay không), rồi 4.15 đến 4.19, rồi 4.23 đến 4.30. Câu hỏi còn mở: bước chọn role/language/location xếp `read` hay `write` (mặc định hiện là `write`, tức luôn dừng chờ duyệt).
+
+
+**Đọc và ghi thông tin, rồi Runner IE (thiết kế chốt, 16/11/2026).** Chỉ ghi thao tác thì không mô phỏng được giao dịch viên: agent phải *nhận* thông tin (dữ liệu hiện trên màn hình sau mỗi thao tác) và *gửi* thông tin (giá trị vào ô, kể cả giá trị đọc từ bước trước). Quyết định: (1) đọc dữ liệu **từ màn hình** (bảng, cặp nhãn-giá trị, thông báo), không lấy nội dung request/response và không móc XHR; chỉ lấy siêu dữ liệu điều hướng (đường dẫn bỏ query, mã trạng thái, thời gian) nếu cầu bắt được sự kiện COM. (2) Bản đầy đủ có giá trị chỉ nằm trong bộ nhớ phiên trên máy giao dịch viên (panel «Agent đã thấy»), không ghi đĩa; bản đã che (kiểu, tiêu đề cột, `value_class`, số dòng) mới vào trace và lên máy chủ. (3) Liên kết dữ liệu A sang B (giá trị đọc ở bước trước là đầu vào bước sau) do Recorder tìm ngay trên máy; chỉ gửi mối nối, không gửi giá trị. (4) Thẻ duyệt cố định: tên bước, «Sẽ gửi» nguyên văn, «Đang thấy trên màn hình», wireframe dựng từ cấu trúc (không chụp điểm ảnh), kết quả sau bước, nút Duyệt/Không duyệt/Dừng khẩn. (5) UAT chỉ chạy bước `read`; `write` và `money` chỉ chạy trên `mock-site/` trong IE. Workflow IE lên `schema_version: 3`. Mỗi task chạm phần IE phải qua `tests/test_ie_real.py`.
+
+| # | Task | Nghiệm thu |
+|---|---|---|
+| 4.31 | (đã làm) Đọc màn hình khi Ghi và panel «Agent đã thấy» (`page_recorder.js`, `ie/read.py`, webui) | IE thật, frameset lồng: nhập, Enter thật, bảng hiện; đọc đúng tiêu đề, số dòng, từng ô |
+| 4.32 | (đã làm) Vùng kết quả bằng so sánh màn trước và sau | Trang có đồng hồ chạy: vùng đúng là bảng kết quả; khung tải lại thì cả khung |
+| 4.33 | (đã làm) Hai bản: đầy đủ trên máy, đã che lên máy chủ (`ie/trace.py`, `trace.schema.json`) | Trace không chứa số tài khoản hay tên của trang test; có `col_classes` |
+| 4.34 | Pick «chỗ cần xem»: ô, cột, bảng, khối nhãn-giá trị | Bấm thật vào `TD` sinh đúng 3 lựa chọn; ô mật khẩu bị bỏ qua |
+| 4.35 | (một phần: bắt request/response bằng XHR và ActiveX, giữ đầy đủ trong bộ nhớ, trace chỉ giữ hình dạng; chưa có thông báo lỗi trên màn hình thành mức riêng ở trace) Thông báo lỗi và siêu dữ liệu điều hướng (`ie-bridge.ps1`) | Trang 404 và trang «Không tìm thấy» đều là `level: error`; đường dẫn không còn query |
+| 4.36 | Liên kết A sang B tính tại máy | Ghi «tìm rồi gõ số tài khoản sang màn sau»: trace có mối nối, không có giá trị |
+| 4.37 | (một phần: schema v3 có `optional` và `required`; chưa có `read_fields`, `extract_table`, `expect`, `wait`, `verify`) Schema workflow v3 (đọc, `expect`, `wait`, `verify`, biến) và `check_workflow` | Flow v3 từ phiên IE thật qua kiểm; biến dùng trước khi tạo bị từ chối |
+| 4.38 | (một phần: đọc lại giá trị sau khi nhập và chọn ô theo `option.value`; chưa có ô gợi ý và `expect`) Đọc lại sau khi nhập, ô chọn theo `option.value`, ô gợi ý, `expect` (`ie/page_runner.js`) | `SELECT` chọn đúng; ô tự định dạng thì `reformatted`; gợi ý trùng thì dừng |
+| 4.39 | (đã làm) IeDriver và tìm phần tử (`ie/driver.py`, `ie/locate.py`) | Tìm đúng trong frameset lồng; hai phần tử giống nhau thì `ambiguous` |
+| 4.40 | (đã làm) Nhập, chọn, bấm, Enter, chống phát lặp | Enter kích tìm kiếm thật; gửi lại cùng token không bấm lần hai |
+| 4.41 | (một phần: `read_value` lưu biến dùng được cho bước sau; chưa có đọc bảng nhiều dòng và hỏi chọn dòng) Chờ, đọc, liên kết dữ liệu, hỏi chọn dòng | Tra cứu, lấy số, điền màn sau: chạy trọn trên mock-site |
+| 4.42 | (đã làm) Duyệt, dừng hỏi, Chạy thử, luật rủi ro | Chạy thử dừng trước bước write; nút «Duyệt» nghiệp vụ bị `refused` |
+| 4.43 | (đã làm) Dừng khẩn | Dừng trong 1 giây, không có hành động nào sau cờ |
+| 4.44 | (đã làm) Canvas tab Luồng và thẻ duyệt | Thẻ có đủ mục với dữ liệu từ IE thật |
+| 4.45 | (đã làm) Nhật ký đã che | File sau lần chạy thật không chứa giá trị nào của trang test |
+| 4.46 | (một phần: chạy trọn flow có bước tiền và Duyệt trên trang cục bộ trong IE thật; chưa dựng bằng mock-site) Chạy trọn flow tiền trên mock-site trong IE | Duyệt từng bước, `expect` đạt |
+
+Thứ tự: giai đoạn A là 4.31 đến 4.38 (đọc và ghi thông tin), giai đoạn B là 4.39 đến 4.46 (Runner). Giá trị thấy ngay cho giao dịch viên: 4.31.
+
+**Tiến độ Gate 4 (17/11/2026).** Đã làm: 4.1 đến 4.3, 4.13 đến 4.17, 4.19, 4.31 đến 4.33, 4.39 đến 4.45. Làm một phần: 4.35, 4.37, 4.38, 4.41, 4.46. Chưa làm: 4.4 đến 4.12 (học bằng LLM qua Codie), 4.18 (giao diện hỏi người dùng về bước tuỳ chọn; hiện learner tự quyết định và báo ở phần cảnh báo), 4.20 đến 4.30 (trace nhiều nguồn, độ phủ, hộp thoại `alert`/`confirm`/modal, applet, chạy thử khô trên UAT, role/location), 4.34 (pick «chỗ cần xem»), 4.36 (liên kết dữ liệu A sang B tự động). Mọi task chạm phần IE chạy test trên IE thật ở chế độ tài liệu 5 (`tests/test_ie_real.py`).
+
+**Nghiệm thu Gate 4:** từ ba phiên ghi có nhiễu, trợ lý dựng được workflow đúng và GDV duyệt được; không có Codie thì vẫn học được bằng luật và được báo rõ; không có dữ liệu chưa che nào đi vào lời nhắc.
+
+## Gate 5: Trợ lý (gõ một câu, chạy đúng agent đã duyệt)
+
+Thiết kế: `docs/assistant-design.md`. Người Duyệt vẫn là người bấm; Trợ lý không tự chạy, không đổi `risk`/`mode`.
+
+| # | Task | Trạng thái |
+|---|---|---|
+| 5.1 | Schema `plan-request`/`plan-reply` v1 và mẫu | Chưa làm (hiện kiểm bằng `assistant.check_request`/`check_plan_reply`) |
+| 5.2 | `assistant/catalog.py` | Xong (`tests/test_assistant.py`) |
+| 5.3 | `assistant/mask.py` | Xong |
+| 5.4 | `plan_request` trên `LLMClient`, `RuleBasedClient` | Một phần: chấm điểm luật nằm ở `server/app/assistant.py`; chưa thêm vào interface `LLMClient` |
+| 5.5 | `POST /assistant/plan`, kiểm câu trả lời, rơi về luật | Xong với luật; chưa có client mô hình thật (`app.state.assistant_client`) |
+| 5.6 | `assistant/habits.py` | Xong (đếm tên và số lần; chưa có thống kê từ khoá) |
+| 5.7 | `assistant/planner.py` (5 trạng thái) | Xong |
+| 5.8 | `Core.assistant_*`, route, audit thêm `via`, `input_names` | Xong |
+| 5.9 | Tab «Trợ lý» | Xong (JS chỉ kiểm cú pháp, chưa mở trong trình duyệt) |
+| 5.10 | Chạy trọn trên IE thật | Một phần: luồng đọc chạy từ một câu trong test chuỗi đầy đủ; chưa có luồng tiền và bộ 20 câu mẫu |
+| 5.11 | Đóng gói, `docs/design.md` | Đóng gói xong; chưa cập nhật `docs/design.md` |
+
+## Gate 6: giao diện đổi không phải học lại, nhận lệnh từ chứng từ
+
+Thiết kế: `docs/design.md` mục 6.1 và 6.2. Không đổi quy tắc cứng: bước `write` luôn `approve`, `money` không bao giờ `auto`, người kiểm soát luôn tự bấm Duyệt.
+
+| # | Task | Tiêu chí nghiệm thu |
+|---|---|---|
+| 6.1 | Runner IE chọn phần tử theo điểm bằng chứng nhiều dấu hiệu (dùng 2.15), có ngưỡng và khoảng cách với ứng viên thứ hai | Test IE thật: đổi id của ô trên trang mẫu, nhãn giữ nguyên thì vẫn chạy đúng; hai ô cùng nhãn thì dừng và hỏi. **Xong**: lệnh `locate` của cầu nối, `IeDriver._target`, thao tác qua `src=N`; ngưỡng `write` cho thao tác, `read` cho đọc (driver chưa biết `risk` của bước); `tests/test_ie_real.py` 5/8/9 |
+| 6.2 | Khi không tìm thấy: khoanh tối đa 3 ứng viên trong trang, hỏi GDV trên trang quản lý | Test: viền hiện đúng ô, không có thao tác nào lên trang; chọn «Không có» thì dừng. **Xong**: `suggest`/`mark`/`unmark` (tô bằng runtimeStyle, không đổi style của trang), câu hỏi «Có phải ô này?» trong thẻ chạy; `tests/test_repair.py`, test IE thật 5/8/9 |
+| 6.3 | Lưu lựa chọn thành version mới của agent (chỉ đổi `target`), chờ Duyệt lại; trước khi Duyệt chỉ người chọn chạy được, chỉ bước `read` | Test server: version tăng, `risk`/`mode` không đổi, có audit; bước `write` bị chặn khi chưa Duyệt. **Xong** (lưu ở kho trên máy, `flows[].repair`; chưa đẩy lên máy chủ): version +1, chỉ đổi `selectors`, audit `mode=repair`; «Duyệt bản sửa» thay bản cũ |
+| 6.4 | Dấu vân tay màn hình lúc Học; so trước khi Chạy, lệch thì báo và đề nghị Chạy thử | Test: thêm/bớt ô trên trang mẫu thì báo «Màn hình đã đổi»; không có giá trị nhập trong dấu vân tay. **Xong, khác thiết kế một chút**: dấu vân tay ghi ở lần Chạy thật xong đầu tiên (lúc Học thường không mở màn đầu); lệch thì báo, bấm Chạy lần nữa mới chạy; Chạy thử ghi chú «Màn hình đã đổi» |
+| 6.5 | Request đã ghi làm dấu hiệu phụ cho bước `read` | Test: có lời gọi cùng hình dạng thì độ tin cậy tăng; không có lời gọi nào được agent tự gửi. **Hoãn**: lúc chạy bộ ghi yêu cầu cố ý tắt (`__rkNoXhr`, để không đụng TouchPoint) và Learner chưa giữ hình dạng request theo bước; cần quyết định trước khi làm |
+| 6.6 | Mẫu UNC giả lập (ảnh và nội dung chuẩn) trong `mock-site/` | Ít nhất 5 mẫu, có 1 mẫu số tiền bằng số và bằng chữ lệch nhau. **Xong** (để ở `windows-agent/rookie_agent/voucher/samples/` để đi cùng gói, không ở `mock-site/`) |
+| 6.7 | Interface `DocReader`, bản offline đọc từ mẫu; tách các trường của mục 6.2 kèm độ tin cậy, kiểm số tiền số/chữ | Test: 5 mẫu tách đúng; mẫu lệch bị đánh dấu. **Xong**: `voucher/reader.py` (`SampleReader`), `voucher/extract.py`; `tests/test_voucher.py` |
+| 6.8 | Màn soát chứng từ trong tab Trợ lý: ảnh cạnh từng trường, sửa/xác nhận, chặn khi trường dưới ngưỡng | Test webui: chưa xác nhận thì không có nút Chạy; ảnh và giá trị không vào trace/audit. **Xong**: mục «Đưa chứng từ vào» ở tab Trợ lý; phải đánh dấu «đã soát từng trường»; `tests/test_voucher_run.py` |
+| 6.9 | Nối chứng từ đã xác nhận vào Trợ lý và Runner (luồng chuyển tiền trên mock) | Chạy trọn trên mock: dừng ở bước `money` chờ người kiểm soát; audit chỉ có tên trường và người xác nhận. **Xong** trên mock giả (test); chưa chạy trên IE thật với luồng chuyển tiền đã học |
+
 ## Phần để sau PoC
 
 - Đánh giá độ chính xác của LLM nội bộ (Learner, giải thích lệch, self-healing) trên bộ mẫu; self-healing bằng ảnh nếu model nhận được ảnh.

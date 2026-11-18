@@ -199,3 +199,18 @@ def test_factory_defaults_to_rules_and_reads_the_environment():
 def test_factory_requires_a_model_name():
     with pytest.raises(ValueError):
         get_llm_client({"ROOKIE_LLM_BASE_URL": "http://node:8000/v1"})
+
+
+def test_the_server_starts_without_httpx_and_uses_the_rules():
+    """The bundled runtime may lack httpx: the server must still start, with RuleBasedClient (rule 7)."""
+    import subprocess
+    import sys
+
+    code = ("import sys; sys.modules['httpx'] = None\n"
+            "import os; os.environ['ROOKIE_LLM_BASE_URL'] = 'http://node:1/v1'; os.environ['ROOKIE_LLM_MODEL'] = 'm'\n"
+            "import app.main\n"
+            "from app.llm.factory import get_llm_client\n"
+            "print(type(get_llm_client()).__name__)")
+    done = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=60)
+    assert done.returncode == 0, done.stderr
+    assert done.stdout.strip() == "RuleBasedClient"

@@ -1,0 +1,159 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rookie-agent.local/schemas/trace.schema.json",
+  "title": "Trace",
+  "description": "Bản ghi thô ĐÃ CHE của nhiều phiên ghi cùng một việc, làm đầu vào cho LLM thiết kế workflow. Dựng trên máy GDV, trước khi gửi bất cứ đâu (CLAUDE.md quy tắc 2). Mọi sự kiện đều được giữ; chỉ dữ liệu nhạy cảm bị bỏ hoặc che. Không có ký tự phím gõ: chỉ loại phím.",
+  "type": "object",
+  "required": ["schema_version", "engine", "trace_id", "app", "sessions", "elements", "masking"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "enum": [1, 2], "description": "1: sự kiện thô. 2: thêm giá trị ban đầu của ô chọn (sessions[].initial), danh sách lựa chọn (elements[].options) và giá trị trước khi đổi (value_before, option_value). Bản 1 vẫn hợp lệ." },
+    "engine": { "enum": ["web", "java", "ie"] },
+    "trace_id": { "type": "string", "minLength": 1 },
+    "app": { "type": "string", "description": "Tên ứng dụng hoặc tiêu đề đã che." },
+    "sessions": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["session_id", "events"],
+        "additionalProperties": false,
+        "properties": {
+          "session_id": { "type": "string", "minLength": 1 },
+          "initial": {
+            "type": "object",
+            "description": "Giá trị của từng ô chọn thường (plain) ngay trước khi người dùng đụng vào nó trong phiên này, hoặc lúc trang ổn định nếu họ không đụng. Mặc định có thể khác nhau giữa các phiên.",
+            "additionalProperties": {
+              "type": "object",
+              "required": ["value", "text"],
+              "additionalProperties": false,
+              "properties": { "value": { "type": ["string", "null"] }, "text": { "type": ["string", "null"] } }
+            }
+          },
+          "screens": {
+            "type": "array",
+            "description": "Loại dữ liệu màn hình hiện ra sau mỗi thao tác: chỉ cấu trúc (tiêu đề cột, lớp của cột, số dòng, mức của thông báo), không có giá trị, không có chữ của thông báo.",
+            "items": {
+              "type": "object",
+              "required": ["after_eid", "region", "items"],
+              "additionalProperties": false,
+              "properties": {
+                "after_eid": { "type": ["string", "null"] },
+                "region": { "type": "array", "items": { "type": "string" } },
+                "items": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": ["frame", "kind"],
+                    "additionalProperties": false,
+                    "properties": {
+                      "frame": { "type": "string" },
+                      "kind": { "enum": ["table", "field", "message"] },
+                      "table_id": { "type": "string" },
+                      "headers": { "type": "array", "items": { "type": "string" } },
+                      "col_classes": { "type": "array", "items": { "type": "string" } },
+                      "row_count": { "type": "integer", "minimum": 0 },
+                      "label": { "type": ["string", "null"] },
+                      "value_class": { "type": "string" },
+                      "level": { "enum": ["info", "error"] }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "links": {
+            "type": "array",
+            "description": "Giá trị giáo dịch viên gõ vào đúng bằng một giá trị màn hình đã hiện trước đó. Chỉ giữ mối nối (sự kiện gõ, sự kiện sinh ra màn hình, đường dẫn của giá trị), không giữ giá trị.",
+            "items": {
+              "type": "object",
+              "required": ["eid", "from_eid", "path", "ambiguous"],
+              "additionalProperties": false,
+              "properties": {
+                "eid": { "type": "string" },
+                "from_eid": { "type": ["string", "null"] },
+                "path": { "type": "string" },
+                "ambiguous": { "type": "boolean" }
+              }
+            }
+          },
+          "requests": {
+            "type": "array",
+            "description": "Các yêu cầu máy chủ mà trang đã gửi: chỉ hình dạng (phương thức, đường dẫn bỏ phần truy vấn, mã trạng thái, thời gian). Nội dung gửi và nhận chỉ nằm trong bộ nhớ máy giao dịch viên.",
+            "items": {
+              "type": "object",
+              "required": ["after_eid", "method", "path", "status", "ms"],
+              "additionalProperties": false,
+              "properties": {
+                "after_eid": { "type": ["string", "null"] },
+                "method": { "type": "string" },
+                "path": { "type": "string" },
+                "status": { "type": "integer", "minimum": 0 },
+                "ms": { "type": "integer", "minimum": 0 }
+              }
+            }
+          },
+          "events": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/event" } }
+        }
+      }
+    },
+    "elements": {
+      "type": "object",
+      "description": "Danh mục phần tử, khoá là el_id. Selector do code sinh; LLM chỉ trỏ tới el_id.",
+      "additionalProperties": { "$ref": "#/$defs/element" }
+    },
+    "masking": {
+      "type": "object",
+      "required": ["rules_version", "dropped_count"],
+      "additionalProperties": false,
+      "properties": {
+        "rules_version": { "type": "string", "minLength": 1 },
+        "dropped_count": { "type": "integer", "minimum": 0, "description": "Số sự kiện bị bỏ hẳn (mật khẩu, OTP)." }
+      }
+    }
+  },
+  "$defs": {
+    "event": {
+      "type": "object",
+      "required": ["eid", "seq", "t_rel_ms", "kind", "el_id", "key_class", "value", "value_class", "screen"],
+      "additionalProperties": false,
+      "properties": {
+        "eid": { "type": "string", "pattern": "^[A-Za-z0-9_-]+$", "description": "Duy nhất trong cả trace." },
+        "seq": { "type": "integer", "minimum": 0 },
+        "t_rel_ms": { "type": "integer", "minimum": 0, "description": "Mili giây kể từ đầu phiên." },
+        "kind": { "enum": ["click", "dblclick", "key", "change", "focus", "blur", "submit", "load", "unload"] },
+        "el_id": { "type": ["string", "null"], "description": "Khoá trong elements; null với load/unload." },
+        "key_class": { "enum": ["enter", "tab", "escape", "function", "arrow", "char", "other", null], "description": "Chỉ có với kind=key. Không bao giờ có ký tự." },
+        "value": { "type": ["string", "null"], "description": "Chỉ có khi trường được phân loại plain, lấy lúc change." },
+        "value_class": { "type": ["string", "null"] },
+        "screen": { "type": "string", "description": "Tiêu đề màn hình đã che." },
+        "value_before": { "type": ["string", "null"], "description": "Giá trị của ô ngay trước khi đổi; chỉ với trường plain." },
+        "option_value": { "type": ["string", "null"], "description": "option.value của lựa chọn đã chọn (so không phụ thuộc ngôn ngữ); chỉ với ô chọn plain." }
+      }
+    },
+    "element": {
+      "type": "object",
+      "required": ["frame", "tag", "type", "label", "selectors", "is_control"],
+      "additionalProperties": false,
+      "properties": {
+        "frame": { "type": "string" },
+        "tag": { "type": "string" },
+        "type": { "type": "string" },
+        "label": { "type": ["string", "null"], "description": "Đã che. Với phần tử không phải control chỉ giữ khi giống hệt ở mọi phiên, ngược lại là #." },
+        "selectors": { "type": "array", "minItems": 1, "items": { "type": "string" } },
+        "is_control": { "type": "boolean" },
+        "options": {
+          "type": "array",
+          "maxItems": 50,
+          "description": "Danh sách lựa chọn của ô chọn thường (plain).",
+          "items": {
+            "type": "object",
+            "required": ["value", "text"],
+            "additionalProperties": false,
+            "properties": { "value": { "type": ["string", "null"] }, "text": { "type": ["string", "null"] } }
+          }
+        }
+      }
+    }
+  }
+}

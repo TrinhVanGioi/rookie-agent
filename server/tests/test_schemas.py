@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from app.schemas import SchemaError, validate_event, validate_workflow
+from app.schemas import SchemaError, validate_event, validate_trace, validate_workflow
 
 EXAMPLES = Path(__file__).resolve().parents[2] / "schemas" / "examples"
 
@@ -16,6 +16,8 @@ def _validate(path: Path) -> None:
     document = json.loads(path.read_text(encoding="utf-8"))
     if path.name.startswith("event-"):
         validate_event(document)
+    elif path.name.startswith("trace-"):
+        validate_trace(document)
     else:
         validate_workflow(document)
 

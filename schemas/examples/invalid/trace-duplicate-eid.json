@@ -1,0 +1,177 @@
+{
+  "schema_version": 1,
+  "engine": "ie",
+  "trace_id": "t-login-001",
+  "app": "TouchPoint",
+  "sessions": [
+    {
+      "session_id": "s-1",
+      "events": [
+        {
+          "eid": "s1e000",
+          "seq": 0,
+          "t_rel_ms": 0,
+          "kind": "load",
+          "el_id": null,
+          "key_class": null,
+          "value": null,
+          "value_class": null,
+          "screen": "TouchPoint Dang nhap"
+        },
+        {
+          "eid": "s1e001",
+          "seq": 1,
+          "t_rel_ms": 2100,
+          "kind": "change",
+          "el_id": "e1",
+          "key_class": null,
+          "value": null,
+          "value_class": "user_id",
+          "screen": "TouchPoint Dang nhap"
+        },
+        {
+          "eid": "s1e002",
+          "seq": 2,
+          "t_rel_ms": 4300,
+          "kind": "key",
+          "el_id": "e2",
+          "key_class": "enter",
+          "value": null,
+          "value_class": null,
+          "screen": "TouchPoint Dang nhap"
+        },
+        {
+          "eid": "s1e003",
+          "seq": 3,
+          "t_rel_ms": 6800,
+          "kind": "change",
+          "el_id": "e3",
+          "key_class": null,
+          "value": "Giao dich vien",
+          "value_class": null,
+          "screen": "TouchPoint Chon vai tro"
+        },
+        {
+          "eid": "s1e004",
+          "seq": 4,
+          "t_rel_ms": 7600,
+          "kind": "click",
+          "el_id": "e4",
+          "key_class": null,
+          "value": null,
+          "value_class": null,
+          "screen": "TouchPoint Chon vai tro"
+        }
+      ]
+    },
+    {
+      "session_id": "s-2",
+      "events": [
+        {
+          "eid": "s1e000",
+          "seq": 0,
+          "t_rel_ms": 0,
+          "kind": "load",
+          "el_id": null,
+          "key_class": null,
+          "value": null,
+          "value_class": null,
+          "screen": "TouchPoint Dang nhap"
+        },
+        {
+          "eid": "s2e001",
+          "seq": 1,
+          "t_rel_ms": 1900,
+          "kind": "change",
+          "el_id": "e1",
+          "key_class": null,
+          "value": null,
+          "value_class": "user_id",
+          "screen": "TouchPoint Dang nhap"
+        },
+        {
+          "eid": "s2e002",
+          "seq": 2,
+          "t_rel_ms": 3500,
+          "kind": "key",
+          "el_id": "e2",
+          "key_class": "enter",
+          "value": null,
+          "value_class": null,
+          "screen": "TouchPoint Dang nhap"
+        },
+        {
+          "eid": "s2e003",
+          "seq": 3,
+          "t_rel_ms": 5900,
+          "kind": "change",
+          "el_id": "e3",
+          "key_class": null,
+          "value": "Giao dich vien",
+          "value_class": null,
+          "screen": "TouchPoint Chon vai tro"
+        },
+        {
+          "eid": "s2e004",
+          "seq": 4,
+          "t_rel_ms": 6700,
+          "kind": "click",
+          "el_id": "e4",
+          "key_class": null,
+          "value": null,
+          "value_class": null,
+          "screen": "TouchPoint Chon vai tro"
+        }
+      ]
+    }
+  ],
+  "elements": {
+    "e1": {
+      "frame": "top",
+      "tag": "input",
+      "type": "text",
+      "label": "Ma dang nhap",
+      "selectors": [
+        "frame=top|id=txtUser",
+        "frame=top|name=txtUser"
+      ],
+      "is_control": true
+    },
+    "e2": {
+      "frame": "top",
+      "tag": "input",
+      "type": "password",
+      "label": "Mat khau",
+      "selectors": [
+        "frame=top|id=txtPw"
+      ],
+      "is_control": true
+    },
+    "e3": {
+      "frame": "main",
+      "tag": "select",
+      "type": "select-one",
+      "label": "Vai tro",
+      "selectors": [
+        "frame=main|id=selRole",
+        "frame=main|label=Vai tro"
+      ],
+      "is_control": true
+    },
+    "e4": {
+      "frame": "main",
+      "tag": "input",
+      "type": "button",
+      "label": "OK",
+      "selectors": [
+        "frame=main|id=btnOk",
+        "frame=main|label=OK"
+      ],
+      "is_control": true
+    }
+  },
+  "masking": {
+    "rules_version": "1",
+    "dropped_count": 2
+  }
+}

@@ -26,6 +26,15 @@ def recorder():
     return IeRecorder(app_title="TouchPoint", session_id="s-test")
 
 
+def test_a_click_on_something_that_is_not_a_control_is_not_a_step_and_its_text_is_never_kept():
+    r = recorder()
+    r.handle(raw("click", tag="td", type="", id="", label="Nguyen Van A", pos=7, ctl=False))
+    r.handle(raw("click", tag="button", type="button", id="btnOk", label="OK", t=2000))
+    events = r.stop()
+    assert [e["target"]["label"] for e in events] == ["OK"]
+    assert "Nguyen" not in json.dumps(events, ensure_ascii=False)
+
+
 def test_a_button_click_becomes_a_click_event_with_layered_selectors():
     r = recorder()
     r.handle(raw("click", tag="button", type="button", id="btnMore", name="btnMore", label="THÊM"))

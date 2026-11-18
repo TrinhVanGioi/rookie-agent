@@ -69,13 +69,16 @@ def get_llm_client(env: Mapping[str, str] | None = None) -> LLMClient:
     model = env.get("ROOKIE_LLM_MODEL", "").strip()
     if not model:
         raise ValueError("Đã đặt ROOKIE_LLM_BASE_URL thì phải đặt ROOKIE_LLM_MODEL (tên model đang serve).")
-    primary = OpenAICompatClient(
-        base_url=base_url,
-        model=model,
-        api_key=env.get("ROOKIE_LLM_API_KEY") or None,
-        timeout=float(env.get("ROOKIE_LLM_TIMEOUT", "60")),
-        json_schema=_flag(env, "ROOKIE_LLM_JSON_SCHEMA", True),
-        disable_thinking=_flag(env, "ROOKIE_LLM_DISABLE_THINKING", True),
-        vision=_flag(env, "ROOKIE_LLM_VISION", False),
-    )
+    try:
+        primary = OpenAICompatClient(
+            base_url=base_url,
+            model=model,
+            api_key=env.get("ROOKIE_LLM_API_KEY") or None,
+            timeout=float(env.get("ROOKIE_LLM_TIMEOUT", "60")),
+            json_schema=_flag(env, "ROOKIE_LLM_JSON_SCHEMA", True),
+            disable_thinking=_flag(env, "ROOKIE_LLM_DISABLE_THINKING", True),
+            vision=_flag(env, "ROOKIE_LLM_VISION", False),
+        )
+    except LLMError:   # no httpx in this package: the rules still work offline
+        return RuleBasedClient()
     return FallbackClient(primary, RuleBasedClient())

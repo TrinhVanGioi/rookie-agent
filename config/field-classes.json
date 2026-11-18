@@ -15,6 +15,6 @@
     { "kind": "sensitive", "value_class": "customer_name", "pattern": "họ và tên|họ tên|tên khách hàng|tên người|người thụ hưởng|customer name|full name" },
     { "kind": "sensitive", "value_class": "amount", "pattern": "số tiền|amount|số dư|balance|hạn mức" },
     { "kind": "sensitive", "value_class": "free_text", "pattern": "nội dung|ghi chú|diễn giải|địa chỉ|email|note|address" },
-    { "kind": "plain", "pattern": "ngày|date|kỳ báo cáo|loại|trạng thái|chi nhánh|đơn vị|nguồn" }
+    { "kind": "plain", "pattern": "ngày|date|kỳ báo cáo|loại|trạng thái|chi nhánh|đơn vị|nguồn|role|vai trò|language|ngôn ngữ|location|nơi làm việc" }
   ]
 }

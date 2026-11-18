@@ -60,6 +60,8 @@ class IeRecorder:
             return
         if field_type == "hidden":
             return
+        if line.get("ctl") is False:
+            return  # a click on text, an image or an empty place: kept in the trace for the model, not a step the teller sees
         if kind in ("input", "select") and self._class_of(line).kind == "ignore":
             return
         self._raw.append(line)
@@ -81,6 +83,14 @@ class IeRecorder:
                 continue
             events.append(event)
         return events
+
+    def current(self) -> list[dict[str, Any]]:
+        """The events so far, to look at while the teller works. It uses nothing up: asking again gives the same answer."""
+        saved, self._last_press = self._last_press, {}
+        try:
+            return self.stop()
+        finally:
+            self._last_press = saved
 
     def _is_repeat(self, line: dict[str, Any], event: dict[str, Any]) -> bool:
         """The same button reported twice in a moment (mouse and key) is one click."""

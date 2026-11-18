@@ -30,6 +30,7 @@ class IeBridge:
         self._process: subprocess.Popen | None = None
         self._lines: queue.Queue[str | None] = queue.Queue()
         self._lock = threading.Lock()
+        self.diag: str | None = None
 
     # ---- process ------------------------------------------------------------------
 
@@ -111,12 +112,66 @@ class IeBridge:
         """Frames, input fields, buttons and objects (ActiveX or applet) of a tab, for the machine check."""
         return dict(self.request({"cmd": "probe", "id": tab_id}, timeout=30).get("info") or {})
 
-    def start_recording(self, tab_id: int) -> dict[str, Any]:
+    def start_recording(self, tab_id: int, requests: bool = False, diag: str = "") -> dict[str, Any]:
         """Put the recorder into the page. Answers how many frames were reached (`frames`) and how many now listen (`attached`)."""
-        return self.request({"cmd": "start", "id": tab_id}, timeout=30)
+        return self.request({"cmd": "start", "id": tab_id, "requests": bool(requests), "diag": diag}, timeout=30)
+
+    def bind(self, tab_id: int) -> dict[str, Any]:
+        """The tab the agent drives while it runs a flow."""
+        return self.request({"cmd": "bind", "id": tab_id}, timeout=30)
+
+    def unbind(self) -> None:
+        self.request({"cmd": "unbind"})
+
+    def act(self, op: str, selectors: list[str], value: str = "") -> dict[str, Any]:
+        """Do `op` (find, exists, read, click, fill, select, submit) on the one element the selectors name, in whichever frame it is.
+        The answer is `{ok, ...}` or `{ok: False, error}` with the error not_found, ambiguous, disabled, secret, no_option..."""
+        reply = self.request({"cmd": "act", "op": op, "selectors": selectors, "value": value}, timeout=60)
+        return dict(reply.get("result") or {"ok": False, "error": "no_answer"})
+
+    def locate(self, selectors: list[str]) -> list[dict[str, Any]]:
+        """Task 6.1: for each frame that has any of the selectors, `{frame, probes: [{kind, m: [element numbers]}], fields: {n: 0|1}}`."""
+        reply = self.request({"cmd": "locate", "selectors": selectors}, timeout=60)
+        return list(reply.get("frames") or [])
+
+    def frame_op(self, op: str, selectors: list[str], value: str = "") -> list[dict[str, Any]]:
+        """Task 6.2: `suggest`, `mark` or `unmark` asked of every frame; the frames that answered."""
+        reply = self.request({"cmd": "frameop", "op": op, "selectors": selectors, "value": value}, timeout=60)
+        return list(reply.get("frames") or [])
+
+    def send(self, frame: str, method: str, url: str, headers: str, body: str, timeout: float = 30.0,
+             sleep: Any = None) -> dict[str, Any]:
+        """Gate 7: one learned request sent again by the page of `frame` in the bound tab, in the teller's session. Returns
+        `{ok, status, ms, text}` or `{ok: False, error}` (no_frame, timeout, or what the page said). The answer stays in memory."""
+        import time as _time
+
+        pause = sleep or _time.sleep
+        payload = "\u0001".join([frame, method, url, headers, body])
+        started = [a for a in self.frame_op("send", [], payload) if isinstance(a, dict) and a.get("id")]
+        if not started:
+            return {"ok": False, "error": "no_frame"}
+        ask = started[0]["id"]
+        deadline = _time.monotonic() + timeout
+        while True:
+            done = [a for a in self.frame_op("sendres", [], ask) if isinstance(a, dict) and a.get("id") == ask and a.get("done")]
+            if done:
+                answer = done[0]
+                if answer.get("error"):
+                    return {"ok": False, "error": str(answer["error"])}
+                return {"ok": True, "status": int(answer.get("status") or 0), "ms": int(answer.get("ms") or 0), "text": str(answer.get("text") or "")}
+            if _time.monotonic() >= deadline:
+                return {"ok": False, "error": "timeout"}
+            pause(0.2)
+
+    def read(self) -> list[str]:
+        """What every frame being recorded shows now (tables, label-value pairs, messages), one JSON text per frame."""
+        reply = self.request({"cmd": "read"}, timeout=30)
+        return [text for text in (reply.get("reads") or []) if isinstance(text, str)]
 
     def poll(self) -> list[dict[str, Any]]:
-        lines = self.request({"cmd": "poll"}, timeout=30).get("lines") or []
+        reply = self.request({"cmd": "poll"}, timeout=30)
+        self.diag = reply.get("diag")  # which windows and frames the recorder reached; only set when it changed
+        lines = reply.get("lines") or []
         return [parsed for parsed in (_parse(line) for line in lines) if parsed]
 
     def stop_recording(self) -> list[dict[str, Any]]:

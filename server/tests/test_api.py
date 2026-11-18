@@ -223,3 +223,80 @@ def test_the_safety_rules_cannot_be_relaxed_from_the_screen(client):
     assert client.post(url, json={"modes": {}}).status_code == 422
     assert client.post(url, json={"modes": {money["id"]: "bogus"}}).status_code == 422
     assert client.post("/workflows/khong-co/versions/1/revise", json={"modes": {"s": "auto"}}).status_code == 404
+
+
+# ---- learning with a model: the traces go to the builder, the rule-based learner is the way back ----
+
+class StubBuilder:
+    """Stands for the Codie builder: an answer, or the reason it could not build."""
+
+    def __init__(self, result=None, failure=None):
+        self.result, self.failure, self.traces = result, failure, None
+        self.available = True
+
+    def build(self, traces, workflow_id, version, title=None):
+        from app.llm.flow import FlowBuildError
+
+        self.traces = traces
+        if self.failure:
+            raise FlowBuildError(self.failure, [{"mode": "rookie-design", "ok": False, "seconds": 1.2, "prompt_chars": 900, "note": "lỗi", "time": "t"}])
+        return self.result
+
+
+def _ie_sessions(client):
+    from tests.test_learner import signin_run
+
+    ids = []
+    for name, run in (("a", signin_run("a", role="KSV")), ("b", signin_run("b")), ("c", signin_run("c", role="GDV"))):
+        body = {"schema_version": 2, "engine": "ie", "session_id": name, "events": run}
+        assert client.post("/sessions", json=body).status_code == 201
+        ids.append(name)
+    return ids
+
+
+def test_a_model_built_workflow_is_stored_and_says_how_it_was_made(tmp_path):
+    from app.llm.flow import FlowResult
+    from fastapi.testclient import TestClient
+    from app.main import create_app
+
+    app = create_app(tmp_path / "t.db")
+    workflow = {"schema_version": 2, "engine": "ie", "id": "x", "version": 1, "status": "draft", "inputs": [],
+                "steps": [{"id": "s1", "action": "click", "target": {"selectors": ["frame=top|id=b"], "label": "B", "tag": "button"}, "risk": "read", "mode": "auto"}]}
+    app.state.flow_builder = StubBuilder(FlowResult(workflow, ["một cảnh báo"], ["Một câu hỏi?"], [{"mode": "rookie-design", "ok": True, "seconds": 3.0, "prompt_chars": 500, "note": "đạt kiểm chứng", "time": "t"}]))
+    client = TestClient(app)
+    ids = _ie_sessions(client)
+    reply = client.post("/workflows/learn", json={"title": "Dang nhap", "session_ids": ids, "traces": [{"trace": 1}, {"trace": 2}, {"trace": 3}]})
+    assert reply.status_code == 201
+    body = reply.json()
+    assert body["method"] == "codie" and body["questions"] == ["Một câu hỏi?"] and body["llm"]["calls"][0]["mode"] == "rookie-design"
+    assert body["workflow"]["id"] and client.get(f"/workflows/{body['workflow']['id']}").status_code == 200
+    assert len(app.state.flow_builder.traces) == 3
+
+
+def test_when_the_model_fails_the_rule_based_learner_builds_it_and_the_reason_is_given_in_plain_words(tmp_path):
+    from fastapi.testclient import TestClient
+    from app.main import create_app
+
+    app = create_app(tmp_path / "t.db")
+    app.state.flow_builder = StubBuilder(failure="Codie không trả lời sau 600 giây.")
+    client = TestClient(app)
+    ids = _ie_sessions(client)
+    reply = client.post("/workflows/learn", json={"title": "Dang nhap", "session_ids": ids, "traces": [{"trace": 1}]})
+    assert reply.status_code == 201
+    body = reply.json()
+    assert body["method"] == "rule" and "Codie không trả lời" in body["fallback_reason"] and body["llm"]["calls"][0]["ok"] is False
+    assert [s["action"] for s in body["workflow"]["steps"]] == ["fill", "select", "click"]        # the rule learner's own result
+
+
+def test_without_traces_or_without_a_builder_the_old_way_is_unchanged(tmp_path):
+    from fastapi.testclient import TestClient
+    from app.main import create_app
+
+    app = create_app(tmp_path / "t.db")
+    app.state.flow_builder = None
+    client = TestClient(app)
+    ids = _ie_sessions(client)
+    body = client.post("/workflows/learn", json={"title": "Dang nhap", "session_ids": ids}).json()
+    assert body["method"] == "rule" and "fallback_reason" not in body
+    body = client.post("/workflows/learn", json={"title": "Dang nhap 2", "session_ids": ids, "traces": [{"x": 1}]}).json()
+    assert body["method"] == "rule" and "chưa bật" in body["fallback_reason"]

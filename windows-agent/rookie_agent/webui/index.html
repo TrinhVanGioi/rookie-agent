@@ -19,14 +19,48 @@
   }
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.5 "Segoe UI", system-ui, sans-serif; }
-  main { max-width: 860px; margin: 0 auto; padding: 24px 16px 64px; }
-  header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
-  h1 { font-size: 22px; margin: 0; }
-  .chip { font-size: 13px; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 2px 10px; }
-  section { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 20px; margin-bottom: 16px; }
-  h2 { font-size: 18px; margin: 0 0 4px; }
-  .sub { color: var(--muted); margin: 0 0 14px; }
-  button { font: inherit; padding: 8px 16px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: var(--text); cursor: pointer; }
+  main { max-width: 920px; margin: 0 auto; padding: 0 16px 64px; }
+  header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 18px 0 14px; }
+  h1 { font-size: 20px; margin: 0; display: flex; align-items: center; gap: 10px; }
+  h1::before { content: "R"; display: inline-grid; place-items: center; width: 32px; height: 32px; border-radius: 9px; background: var(--accent); color: var(--accent-text); font-size: 17px; }
+  .chip { font-size: 13px; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 3px 12px; background: var(--card); }
+  .chip:empty { display: none; }
+  .seen-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 4px 0; }
+  .seen-title { font-weight: 600; color: var(--text); }
+  .badge.hot { background: var(--warn-bg); color: var(--warn); }
+  .seen-frame { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin-top: 10px; }
+  .seen-frame-name { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin-bottom: 6px; }
+  .kv { display: grid; grid-template-columns: minmax(120px, max-content) 1fr; gap: 2px 14px; font-size: 14px; }
+  .kv .k { color: var(--muted); } .kv .v { color: var(--text); word-break: break-word; }
+  .kv .hot { background: var(--warn-bg); border-radius: 4px; padding: 0 4px; }
+  .seen-table { overflow-x: auto; margin-top: 8px; border: 1px solid var(--line); border-radius: 8px; }
+  .seen-table.hot { border-color: var(--warn); box-shadow: 0 0 0 2px var(--warn-bg); }
+  .seen-table table { margin: 0; font-size: 13px; }
+  .seen-table th { background: var(--bg); color: var(--muted); font-weight: 600; white-space: nowrap; }
+  .seen-table td, .seen-table th { padding: 6px 10px; }
+  .seen-table tr:nth-child(odd) td { background: color-mix(in srgb, var(--bg) 40%, transparent); }
+  .seen-table > .detail { padding: 6px 10px; }
+  section { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 20px 22px; margin-bottom: 16px; box-shadow: 0 1px 2px rgba(0,0,0,.04); }
+  h2 { font-size: 17px; margin: 0 0 4px; display: flex; align-items: center; gap: 10px; }
+  h2 .num { display: inline-grid; place-items: center; width: 26px; height: 26px; border-radius: 50%; background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); font-size: 14px; flex: none; }
+  .sub { color: var(--muted); margin: 0 0 14px; font-size: 14px; }
+  .head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  .head .sub { margin: 0; }
+  .form { display: grid; grid-template-columns: 1.4fr 1fr; gap: 0 14px; }
+  @media (max-width: 640px) { .form { grid-template-columns: 1fr; } }
+  .actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 16px 0 6px; padding-top: 14px; border-top: 1px solid var(--line); }
+  details.adv { margin: 8px 0 0; font-size: 14px; color: var(--muted); }
+  details.adv summary { cursor: pointer; }
+  details.adv select { width: auto; max-width: 100%; margin-top: 8px; }
+  .panels { display: grid; gap: 10px; margin-top: 16px; }
+  .panel { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; background: color-mix(in srgb, var(--bg) 45%, var(--card)); }
+  .panel > summary, .panel > h3 { font-weight: 600; font-size: 15px; margin: 0; cursor: pointer; }
+  .panel > h3 { cursor: default; }
+  .panel .sub { margin: 4px 0 8px; font-size: 13px; }
+  details.panel[open] > summary { margin-bottom: 4px; }
+  button { font: inherit; font-size: 15px; padding: 8px 16px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: var(--text); cursor: pointer; transition: background .15s, border-color .15s; }
+  button:hover:not(:disabled) { border-color: var(--accent); }
+  button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   button.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
   button.stop { background: var(--rec); color: #fff; border-color: var(--rec); }
   button:disabled { opacity: .5; cursor: default; }
@@ -48,9 +82,12 @@
   table { width: 100%; border-collapse: collapse; margin: 8px 0; }
   td, th { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--line); font-size: 15px; vertical-align: top; }
   ol.steps { padding-left: 22px; margin: 8px 0; } ol.steps li { margin: 4px 0; }
-  .tabs { display: flex; gap: 6px; margin-bottom: 16px; }
-  .tabs button { border-radius: 8px 8px 0 0; }
-  .tabs button.on { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+  .tabs { display: flex; gap: 4px; margin-bottom: 18px; border-bottom: 1px solid var(--line); overflow-x: auto; }
+  .tabs button { border: 0; border-bottom: 3px solid transparent; border-radius: 0; background: none; color: var(--muted); padding: 10px 14px; font-weight: 600; white-space: nowrap; }
+  .tabs button:hover { color: var(--text); }
+  .tabs button.on { color: var(--accent); border-bottom-color: var(--accent); }
+  #srvLog pre { max-height: 320px; overflow: auto; white-space: pre-wrap; word-break: break-all; font-size: 12px; background: var(--bg); border: 1px solid var(--line); padding: 8px; margin: 4px 0 8px; }
+  #srvLog summary { cursor: pointer; font-family: monospace; font-size: 12px; padding: 4px 0; }
   .canvas { background-color: var(--bg); background-image: radial-gradient(var(--line) 1px, transparent 1px); background-size: 18px 18px;
     border: 1px solid var(--line); border-radius: 12px; padding: 28px 20px; overflow-x: auto; }
   .flowrow { display: flex; align-items: center; width: max-content; }
@@ -58,6 +95,16 @@
   .node.read { border-left-color: var(--ok); } .node.write { border-left-color: var(--warn); } .node.money { border-left-color: var(--bad); }
   .node.start { border-left-color: var(--accent); }
   .node.sel { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent); }
+  .simreq { border-top: 1px solid var(--line); margin-top: 8px; padding-top: 8px; }
+  .simhead { font-family: monospace; font-size: 12px; word-break: break-all; font-weight: 600; }
+  .simreq pre { max-height: 200px; overflow: auto; white-space: pre-wrap; word-break: break-all; font-size: 12px; background: var(--bg); padding: 6px; }
+  .node .live { font-size: 12px; font-weight: 600; margin-top: 4px; min-height: 0; }
+  .node.st-run { border-color: var(--accent); animation: rk-pulse 1s ease-in-out infinite; }
+  .node.st-done { border-color: var(--ok); background: color-mix(in srgb, var(--ok) 10%, var(--card)); }
+  .node.st-skip { opacity: .55; border-style: dashed; }
+  .node.st-wait { border-color: var(--warn); background: color-mix(in srgb, var(--warn) 14%, var(--card)); animation: rk-pulse 1.6s ease-in-out infinite; }
+  .node.st-bad { border-color: var(--bad); background: color-mix(in srgb, var(--bad) 10%, var(--card)); }
+  @keyframes rk-pulse { 0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 45%, transparent); } 50% { box-shadow: 0 0 0 7px color-mix(in srgb, var(--accent) 0%, transparent); } }
   .node .n { font-size: 12px; color: var(--muted); } .node .t { font-size: 14px; font-weight: 600; margin: 2px 0 6px; }
   .badge { display: inline-block; font-size: 12px; border-radius: 999px; padding: 1px 8px; background: var(--line); margin-right: 4px; }
   .link { width: 34px; height: 2px; background: var(--muted); position: relative; flex: none; }
@@ -68,33 +115,53 @@
 <body>
 <main>
   <header><h1>Rookie Agent</h1><span class="chip" id="bits"></span></header>
-  <div class="tabs"><button id="tabWork" class="on">Ghi và Học</button><button id="tabFlow">Luồng</button></div>
+  <div class="tabs"><button id="tabWork" class="on">Ghi và Học</button><button id="tabFlow">Luồng</button><button id="tabAssist">Trợ lý</button><button id="tabLink">Kỹ thuật</button></div>
 
   <div id="paneWork">
 
   <section>
-    <h2>1. Kiểm tra máy</h2>
-    <p class="sub">Mở màn hình cần ghi trước, chờ thấy đủ các ô nhập, rồi bấm Kiểm tra.</p>
-    <div class="row"><button class="primary" id="check">Kiểm tra</button><span class="detail" id="checking"></span></div>
+    <div class="head">
+      <div><h2><span class="num">1</span>Kiểm tra máy</h2><p class="sub">Mở màn hình cần ghi, chờ hiện đủ các ô nhập, rồi bấm Kiểm tra.</p></div>
+      <div class="row" style="margin:0"><span class="detail" id="checking"></span><button class="primary" id="check">Kiểm tra</button></div>
+    </div>
     <ul class="items" id="items"></ul>
   </section>
 
   <section>
-    <h2>2. Ghi</h2>
-    <p class="sub">Làm việc như bình thường trên ứng dụng. Mỗi lần ghi nên làm cùng một việc, với khách khác nhau. Ghi 3 lần.</p>
-    <div class="row">
-      <div class="grow"><label class="field" for="window">Màn hình cần ghi (trang trong Internet Explorer hoặc ứng dụng Java)</label><div class="row" style="margin:0"><select id="window" class="grow"></select><button id="windowsRefresh">Tải lại</button></div></div>
-      <div class="grow"><label class="field" for="rname">Tên bản ghi (không bắt buộc)</label><input type="text" id="rname" placeholder="Ví dụ: vấn tin lần 1"></div>
+    <h2><span class="num">2</span>Ghi</h2>
+    <p class="sub">Làm việc như bình thường. Mỗi lần ghi làm cùng một việc, với khách khác nhau. Ghi 3 lần.</p>
+    <div class="form">
+      <div><label class="field" for="window">Màn hình cần ghi</label><div class="row" style="margin:0"><select id="window" class="grow"></select><button id="windowsRefresh">Tải lại</button></div></div>
+      <div><label class="field" for="rname">Tên bản ghi (không bắt buộc)</label><input type="text" id="rname" placeholder="Ví dụ: vấn tin lần 1"></div>
     </div>
-    <div class="row"><button class="primary" id="record">Bắt đầu ghi</button><span id="recstate"></span></div>
+    <div class="actions"><button class="primary" id="record">Bắt đầu ghi</button><button id="preview" title="Xem agent thấy gì và các bước bạn làm, nhưng không lưu gì cả">Xem thử (không lưu)</button><span id="recstate"></span></div>
+    <details class="adv"><summary>Khi trang báo lỗi lúc ghi</summary>
+      <div>Chọn một mức, thao tác lại như lần lỗi và xem lỗi còn không. Bình thường để «Ghi đầy đủ».</div>
+      <select id="diagLevel"><option value="">Ghi đầy đủ (bình thường)</option><option value="noread">Chẩn đoán: không đọc màn hình</option><option value="nolisten">Chẩn đoán: không nghe sự kiện</option><option value="none">Chẩn đoán: không chạy script nào trong trang</option><option value="only-click">Chẩn đoán: chỉ nghe click</option><option value="only-key">Chẩn đoán: chỉ nghe phím</option><option value="only-field">Chẩn đoán: chỉ nghe ô nhập</option><option value="only-page">Chẩn đoán: chỉ nghe tải/rời trang</option><option value="field-empty">Chẩn đoán: gắn trình nghe ô nhập nhưng không làm gì</option><option value="body-prop">Chẩn đoán: trình nghe ô chỉ đọc thuộc tính</option><option value="body-uid">Chẩn đoán: trình nghe ô chỉ đọc uniqueID</option><option value="body-value">Chẩn đoán: trình nghe ô chỉ đọc giá trị</option><option value="body-meta">Chẩn đoán: trình nghe ô chỉ đọc kiểu, tên, id</option><option value="body-label">Chẩn đoán: trình nghe ô chỉ đọc nhãn</option><option value="body-place">Chẩn đoán: trình nghe ô chỉ đọc vị trí</option><option value="only-focusin">Chẩn đoán: chỉ nghe vào ô</option><option value="only-focusout">Chẩn đoán: chỉ nghe rời ô</option><option value="only-change">Chẩn đoán: chỉ nghe đổi giá trị</option></select>
+    </details>
     <div id="recmsg"></div>
+    <div class="panels">
+      <div class="panel"><h3>Các bước bạn vừa làm</h3>
+        <p class="sub">Hiện trực tiếp khi đang ghi hoặc xem thử.</p>
+        <div id="liveBox" class="detail">Chưa có bước nào.</div></div>
+      <details class="panel" open><summary>Agent đã thấy trên màn hình</summary>
+        <p class="sub">Đọc lại sau mỗi thao tác; phần vừa đổi được tô màu. Chỉ nằm trong bộ nhớ máy này, không gửi đi đâu.</p>
+        <div id="seenBox" class="detail">Chưa có gì. Bắt đầu ghi và làm một thao tác.</div></details>
+      <details class="panel"><summary>Dữ liệu trên màn hình các bước có thể gọi</summary>
+        <p class="sub">Ô thông tin, bảng và thông báo đọc được. Cột «Cách gọi» là chữ đặt vào một bước, sau bước «đọc màn hình» lưu dưới tên <code>ten_bien</code>.</p>
+        <div id="dataBox" class="detail">Chưa có dữ liệu.</div>
+        <details style="margin:6px 0"><summary>Xem dạng đối tượng (JSON)</summary><pre id="dataJson" style="white-space: pre-wrap; max-height: 260px; overflow: auto"></pre></details></details>
+      <details class="panel"><summary>Yêu cầu gửi lên máy chủ (request, response)</summary>
+        <p class="sub">Trang đã gửi gì, nhận gì, mã trạng thái, mất bao lâu. Nội dung chỉ trong bộ nhớ; file trace chỉ giữ hình dạng.</p>
+        <div id="reqBox" class="detail">Chưa có yêu cầu nào.</div></details>
+    </div>
     <table id="recordings" hidden>
       <thead><tr><th></th><th>Bản ghi</th><th>Các bước</th><th></th></tr></thead><tbody></tbody>
     </table>
   </section>
 
   <section>
-    <h2>3. Học</h2>
+    <h2><span class="num">3</span>Học</h2>
     <p class="sub">Chọn các bản ghi cùng một việc ở trên, đặt tên, rồi bấm Học. Agent sẽ cho bạn xem các bước nó hiểu được.</p>
     <label class="field" for="server">Máy chủ học</label>
     <div class="row">
@@ -109,13 +176,41 @@
     <div id="learnmsg"></div>
   </section>
 
-  <section>
-    <h2>Khi cần gửi lại cho nhóm phát triển</h2>
-    <p class="sub">Tạo một file nhỏ chỉ có kết quả kiểm tra và tên các bước. Không có giá trị bạn đã nhập.</p>
-    <div class="row"><button id="diag">Tạo file chẩn đoán</button><span id="diagmsg"></span></div>
-  </section>
   </div>
 
+  <div id="paneAssist" hidden>
+    <section>
+      <h2>Bạn cần làm gì?</h2>
+      <div class="row"><input id="asText" class="grow" placeholder="Ví dụ: tra số dư tài khoản 0123456789" maxlength="300"><button class="primary" id="asAsk">Hỏi</button></div>
+      <div id="asFrequent" class="row"></div>
+      <div id="asCard"></div>
+      <div class="row"><select id="asWindow" class="grow"></select><button id="asWindowsRefresh">Tải lại</button></div>
+      <div class="row"><button class="primary" id="asGo" hidden>Chạy</button><button class="stop" id="asStop">Dừng khẩn</button></div>
+      <div id="asAsk2"></div>
+      <div id="asSteps" class="detail"></div>
+      <div id="asMsg"></div>
+      <div class="detail" id="asNote"></div>
+    </section>
+    <section>
+      <h2>Đưa chứng từ vào (giấy uỷ nhiệm chi)</h2>
+      <p class="sub">Chọn ảnh quét hoặc chụp. Agent đọc các trường, bạn soát từng trường cạnh ảnh gốc rồi Xác nhận. Ảnh chỉ đọc trên máy này, không lưu và không gửi đi. Bản thử chỉ đọc được các mẫu giả lập.</p>
+      <div class="row"><input type="file" id="vcFile" accept="image/png,image/jpeg"></div>
+      <div id="vcMsg"></div>
+      <div class="form" id="vcBox" hidden>
+        <div><img id="vcImg" alt="Ảnh chứng từ" style="max-width:100%;border:1px solid var(--line);border-radius:8px"></div>
+        <div><div id="vcFields"></div><div class="row"><button class="primary" id="vcConfirm">Xác nhận các trường</button></div></div>
+      </div>
+      <div id="vcRunBox" hidden>
+        <label class="field" for="vcFlow">Luồng sẽ chạy (agent đã duyệt)</label>
+        <select id="vcFlow"></select>
+        <div id="vcMap"></div>
+        <label class="field" for="vcWindow">Trang Internet Explorer đang mở màn đầu của việc này</label>
+        <select id="vcWindow"></select>
+        <div class="row"><button class="primary" id="vcGo">Chạy</button><button class="stop" id="vcStop">Dừng khẩn</button></div>
+        <div id="vcAsk"></div><div id="vcSteps" class="detail"></div>
+      </div>
+    </section>
+  </div>
   <div id="paneFlow" hidden>
     <section>
       <h2>Luồng đã học</h2>
@@ -124,6 +219,60 @@
       <div id="flowEmpty" class="msg bad" hidden>Chưa có luồng nào. Hãy Ghi 3 lần rồi bấm Học ở tab «Ghi và Học».</div>
       <div class="canvas" id="canvas" hidden><div class="flowrow" id="flowrow"></div></div>
       <div id="flowDetail"></div>
+    </section>
+    <section id="runBox">
+      <h2>Chạy luồng này</h2>
+      <p class="sub">Chọn trang Internet Explorer đang mở đúng màn hình đầu của việc này, nhập thông tin cần dùng, rồi Chạy. Bước ghi dữ liệu và bước tiền luôn dừng chờ bạn Duyệt. «Chạy thử» chỉ làm các bước chỉ xem rồi dừng trước bước ghi đầu tiên. Đăng nhập là việc của bạn: agent không bao giờ gõ mật khẩu.</p>
+      <div class="row"><select id="runWindow" class="grow"></select><button id="runWindowsRefresh">Tải lại</button></div>
+      <div id="runInputs"></div>
+      <div class="row"><button class="primary" id="runSim" title="Gửi lại các request đã học từ trang IE đã đăng nhập; không bấm, không điền gì trên giao diện">Chạy mô phỏng</button><button id="runDry">Chạy thử (chỉ đọc)</button><button id="runApprove">Duyệt agent này</button><button class="primary" id="runGo">Chạy</button><button class="stop" id="runStop">Dừng khẩn</button></div>
+      <div id="runAsk"></div>
+      <div id="runSteps" class="detail"></div>
+      <div id="runMsg"></div>
+    </section>
+  </div>
+
+  <div id="paneLink" hidden>
+    <section>
+      <h2>Gửi lại cho nhóm phát triển</h2>
+      <p class="sub">Tạo một file nhỏ chỉ có kết quả kiểm tra và tên các bước. Không có giá trị bạn đã nhập.</p>
+      <div class="row"><button id="diag">Tạo file chẩn đoán</button><span id="diagmsg"></span></div>
+    </section>
+    <section>
+      <h2>Gửi và nhận với máy chủ</h2>
+      <p class="sub">40 lần gần nhất agent gọi máy chủ, mới nhất ở trên: gửi gì, nhận gì. Thông tin nhạy cảm đã được che trước khi gửi, nên ở đây là đúng những gì đã rời máy. Chỉ giữ trong agent đang chạy, tắt agent là mất.</p>
+      <div class="row"><button id="srvLogRefresh">Làm mới</button></div>
+      <div id="srvLog"></div>
+    </section>
+    <section>
+      <h2>Kết nối trợ lý (Codie)</h2>
+      <p class="sub">Bấm «Thử gọi Codie» để gọi thật một lần, bằng một câu thử không có dữ liệu nào. Kết quả và mọi lần gọi sau này hiện ở bảng bên dưới. Bảng chỉ ghi giờ, mode, thời gian và kết quả, không ghi nội dung đã gửi hay nhận.</p>
+      <div class="row">
+        <div class="grow"><label class="field" for="codieCmd">Lệnh Codie</label><input type="text" id="codieCmd" placeholder="codie"></div>
+        <div class="grow"><label class="field" for="codieMode">Mode</label><input type="text" id="codieMode" placeholder="rookie-design"></div>
+      </div>
+      <div id="codieFound" class="detail"></div>
+      <div class="row"><button class="primary" id="codieTest">Thử gọi Codie</button><span class="detail" id="codieWait"></span></div>
+      <div id="codieMsg"></div>
+    </section>
+    <section>
+      <h2>Soi màn hình Internet Explorer</h2>
+      <p class="sub">Mở đúng màn không ghi được (ví dụ màn chọn role, ngôn ngữ, nơi làm việc), chọn trang đó ở mục «Màn hình cần ghi» bên tab Ghi và Học, rồi bấm Soi. Kết quả cho biết trang có những ô gì và có khung nào không đọc được. Không lưu giá trị hay chữ nào trên trang.</p>
+      <div class="row"><button id="inspect">Soi màn hình</button></div>
+      <div id="inspectMsg"></div>
+    </section>
+    <section>
+      <h2>Bản ghi gần nhất: bộ ghi nghe được gì</h2>
+      <p class="sub">Sau khi Dừng ghi, bấm Xem để đọc từng hành động bộ ghi nghe được, theo từng khung của trang. Đã che mật khẩu và số; không có ký tự gõ. Nếu khung của màn cần ghi không xuất hiện ở đây thì bộ ghi không nghe được màn đó.</p>
+      <div class="row"><button id="traceShow">Xem bản ghi gần nhất</button></div>
+      <div id="traceMsg"></div>
+      <pre id="traceText" class="detail" style="white-space: pre-wrap; max-height: 360px; overflow: auto" hidden></pre>
+    </section>
+    <section>
+      <h2>Nhật ký các lần gọi</h2>
+      <div class="row"><button id="callsRefresh">Làm mới</button></div>
+      <div id="callsEmpty" class="msg bad" hidden>Chưa có lần gọi nào.</div>
+      <table id="callsTable" hidden><thead><tr><th>Giờ</th><th>Đích</th><th>Mode</th><th>Kết quả</th><th>Giây</th><th>Ghi chú</th></tr></thead><tbody id="callsBody"></tbody></table>
     </section>
   </div>
 </main>
@@ -144,7 +293,7 @@ function say(target, text, kind) {
 }
 function el(tag, text, className) { const e = document.createElement(tag); if (text !== undefined) e.textContent = text; if (className) e.className = className; return e; }
 
-let recording = false, wantedBits = 0;
+let recording = false, preview = false, wantedBits = 0;
 
 async function runCheck() {
   $("checking").textContent = "Đang kiểm tra...";
@@ -184,16 +333,164 @@ async function switchBits(button) {
   button.textContent = "Chưa chuyển được. Đóng cửa sổ này và bấm lại biểu tượng Rookie Agent.";
 }
 
-async function loadWindows() {
-  const select = $("window"); select.textContent = "";
+// The list follows the screens by itself: a page changes its title after the sign in, and the choice stays on the same tab.
+let windowsSignature = "";
+async function loadWindows(force) {
+  const select = $("window");
   try {
     const data = await api("GET", "/api/windows");
-    if (!data.windows.length) select.append(new Option("(chưa thấy màn hình nào đang mở)", ""));
-    for (const title of data.windows) select.append(new Option(title, title));
-  } catch (e) { select.append(new Option("(không đọc được)", "")); }
+    const items = [];
+    for (const title of data.windows) if (!title.startsWith("Internet Explorer: ")) items.push([title, title]);
+    for (const tab of data.ie || []) items.push(["ie-tab:" + tab.id, "Internet Explorer: " + tab.title]);
+    const signature = JSON.stringify(items);
+    if (signature === windowsSignature && force !== true) return;   // nothing changed: do not touch the list
+    windowsSignature = signature;
+    const chosen = select.value;
+    select.textContent = "";
+    if (!items.length) select.append(new Option("(chưa thấy màn hình nào đang mở)", ""));
+    for (const [value, label] of items) select.append(new Option(label, value));
+    if (items.some(([value]) => value === chosen)) select.value = chosen;   // the same tab, with its new name
+  } catch (e) { select.textContent = ""; select.append(new Option("(không đọc được)", "")); windowsSignature = ""; }
 }
+// Also while recording: after the sign in the page changes its title, and the list must show the new one (the choice stays on the same tab id).
+setInterval(() => {
+  if (document.activeElement !== $("window")) loadWindows();
+  if (!$("paneFlow").hidden && document.activeElement !== $("runWindow")) loadRunWindows();
+  if (!$("paneAssist").hidden && document.activeElement !== $("asWindow")) loadAssistWindows();
+}, 3000);
 
-$("windowsRefresh").onclick = loadWindows;
+$("windowsRefresh").onclick = () => loadWindows(true);
+
+// What the agent saw on the screen: read again every 2 seconds while recording, and once after it stops.
+function seenTable(table, hot) {
+  const wrap = el("div", "", "seen-table" + (hot ? " hot" : ""));
+  const t = el("table");
+  const head = el("tr"); for (const h of table.headers) head.append(el("th", h)); t.append(head);
+  for (const row of table.rows.slice(0, 10)) { const tr = el("tr"); for (const c of row) tr.append(el("td", c)); t.append(tr); }
+  wrap.append(t);
+  if (table.row_count > 10) wrap.append(el("div", "… còn " + (table.row_count - 10) + " dòng", "detail"));
+  return wrap;
+}
+let seenSignature = "";
+async function loadSeen() {
+  const box = $("seenBox");
+  try {
+    const d = await api("GET", "/api/seen");
+    if (!d.last) return;
+    const signature = JSON.stringify(d.last);
+    if (signature === seenSignature) return;
+    seenSignature = signature;
+    box.textContent = "";
+    const after = d.last.after;
+    const top = el("div", "", "seen-head");
+    top.append(el("div", after ? "Sau thao tác «" + (after.label || after.id || after.kind) + "»" : "Màn hình hiện tại", "seen-title"));
+    if (d.last.region.length) top.append(el("span", "Vừa đổi: " + d.last.region.join(", "), "badge hot"));
+    box.append(top);
+    if (d.last.summary) box.append(el("div", d.last.summary, "detail"));
+    const hot = new Set(d.last.changed.map((c) => c.frame + "|" + c.kind + "|" + c.name));
+    for (const f of d.last.frames) {
+      if (!f.tables.length && !f.fields.length && !f.messages.length) continue;
+      const block = el("div", "", "seen-frame");
+      block.append(el("div", "Khung " + (f.frame || "chính"), "seen-frame-name"));
+      for (const m of f.messages) block.append(el("div", (m.level === "error" ? "Lỗi: " : "Thông báo: ") + m.text, m.level === "error" ? "msg bad" : "msg ok"));
+      if (f.fields.length) {
+        const grid = el("div", "", "kv");
+        for (const p of f.fields) {
+          const isHot = hot.has(f.frame + "|field|" + p.label);
+          grid.append(el("div", p.label, "k" + (isHot ? " hot" : "")), el("div", p.value, "v" + (isHot ? " hot" : "")));
+        }
+        block.append(grid);
+      }
+      for (const [i, t] of f.tables.entries()) block.append(seenTable(t, hot.has(f.frame + "|table|" + (t.id || "t" + i))));
+      box.append(block);
+    }
+  } catch (e) { /* the panel is a convenience: never break the page */ }
+}
+const requestNodes = new Map();          // key of a request -> its <details>; an existing one is never rebuilt, so an open entry stays open
+async function loadRequests() {
+  const box = $("reqBox");
+  try {
+    const d = await api("GET", "/api/requests");
+    if (!d.requests.length) return;
+    const list = d.requests.slice(-30);
+    const keys = list.map((r, i) => String(r.t) + "|" + r.method + "|" + r.url + "|" + list.slice(0, i).filter((q) => q.t === r.t && q.url === r.url && q.method === r.method).length);
+    if (!requestNodes.size) box.textContent = "";
+    const fresh = new Set(keys);
+    for (const [key, node] of [...requestNodes]) if (!fresh.has(key)) { node.remove(); requestNodes.delete(key); }
+    list.forEach((r, i) => {
+      if (requestNodes.has(keys[i])) return;
+      const item = document.createElement("details");
+      const sum = document.createElement("summary");
+      const bad = !(r.status >= 200 && r.status < 400);
+      sum.textContent = r.method + " " + r.url + " → " + r.status + " (" + r.ms + " ms)" + (r.after ? " · sau «" + (r.after.label || r.after.id || r.after.kind) + "»" : "");
+      if (bad) sum.style.color = "#b91c1c";
+      item.append(sum);
+      for (const [name, text] of [["Đã gửi", r.req], ["Đã nhận", r.res]]) {
+        const pre = el("pre", name + ":\n" + (text || "(trống)")); pre.style.whiteSpace = "pre-wrap"; pre.style.maxHeight = "220px"; pre.style.overflow = "auto"; item.append(pre);
+      }
+      requestNodes.set(keys[i], item);
+      box.insertBefore(item, box.firstChild);       // the newest on top
+    });
+  } catch (e) { /* a convenience: never break the page */ }
+}
+let dataSignature = "";
+async function loadData() {
+  try {
+    const d = await api("GET", "/api/screen");
+    if (!d.list.length) return;
+    const signature = JSON.stringify(d.list);
+    if (signature === dataSignature) return;      // unchanged: do not redraw, so the JSON panel and its scroll stay as the person left them
+    dataSignature = signature;
+    const box = $("dataBox"); box.textContent = "";
+    const t = el("table"); t.style.fontSize = "13px";
+    const head = el("tr"); for (const h of ["Loại", "Tên", "Giá trị", "Cách gọi"]) head.append(el("th", h)); t.append(head);
+    const kinds = { field: "ô thông tin", cell: "ô của bảng", message: "thông báo" };
+    for (const item of d.list.slice(0, 120)) {
+      const tr = el("tr");
+      for (const text of [kinds[item.kind] || item.kind, item.path, item.value, item.placeholder]) tr.append(el("td", text));
+      t.append(tr);
+    }
+    box.append(t);
+    $("dataJson").textContent = JSON.stringify(d.model, null, 1);
+  } catch (e) { /* a convenience: never break the page */ }
+}
+async function loadLive() {
+  const box = $("liveBox");
+  try {
+    const d = await api("GET", "/api/live");
+    if (!d.recording && !d.count) return;
+    box.textContent = "";
+    if (!d.steps.length) { box.append(el("div", "Đang theo dõi. Làm một thao tác trên màn hình Internet Explorer.")); if (d.hint) box.append(el("div", d.hint, "detail")); return; }
+    d.steps.forEach((text, i) => box.append(el("div", (d.count - d.steps.length + i + 1) + ". " + text)));
+    if (d.hint) box.append(el("div", d.hint, "msg bad"));
+  } catch (e) { /* a convenience: never break the page */ }
+}
+function showMode() {
+  const button = $("record"), side = $("preview");
+  button.disabled = preview; side.disabled = recording && !preview;
+  button.textContent = recording && !preview ? "Dừng ghi" : "Bắt đầu ghi"; button.className = recording && !preview ? "stop" : "primary";
+  side.textContent = preview ? "Dừng xem thử" : "Xem thử (không lưu)";
+  $("recstate").textContent = "";
+  if (recording) $("recstate").append(el("span", undefined, "recdot"), document.createTextNode(preview ? "Đang xem thử: không lưu gì." : "Đang ghi. Làm việc trên ứng dụng, xong thì bấm Dừng ghi."));
+}
+$("preview").onclick = async () => {
+  const side = $("preview"); side.disabled = true; say("recmsg", "");
+  try {
+    if (!recording) {
+      await api("POST", "/api/record/start", { window: $("window").value, preview: true, diag: $("diagLevel").value });
+      recording = true; preview = true; $("liveBox").textContent = "Đang theo dõi. Làm một thao tác trên màn hình Internet Explorer.";
+    } else {
+      await api("POST", "/api/record/stop", {});
+      recording = false; preview = false; loadSeen(); loadRequests(); loadLive();
+      say("recmsg", "Đã xem thử, không lưu gì.", "ok");
+    }
+  } catch (e) {
+    say("recmsg", e.message, "bad");
+    try { const s = await api("GET", "/api/state"); recording = s.recording; preview = !!s.preview; } catch (e2) { /* keep what we know */ }
+  }
+  showMode();
+};
+setInterval(() => { if (recording) { loadLive(); loadSeen(); loadData(); loadRequests(); } }, 1000);
 
 async function loadRecordings() {
   const data = await api("GET", "/api/recordings");
@@ -221,12 +518,13 @@ $("record").onclick = async () => {
   const button = $("record"); button.disabled = true; say("recmsg", "");
   try {
     if (!recording) {
-      await api("POST", "/api/record/start", { window: $("window").value });
-      recording = true; button.textContent = "Dừng ghi"; button.className = "stop";
+      await api("POST", "/api/record/start", { window: $("window").value, diag: $("diagLevel").value });
+      recording = true; preview = false; button.textContent = "Dừng ghi"; button.className = "stop";
       $("recstate").textContent = ""; $("recstate").append(el("span", undefined, "recdot"), document.createTextNode("Đang ghi. Làm việc trên ứng dụng, xong thì bấm Dừng ghi."));
     } else {
       const r = await api("POST", "/api/record/stop", { name: $("rname").value });
-      recording = false; button.textContent = "Bắt đầu ghi"; button.className = "primary"; $("recstate").textContent = ""; $("rname").value = "";
+      recording = false; preview = false; button.textContent = "Bắt đầu ghi"; button.className = "primary"; $("recstate").textContent = ""; $("rname").value = ""; showMode();
+      loadSeen(); loadRequests();
       say("recmsg", "Đã ghi " + r.events + " thao tác. Các ô nhập: " + r.typed_fields + ", giá trị được lưu: " + r.typed_values_kept + ".", "ok");
       loadRecordings();
     }
@@ -257,7 +555,7 @@ $("serverStart").onclick = async () => {
 
 $("learn").onclick = async () => {
   const ids = [...document.querySelectorAll("#recordings input[type=checkbox]:checked")].map((c) => c.dataset.id);
-  const button = $("learn"); button.disabled = true; say("learnmsg", "Đang học...", "ok");
+  const button = $("learn"); button.disabled = true; say("learnmsg", "Đang học... Nếu máy có trợ lý Codie, việc này có thể mất vài phút. Đừng tắt trang.", "ok");
   try {
     const r = await api("POST", "/api/learn", { ids, title: $("title").value });
     const box = $("learnmsg"); box.textContent = "";
@@ -267,6 +565,8 @@ $("learn").onclick = async () => {
     msg.append(list);
     msg.append(el("div", r.inputs.length ? "Thông tin thay đổi mỗi lần: " + r.inputs.join(", ") : "Không có thông tin nào thay đổi giữa các lần ghi.", "detail"));
     r.warnings.forEach((w) => msg.append(el("div", "Lưu ý: " + w, "detail")));
+    msg.append(el("div", r.method === "codie" ? "Dựng bằng trợ lý (Codie), đã qua kiểm chứng của chương trình." : "Dựng bằng cách học theo luật." + (r.fallback_reason ? " Trợ lý không dùng được vì: " + r.fallback_reason : ""), "detail"));
+    (r.questions || []).forEach((q) => msg.append(el("div", "Trợ lý hỏi: " + q, "detail")));
     box.append(msg); loadRecordings();
   } catch (e) { say("learnmsg", e.message, "bad"); }
   button.disabled = false;
@@ -282,17 +582,84 @@ $("check").onclick = runCheck;
   const state = await api("GET", "/api/state");
   $("bits").textContent = "Agent " + state.bits + "-bit · bản " + state.version;
   $("server").value = state.server;
-  recording = state.recording;
-  if (recording) { $("record").textContent = "Dừng ghi"; $("record").className = "stop"; }
+  recording = state.recording; preview = !!state.preview;
+  showMode();
   loadRecordings(); runCheck(); serverCheck();
 })();
 
 function showTab(name) {
-  $("paneWork").hidden = name !== "work"; $("paneFlow").hidden = name !== "flow";
-  $("tabWork").className = name === "work" ? "on" : ""; $("tabFlow").className = name === "flow" ? "on" : "";
+  $("paneWork").hidden = name !== "work"; $("paneFlow").hidden = name !== "flow"; $("paneLink").hidden = name !== "link"; $("paneAssist").hidden = name !== "assist";
+  $("tabWork").className = name === "work" ? "on" : ""; $("tabFlow").className = name === "flow" ? "on" : ""; $("tabLink").className = name === "link" ? "on" : ""; $("tabAssist").className = name === "assist" ? "on" : "";
   if (name === "flow") loadFlows();
+  if (name === "link") loadLink();
+  if (name === "assist") loadAssist();
 }
-$("tabWork").onclick = () => showTab("work"); $("tabFlow").onclick = () => showTab("flow");
+$("tabWork").onclick = () => showTab("work"); $("tabFlow").onclick = () => showTab("flow"); $("tabLink").onclick = () => showTab("link"); $("tabAssist").onclick = () => showTab("assist");
+
+async function loadLink() {
+  const s = await api("GET", "/api/codie");
+  if (!$("codieCmd").value) $("codieCmd").value = s.command;
+  if (!$("codieMode").value) $("codieMode").value = s.mode;
+  $("codieFound").textContent = s.message;
+  loadCalls();
+}
+async function loadCalls() {
+  const calls = (await api("GET", "/api/calls")).calls;
+  const body = $("callsBody"); body.textContent = "";
+  calls.forEach((c) => {
+    const tr = document.createElement("tr");
+    [c.time, c.target === "codie" ? "Codie" : c.target, c.mode, c.ok ? "Được" : "Lỗi", c.seconds, c.note].forEach((v, i) => {
+      const td = el("td", String(v)); if (i === 3) td.className = c.ok ? "ok" : "bad"; tr.append(td);
+    });
+    body.append(tr);
+  });
+  $("callsEmpty").hidden = calls.length > 0; $("callsTable").hidden = calls.length === 0;
+}
+$("codieTest").onclick = async () => {
+  const button = $("codieTest"); button.disabled = true; $("codieWait").textContent = "Đang gọi, có thể mất vài chục giây…"; $("codieMsg").textContent = "";
+  try {
+    const r = await api("POST", "/api/codie/test", { command: $("codieCmd").value.trim(), mode: $("codieMode").value.trim() });
+    const box = el("div", undefined, "msg " + (r.ok ? "ok" : "bad")); box.append(el("strong", r.ok ? "Gọi được. " : "Chưa gọi được. "), document.createTextNode(r.message));
+    if (r.tail) box.append(el("div", "Codie trả lời cuối cùng: " + r.tail, "detail"));
+    $("codieMsg").append(box);
+  } catch (e) { $("codieMsg").append(el("div", e.message, "msg bad")); }
+  button.disabled = false; $("codieWait").textContent = ""; loadCalls();
+};
+$("callsRefresh").onclick = loadCalls;
+async function loadServerLog() {
+  const box = $("srvLog"); box.textContent = "";
+  try {
+    const list = (await api("GET", "/api/server/log")).exchanges;
+    if (!list.length) { box.append(el("div", "Chưa gọi máy chủ lần nào từ khi bật agent.", "detail")); return; }
+    for (const x of list) {
+      const ok = x.status && x.status < 400, item = el("details");
+      item.append(el("summary", x.at + "  " + x.method + " " + x.url + "  →  " + (x.status || "không kết nối") + "  (" + x.ms + " ms)"));
+      if (!ok) item.firstChild.style.color = "var(--bad)";
+      const pretty = (t) => { try { return JSON.stringify(JSON.parse(t), null, 2); } catch (e) { return t; } };
+      if (x.sent) { item.append(el("div", "Gửi đi:", "detail")); item.append(el("pre", pretty(x.sent))); }
+      item.append(el("div", "Nhận về:", "detail")); item.append(el("pre", pretty(x.received) || "(trống)"));
+      box.append(item);
+    }
+  } catch (e) { box.append(el("div", e.message, "msg bad")); }
+}
+$("srvLogRefresh").onclick = loadServerLog;
+$("traceShow").onclick = async () => {
+  $("traceMsg").textContent = ""; $("traceText").hidden = true;
+  try {
+    const r = await api("GET", "/api/trace/last");
+    $("traceText").textContent = r.lines.join("\n"); $("traceText").hidden = false;
+    $("traceMsg").append(el("div", "File đầy đủ: " + r.path, "detail"));
+  } catch (e) { $("traceMsg").append(el("div", e.message, "msg bad")); }
+};
+$("inspect").onclick = async () => {
+  const button = $("inspect"), box = $("inspectMsg"); button.disabled = true; box.textContent = "Đang soi…";
+  try {
+    const r = await api("POST", "/api/ie/inspect", { window: $("window").value });
+    box.textContent = ""; const d = el("div", undefined, "msg ok");
+    r.summary.forEach((l) => d.append(el("div", l))); d.append(el("div", "Chi tiết để gửi nhóm phát triển: " + r.path, "detail")); box.append(d);
+  } catch (e) { box.textContent = ""; box.append(el("div", e.message, "msg bad")); }
+  button.disabled = false;
+};
 
 let flows = [];
 async function loadFlows() {
@@ -302,18 +669,228 @@ async function loadFlows() {
   $("flowEmpty").hidden = flows.length > 0; $("canvas").hidden = flows.length === 0; $("flowPick").hidden = flows.length === 0;
   if (flows.length) drawFlow(flows[pick.value || 0]);
 }
+let currentFlow = null;
+const STEP_WORDS = { running: "đang chạy", done: "xong", waiting_approval: "chờ bạn Duyệt", waiting_review: "chờ bạn xem", needs_help: "cần bạn giúp", stopped: "đã dừng", rejected: "bạn không duyệt", refused: "bị từ chối", failed: "lỗi" };
+function renderRunInputs(flow) {
+  currentFlow = flow;
+  const box = $("runInputs"); box.textContent = "";
+  for (const f of flow.input_fields || []) {
+    box.append(el("label", f.label, "field"));
+    const input = el("input"); input.type = "text"; input.dataset.name = f.name; box.append(input);
+  }
+  const fresh = !flow.approved || flow.repair_pending;
+  $("runApprove").disabled = !fresh; $("runApprove").textContent = flow.repair_pending ? "Duyệt bản sửa" : flow.approved ? "Agent đã duyệt" : "Duyệt agent này";
+  if (flow.repair_pending) { $("runMsg").textContent = ""; $("runMsg").append(el("div", "Agent có bản sửa (ô GDV đã chỉ lại) đang chờ Duyệt. Trước khi Duyệt, chỉ các bước chỉ xem được chạy.", "msg bad")); }
+  $("runBox").hidden = !flow || flow.engine !== "ie";
+}
+async function loadRunWindows() {
+  const select = $("runWindow"), chosen = select.value;
+  try {
+    const data = await api("GET", "/api/windows");
+    select.textContent = "";
+    if (!(data.ie || []).length) select.append(new Option("(chưa thấy trang Internet Explorer nào đang mở)", ""));
+    for (const tab of data.ie || []) select.append(new Option("Internet Explorer: " + tab.title, "ie-tab:" + tab.id));
+    if ([...select.options].some((o) => o.value === chosen)) select.value = chosen;
+  } catch (e) { select.textContent = ""; select.append(new Option("(không đọc được)", "")); }
+}
+$("runWindowsRefresh").onclick = loadRunWindows;
+async function startRun(mode) {
+  const inputs = {}; for (const input of $("runInputs").querySelectorAll("input")) inputs[input.dataset.name] = input.value;
+  $("runMsg").textContent = "";
+  try {
+    await api("POST", "/api/run/start", { title: currentFlow.title, inputs, window: $("runWindow").value, mode, confirm_changed: mode === "run" && screenChangedSeen });
+    screenChangedSeen = false;
+    pollRun();
+  } catch (e) {
+    screenChangedSeen = e.message.includes("Màn hình đã đổi");    // the second Chạy after this warning goes ahead (task 6.4)
+    $("runMsg").append(el("div", e.message, "msg bad"));
+  }
+}
+let screenChangedSeen = false;
+
+// ---- a payment order brought in (tasks 6.8, 6.9): read, the teller checks every field, then an approved flow runs with them ----
+let voucher = null;
+$("vcFile").onchange = () => {
+  const file = $("vcFile").files[0]; if (!file) return;
+  const reader = new FileReader();
+  reader.onload = async () => {
+    const url = String(reader.result); $("vcImg").src = url; $("vcMsg").textContent = ""; $("vcRunBox").hidden = true;
+    try {
+      voucher = await api("POST", "/api/voucher/read", { data: url.slice(url.indexOf(",") + 1) });
+      drawVoucher(); $("vcBox").hidden = false;
+    } catch (e) { $("vcBox").hidden = true; $("vcMsg").append(el("div", e.message, "msg bad")); }
+  };
+  reader.readAsDataURL(file);
+};
+function drawVoucher() {
+  const box = $("vcFields"); box.textContent = "";
+  for (const f of voucher.fields) {
+    box.append(el("label", f.label + " (độ tin cậy " + Math.round(f.confidence * 100) + "%)", "field"));
+    const input = el("input"); input.type = "text"; input.value = f.value; input.dataset.name = f.name;
+    if (f.problem) { input.style.borderColor = "var(--bad)"; box.append(input, el("div", f.problem, "detail")); } else box.append(input);
+  }
+  const check = el("label", undefined, "detail"); const tick = el("input"); tick.type = "checkbox"; tick.id = "vcChecked";
+  check.append(tick, document.createTextNode(" Tôi đã soát từng trường với ảnh gốc")); box.append(check);
+}
+$("vcConfirm").onclick = async () => {
+  $("vcMsg").textContent = "";
+  if (!$("vcChecked").checked) { $("vcMsg").append(el("div", "Đánh dấu «Tôi đã soát từng trường» trước khi Xác nhận.", "msg bad")); return; }
+  const fields = [...$("vcFields").querySelectorAll("input[type=text]")].map((i) => ({ name: i.dataset.name, value: i.value }));
+  try {
+    const reply = await api("POST", "/api/voucher/confirm", { id: voucher.id, fields });
+    voucher.flows = reply.flows; drawVoucherRun();
+  } catch (e) { $("vcMsg").append(el("div", e.message, "msg bad")); }
+};
+function drawVoucherRun() {
+  const pick = $("vcFlow"); pick.textContent = "";
+  if (!voucher.flows.length) { $("vcMsg").append(el("div", "Chưa có agent nào đã duyệt để chạy chứng từ này.", "msg bad")); return; }
+  for (const f of voucher.flows) pick.append(new Option(f.title, f.title));
+  pick.onchange = drawVoucherMap; drawVoucherMap();
+  loadWindowsInto($("vcWindow")); $("vcRunBox").hidden = false;
+}
+function drawVoucherMap() {
+  const flow = voucher.flows.find((f) => f.title === $("vcFlow").value), box = $("vcMap"); box.textContent = "";
+  for (const input of flow.inputs) {
+    box.append(el("label", input.label + " lấy từ trường", "field"));
+    const sel = el("select"); sel.dataset.name = input.name; sel.append(new Option("(không dùng)", ""));
+    for (const f of voucher.fields) sel.append(new Option(f.label, f.name));
+    sel.value = input.field || ""; box.append(sel);
+  }
+}
+async function loadWindowsInto(select) {
+  try {
+    const data = await api("GET", "/api/windows"); select.textContent = "";
+    for (const tab of data.ie || []) select.append(new Option("Internet Explorer: " + tab.title, "ie-tab:" + tab.id));
+    if (!select.options.length) select.append(new Option("(chưa thấy trang Internet Explorer nào đang mở)", ""));
+  } catch (e) { select.textContent = ""; }
+}
+$("vcGo").onclick = async () => {
+  const mapping = {}; for (const sel of $("vcMap").querySelectorAll("select")) if (sel.value) mapping[sel.dataset.name] = sel.value;
+  try {
+    await api("POST", "/api/voucher/run", { id: voucher.id, title: $("vcFlow").value, window: $("vcWindow").value, mapping });
+    pollRun({ steps: "vcSteps", ask: "vcAsk", msg: "vcMsg" });
+  } catch (e) { $("vcMsg").append(el("div", e.message, "msg bad")); }
+};
+$("vcStop").onclick = async () => { try { await api("POST", "/api/run/stop"); } catch (e) { /* the run may have ended */ } };
+$("runDry").onclick = () => startRun("dry");
+$("runSim").onclick = () => { pinnedStep = null; startRun("simulate"); };
+$("runGo").onclick = () => startRun("run");
+$("runStop").onclick = async () => { try { await api("POST", "/api/run/stop"); } catch (e) { /* the run may have ended */ } };
+$("runApprove").onclick = async () => {
+  try { await api("POST", "/api/flow/approve", { title: currentFlow.title }); await loadFlows(); }
+  catch (e) { $("runMsg").textContent = ""; $("runMsg").append(el("div", e.message, "msg bad")); }
+};
+let runTimer = null;
+const RUN_IDS = { steps: "runSteps", ask: "runAsk", msg: "runMsg" };
+async function pollRun(ids = RUN_IDS) {
+  if (runTimer) return;
+  const tick = async () => {
+    let status;
+    try { status = await api("GET", "/api/run/status"); } catch (e) { clearInterval(runTimer); runTimer = null; return; }
+    const steps = $(ids.steps); steps.textContent = "";
+    for (const s of status.steps) steps.append(el("div", s.id + ": " + (STEP_WORDS[s.status] || s.status) + (s.detail ? " (" + s.detail + ")" : "")));
+    if (ids === RUN_IDS) paintCanvas(status);
+    const ask = $(ids.ask); ask.textContent = "";
+    if (status.ask && status.ask.kind === "pick") {   // task 6.2: the look-alikes are coloured on the IE page
+      const a = status.ask, card = el("div", undefined, "msg bad");
+      card.append(el("strong", "Màn hình có vẻ đã đổi ở bước «" + (a.label || a.step_id) + "». Có phải ô được tô màu trên trang Internet Explorer không?"));
+      const row = el("div", undefined, "row");
+      const pick = (choice) => async () => { try { await api("POST", "/api/run/decide", { approve: choice !== null, choice, ask_id: a.id }); } catch (e) { $(ids.msg).append(el("div", e.message, "msg bad")); } };
+      a.candidates.forEach((c, i) => {
+        const b = el("button", "Ô tô " + c.color + (c.label ? ": " + c.label : ""), i === 0 ? "primary" : "");
+        b.disabled = true; setTimeout(() => { b.disabled = false; }, (a.lock_seconds || 0.8) * 1000); b.onclick = pick(i); row.append(b);
+      });
+      const none = el("button", "Không có ô nào đúng (dừng)"); none.onclick = pick(null); row.append(none);
+      card.append(row);
+      card.append(el("div", a.risk === "read" ? "Chọn xong agent làm tiếp bước này và nhớ lại ô đó." : "Chọn xong agent nhớ lại ô đó và dừng: bước ghi hoặc tiền chỉ chạy sau khi bản sửa được Duyệt lại.", "detail"));
+      ask.append(card);
+    } else if (status.ask) {
+      const a = status.ask, card = el("div", undefined, "msg bad");
+      card.append(el("strong", "Bước " + (a.index + 1) + "/" + a.total + ": " + (a.label || a.step_id) + " (rủi ro: " + (a.risk === "money" ? "tiền" : a.risk === "write" ? "ghi dữ liệu" : "chỉ xem") + ")"));
+      if (a.will_send !== null && a.will_send !== undefined) card.append(el("div", "Sẽ gửi: " + a.will_send));
+      if (a.manual) card.append(el("div", "Đây là bước đăng nhập của bạn: gõ mật khẩu và nhấn Enter trên màn hình Internet Explorer, rồi bấm «Đi tiếp». Agent không bao giờ gõ mật khẩu."));
+      card.append(el("div", "Đang thấy trên màn hình: " + a.seen, "detail"));
+      const yes = el("button", a.kind === "approve" ? "Duyệt" : "Đi tiếp", "primary"), no = el("button", a.kind === "approve" ? "Không duyệt" : "Dừng ở đây");
+      yes.tabIndex = -1; yes.disabled = true; setTimeout(() => { yes.disabled = false; }, (a.lock_seconds || 0.8) * 1000);   // not answered by an old double click
+      const answer = (approve) => async () => { try { await api("POST", "/api/run/decide", { approve, ask_id: a.id }); } catch (e) { $(ids.msg).append(el("div", e.message, "msg bad")); } };
+      yes.onclick = answer(true); no.onclick = answer(false);
+      const row = el("div", undefined, "row"); row.append(yes, no); card.append(row); ask.append(card);
+    }
+    if (status.result) {
+      clearInterval(runTimer); runTimer = null;
+      $(ids.msg).textContent = ""; $(ids.msg).append(el("div", status.result.message, status.result.status === "finished" ? "msg ok" : "msg bad"));
+    }
+  };
+  runTimer = setInterval(tick, 500); tick();
+}
+// the canvas follows the run: the step running pulses, done ones turn green, a stop or a question turns red or amber
+const LIVE_WORDS = { running: "▶ đang chạy", done: "✓ xong", skipped: "↷ bỏ qua", waiting_approval: "⏸ chờ Duyệt", waiting_review: "⏸ chờ bạn", needs_help: "? cần bạn giúp", stopped: "■ đã dừng", rejected: "✕ không duyệt", refused: "✕ bị từ chối", failed: "✕ lỗi", auto_approved: "✓ tự duyệt (thử)" };
+// task 7.5: what one step of a simulated run did: the action, the requests sent, what came back, the time and the state
+let lastRun = null, pinnedStep = null;
+function renderDetail(stepId) {
+  const d = lastRun && lastRun.details && lastRun.details[stepId], box = $("flowDetail");
+  if (!d) return false;
+  box.textContent = "";
+  const s = (lastRun.steps || []).find((x) => x.id === stepId) || {}, card = el("div", undefined, "msg " + (s.status === "done" ? "ok" : s.status === "skipped" ? "" : "bad"));
+  card.append(el("strong", "Thao tác: " + d.action));
+  card.append(el("div", "Trạng thái: " + (LIVE_WORDS[s.status] || s.status || "") + (s.detail ? " — " + s.detail : ""), "detail"));
+  if (!d.requests.length) card.append(el("div", "Không có request: bước này chỉ là thao tác trên màn hình.", "detail"));
+  d.requests.forEach((r, i) => {
+    const part = el("div", undefined, "simreq");
+    part.append(el("div", "Request " + (i + 1) + ": " + r.method + " " + r.url, "simhead"));
+    part.append(el("div", "Thời gian: " + (r.ms || 0) + " ms · Mã trả về: " + (r.status || "—") + (r.error ? " · " + r.error : ""), "detail"));
+    if (r.body) { const det = el("details"); det.append(el("summary", "Gửi đi (" + r.body.length + " ký tự)"), el("pre", r.body)); part.append(det); }
+    const v = r.view;
+    if (v) {
+      part.append(el("div", "Dữ liệu trả về (" + v.kind + ", " + v.size + " ký tự):", "detail"));
+      if (v.pairs.length) { const t = el("table", undefined, "seen-table"); v.pairs.forEach((p) => { const tr = el("tr"); tr.append(el("th", p[0]), el("td", p[1])); t.append(tr); }); part.append(t); }
+      if (v.rows.length) { const t = el("table", undefined, "seen-table"); v.rows.forEach((row, j) => { const tr = el("tr"); row.forEach((c) => tr.append(el(j === 0 && v.kind === "json" ? "th" : "td", c))); t.append(tr); }); part.append(t); }
+      if (v.lines.length) { const ul = el("ul"); v.lines.forEach((l) => ul.append(el("li", l))); part.append(ul); }
+      if (!v.pairs.length && !v.rows.length && !v.lines.length) part.append(el("div", "(trả về trống)", "detail"));
+    }
+    card.append(part);
+  });
+  box.append(card);
+  return true;
+}
+function paintCanvas(status) {
+  lastRun = status;
+  const nodes = $("flowrow").querySelectorAll(".node[data-step]");
+  const last = {}; for (const s of status.steps) last[s.id] = s;   // the latest state of each step
+  let current = null;
+  nodes.forEach((b) => {
+    const s = last[b.dataset.step]; b.classList.remove("st-run", "st-done", "st-wait", "st-bad", "st-skip");
+    const live = b.querySelector(".live"); live.textContent = s ? (LIVE_WORDS[s.status] || s.status) : "";
+    if (!s) return;
+    const cls = s.status === "running" ? "st-run" : (s.status === "done" || s.status === "auto_approved") ? "st-done" : s.status === "skipped" ? "st-skip"
+      : s.status.startsWith("waiting") ? "st-wait" : "st-bad";
+    b.classList.add(cls); if (cls === "st-run" || cls === "st-wait" || cls === "st-bad") current = b;
+  });
+  const end = $("flowrow").querySelector('.node[data-step="__end"]');
+  if (end) { end.classList.remove("st-done", "st-bad"); end.querySelector(".live").textContent = "";
+    if (status.result) { const ok = status.result.status === "finished"; end.classList.add(ok ? "st-done" : "st-bad"); end.querySelector(".live").textContent = ok ? "✓ hoàn tất" : "■ " + (STEP_WORDS[status.result.status] || status.result.status); if (!current) current = end; } }
+  if (current && current !== paintCanvas.shown) { current.scrollIntoView({ block: "nearest", inline: "center", behavior: "smooth" }); paintCanvas.shown = current; }
+  if (status.mode === "simulate") {   // the step just run shows its detail, unless the person clicked one to look at
+    const ids = Object.keys(status.details || {});
+    if (pinnedStep) renderDetail(pinnedStep); else if (ids.length) renderDetail(status.steps.filter((s) => status.details[s.id]).map((s) => s.id).pop() || ids[ids.length - 1]);
+  }
+}
 function drawFlow(flow) {
+  renderRunInputs(flow); loadRunWindows();
   const row = $("flowrow"); row.textContent = ""; $("flowDetail").textContent = "";
   const nodes = [{ cls: "start", n: "Bắt đầu", t: flow.title, lines: flow.inputs.length ? ["Nhập mỗi lần: " + flow.inputs.join(", ")] : ["Không có thông tin thay đổi"], badges: [] }]
-    .concat(flow.steps.map((s, i) => ({ cls: s.risk_key, n: "Bước " + (i + 1), t: s.text, lines: ["Mức rủi ro: " + s.risk, "Khi chạy: " + s.mode], badges: [s.risk, s.mode] })));
+    .concat(flow.steps.map((s, i) => ({ cls: s.risk_key, n: "Bước " + (i + 1), t: s.text, lines: ["Mức rủi ro: " + s.risk, "Khi chạy: " + s.mode].concat(s.optional ? ["Tuỳ chọn: " + (s.optional === "if_present" ? "chỉ bấm nếu có trên màn hình" : "để trống thì giữ giá trị đang có")] : []), badges: [s.risk, s.mode].concat(s.optional ? ["tuỳ chọn"] : []) })));
   nodes.push({ cls: "start", n: "Kết thúc", t: "Xong", lines: ["Bước ghi và bước tiền luôn dừng chờ người duyệt."], badges: [] });
   nodes.forEach((node, i) => {
     if (i) row.append(el("div", undefined, "link"));
     const b = el("button", undefined, "node " + node.cls);
-    b.append(el("div", node.n, "n"), el("div", node.t, "t"));
+    if (i > 0 && i <= flow.steps.length && flow.step_ids) b.dataset.step = flow.step_ids[i - 1];
+    if (i === nodes.length - 1) b.dataset.step = "__end";
+    b.append(el("div", node.n, "n"), el("div", node.t, "t"), el("div", "", "live"));
     const badges = el("div"); node.badges.forEach((x) => badges.append(el("span", x, "badge"))); b.append(badges);
     b.onclick = () => {
       row.querySelectorAll(".node").forEach((x) => x.classList.remove("sel")); b.classList.add("sel");
+      if (b.dataset.step && renderDetail(b.dataset.step)) { pinnedStep = b.dataset.step; return; }
       const box = $("flowDetail"); box.textContent = ""; const d = el("div", undefined, "msg ok");
       d.append(el("strong", node.n + ": " + node.t)); node.lines.forEach((l) => d.append(el("div", l, "detail"))); box.append(d);
     };
@@ -322,6 +899,62 @@ function drawFlow(flow) {
 }
 $("flowPick").onchange = () => drawFlow(flows[$("flowPick").value]);
 $("flowRefresh").onclick = loadFlows;
+
+// ---- Trợ lý: gõ một câu, xem thẻ «Sẽ chạy», bấm Chạy. Việc ghi và tiền vẫn dừng chờ Duyệt. ----
+let assistPlan = null;
+async function loadAssist() {
+  loadAssistWindows();
+  try {
+    const data = await api("GET", "/api/assistant/habits"), box = $("asFrequent"); box.textContent = "";
+    if (data.frequent.length) box.append(el("span", "Việc hay làm:", "detail"));
+    for (const item of data.frequent) { const b = el("button", item.title); b.onclick = () => { $("asText").value = item.title; askAssistant(); }; box.append(b); }
+  } catch (e) { /* the shortcuts are a convenience */ }
+}
+async function loadAssistWindows() {
+  const select = $("asWindow"), chosen = select.value;
+  try {
+    const data = await api("GET", "/api/windows");
+    select.textContent = "";
+    if (!(data.ie || []).length) select.append(new Option("(chưa thấy trang Internet Explorer nào đang mở)", ""));
+    for (const tab of data.ie || []) select.append(new Option("Internet Explorer: " + tab.title, "ie-tab:" + tab.id));
+    if ([...select.options].some((o) => o.value === chosen)) select.value = chosen;
+  } catch (e) { select.textContent = ""; select.append(new Option("(không đọc được)", "")); }
+}
+$("asWindowsRefresh").onclick = loadAssistWindows;
+function drawAssist(plan) {
+  assistPlan = plan; const card = $("asCard"); card.textContent = ""; $("asGo").hidden = plan.state !== "ready";
+  $("asNote").textContent = plan.method ? (plan.method === "llm" ? "Chọn bằng trợ lý AI." : "Chọn bằng luật (không cần mạng).") : "";
+  const box = el("div", undefined, plan.state === "ready" ? "msg ok" : "msg bad"); box.append(el("strong", plan.message));
+  if (plan.state === "choose") for (const c of plan.candidates) {
+    const b = el("button", c.title + " (" + Math.round(c.confidence * 100) + "%)"); b.onclick = () => answerAssistant({ choice: c.ref }); box.append(el("div"), b);
+  }
+  if (plan.state === "none") box.append(el("div", "Mở tab «Ghi và Học» để Ghi rồi Học một agent mới.", "detail"));
+  if (plan.workflow && plan.workflow.steps.length) box.append(el("div", "Các bước: " + plan.workflow.steps.join(" → "), "detail"));
+  for (const q of plan.questions || []) box.append(el("div", q));
+  for (const input of plan.inputs || []) {
+    const row = el("div", undefined, "row"), field = el("input"); field.dataset.name = input.name; field.value = input.value; field.placeholder = input.label;
+    field.className = "grow"; field.onchange = () => answerAssistant({ inputs: { [input.name]: field.value } });
+    row.append(el("span", input.label + (input.source ? " (" + input.source + ")" : "") + ": "), field); box.append(row);
+  }
+  card.append(box);
+}
+async function askAssistant() {
+  $("asMsg").textContent = "";
+  try { drawAssist(await api("POST", "/api/assistant/plan", { text: $("asText").value })); } catch (e) { $("asMsg").append(el("div", e.message, "msg bad")); }
+}
+async function answerAssistant(more) {
+  try { drawAssist(await api("POST", "/api/assistant/answer", { plan_id: assistPlan.plan_id, ...more })); } catch (e) { $("asMsg").append(el("div", e.message, "msg bad")); }
+}
+$("asAsk").onclick = askAssistant;
+$("asText").onkeydown = (e) => { if (e.key === "Enter") askAssistant(); };
+$("asGo").onclick = async () => {
+  $("asMsg").textContent = "";
+  try {
+    await api("POST", "/api/assistant/run", { plan_id: assistPlan.plan_id, window: $("asWindow").value });
+    $("asGo").hidden = true; pollRun({ steps: "asSteps", ask: "asAsk2", msg: "asMsg" });
+  } catch (e) { $("asMsg").append(el("div", e.message, "msg bad")); }
+};
+$("asStop").onclick = async () => { try { await api("POST", "/api/run/stop"); } catch (e) { /* the run may have ended */ } };
 </script>
 </body>
 </html>

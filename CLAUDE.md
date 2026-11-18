@@ -48,6 +48,7 @@ java -jar mock-java\mock-tpss.jar
 
 # windows agent (dùng chung venv ở server/.venv; khi chạy chỉ cần thư viện chuẩn)
 cd windows-agent; pip install -r requirements-dev.txt; pytest
+$env:ROOKIE_REAL_IE = "1"; $env:RK_DOCMODE = "8"; pytest tests/test_ie_real.py   # (chạy cả 8 và 9; máy GDV là IE 8/9, IE 11 chỉ giả lập chế độ tài liệu) bắt buộc khi sửa phần IE: chạy trên Internet Explorer thật (tự mở cửa sổ riêng, mất khoảng 20 giây, đừng gõ phím ở chỗ khác lúc chạy)
 python -m rookie_agent status
 python -m rookie_agent web   # trang quản lý tại http://localhost:8765 (Kiểm tra máy, Ghi, Học)
 

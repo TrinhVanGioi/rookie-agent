@@ -10,9 +10,7 @@ from __future__ import annotations
 import base64
 import json
 import re
-from typing import Any
-
-import httpx
+from typing import TYPE_CHECKING, Any
 
 from app.llm.base import (
     CAUSES,
@@ -24,6 +22,9 @@ from app.llm.base import (
     Location,
     assert_masked,
 )
+
+if TYPE_CHECKING:
+    import httpx
 
 _THINK_BLOCK = re.compile(r"<think>.*?</think>", re.DOTALL)
 _CODE_FENCE = re.compile(r"^```(?:json)?\s*(.*?)\s*```$", re.DOTALL)
@@ -100,6 +101,11 @@ class OpenAICompatClient:
         self._json_schema = json_schema
         self._disable_thinking = disable_thinking
         self._vision = vision
+        try:
+            import httpx   # only here: a package without httpx must still start the server with the rules (rule 7)
+        except ImportError as error:
+            raise LLMError("Máy này thiếu thư viện httpx nên không gọi được LLM; dùng luật.") from error
+        self._httpx = httpx
         headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
         self._http = httpx.Client(timeout=timeout, headers=headers, transport=transport)
 
@@ -120,7 +126,7 @@ class OpenAICompatClient:
             body["chat_template_kwargs"] = {"enable_thinking": False}
         try:
             response = self._http.post(f"{self.base_url}/chat/completions", json=body)
-        except httpx.HTTPError as error:
+        except self._httpx.HTTPError as error:
             raise LLMError(f"Không gọi được LLM tại {self.base_url}: {error}") from error
         if response.status_code != 200:
             raise LLMError(f"LLM trả mã {response.status_code}: {response.text[:300]}")

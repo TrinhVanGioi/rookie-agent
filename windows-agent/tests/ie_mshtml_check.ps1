@@ -3,7 +3,7 @@
 param([string]$JsPath)
 $js = [string][IO.File]::ReadAllText($JsPath)   # a plain string: one straight from Get-Content hangs COM
 $h = New-Object -ComObject htmlfile
-$h.IHTMLDocument2_write('<html><head><title>Main</title></head><body><table><tr><td>Ma khach hang:</td><td><input type="text" id="txtCustomerId" name="txtPartyID"></td></tr><tr><td>Mat khau</td><td><input type="password" id="pw" name="pw"></td></tr><tr><td>So tien</td><td><input type="text" id="amt" name="amt"></td></tr></table><input type="hidden" name="appPasswd" value="SECRET1"><button id="btnSave">LUU</button><table><tr><td id="tabHoSo" style="cursor:pointer">Ho so</td><td id="tabTin" style="cursor:pointer">Thong tin tai</td></tr></table><div id="plain">Chi la chu, khong bam duoc</div><table><tr><th>So TK</th><th>Loai</th><th>So du</th></tr><tr id="row1" style="cursor:pointer"><td>-3864</td><td>DDA</td><td>NGUYEN VAN A</td></tr><tr><td>-7577</td><td>DDA</td><td>1</td></tr></table><span id="inner" style="cursor:pointer"><b id="bold">Duy tri</b></span></body></html>')
+$h.IHTMLDocument2_write('<html><head><title>Main</title></head><body><table><tr><td>Ma khach hang:</td><td><input type="text" id="txtCustomerId" name="txtPartyID"></td></tr><tr><td>Mat khau</td><td><input type="password" id="pw" name="pw"></td></tr><tr><td>So tien</td><td><input type="text" id="amt" name="amt"></td></tr></table><input type="hidden" name="appPasswd" value="SECRET1"><button id="btnSave">LUU</button><table><tr><td id="tabHoSo" style="cursor:pointer">Ho so</td><td id="tabTin" style="cursor:pointer">Thong tin tai</td></tr></table><input type="text" id="txtUser" name="txtUser"><div id="plain">Chi la chu, khong bam duoc</div><table><tr><th>So TK</th><th>Loai</th><th>So du</th></tr><tr id="row1" style="cursor:pointer"><td>-3864</td><td>DDA</td><td>NGUYEN VAN A</td></tr><tr><td>-7577</td><td>DDA</td><td>1</td></tr></table><span id="inner" style="cursor:pointer"><b id="bold">Duy tri</b></span></body></html>')
 $h.IHTMLDocument2_close()
 $win = $h.parentWindow
 $win.execScript($js, 'javascript')
@@ -21,6 +21,7 @@ H.click({srcElement: doc.getElementById("tabHoSo")});
 H.click({srcElement: doc.getElementById("plain")});
 H.click({srcElement: doc.getElementById("row1").cells[2]});
 H.click({srcElement: doc.getElementById("bold")});
+var u = document.getElementById("txtUser"); u.value = "teller01"; fout(u);   // typed into a field that already had the focus when recording began: no focusin was seen
 window.__out = window.__rkTake();
 window.__flags = document.compatMode + "|" + typeof JSON + "|" + typeof document.addEventListener;
 '@, 'javascript')
