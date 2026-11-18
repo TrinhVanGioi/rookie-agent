@@ -317,6 +317,17 @@ GDV đưa giấy uỷ nhiệm chi (UNC) vào thay vì gõ lệnh; agent tách c�
 5. **Chạy như lệnh gõ.** Từ đây giống Gate 5: Trợ lý chọn agent đã duyệt khớp loại chứng từ, Runner chạy, bước `write` chờ GDV Duyệt, bước `money` dừng chờ người kiểm soát bấm Duyệt. Agent làm tới đúng phần việc của vai trò người đang chạy (chính sách mục 6, quyền của chính phiên đăng nhập), phần còn lại chuyển cho người có vai trò tiếp theo.
 6. **Lưu và audit.** Không lưu ảnh và giá trị trường trong trace hay audit; audit chỉ ghi loại chứng từ, tên các trường, độ tin cậy và ai đã xác nhận.
 
+### 6.3 Chạy mô phỏng bằng request (hướng B, Internet Explorer)
+
+GDV Ghi một lần (thao tác và request/response của trang), Học thành luồng, rồi ở tab «Luồng đã học» nhập giá trị mới (ví dụ số CIF) và bấm **Chạy mô phỏng**. Agent không bấm, không điền gì trên giao diện: nó gửi lại các request đã học và sơ đồ sáng lần lượt từng bước, mỗi bước hiện thao tác, request gửi đi, dữ liệu trả về, thời gian và trạng thái.
+
+1. **Request mẫu lúc Dừng ghi** (`ie/replay.py`, `templates`). Bộ ghi trong trang giữ method, url, header trang tự đặt (bỏ header có cookie, token, mật khẩu), body (tối đa 16000 ký tự). Giá trị GDV đã gõ được thay bằng dấu `⟦eN⟧` của sự kiện đã gõ nó (cả dạng mã hoá URL), không lưu giá trị. Request có mật khẩu/OTP đã che (`"***"`) hoặc body bị cắt thì đánh dấu không gửi lại được. Mẫu nằm trong file bản ghi trên máy GDV, không gửi lên máy chủ học.
+2. **Gắn vào bước lúc Học** (`attach`). Mỗi request thuộc bước của thao tác ngay trước nó; request lúc tải trang (trước thao tác đầu tiên) hoặc request lỗi lúc ghi bị bỏ. Dấu `⟦eN⟧` thành giá trị của bước: `⟦tên_tham_số⟧` nếu bước nhận tham số, chữ cố định nếu không. Dấu không bước nào giải thích được làm request đó không chạy được (`unresolved`). Lưu ở `flows[].requests` trên máy.
+3. **Gửi trong phiên của GDV** (lệnh trang `send`/`sendres`). Request được gửi bằng XHR gốc của chính trang IE đã đăng nhập, ở đúng frame lúc ghi: cookie phiên (kể cả HttpOnly) đi theo mà agent không đọc. Giao diện không đổi. Trả lời giữ trong bộ nhớ.
+4. **Giới hạn.** Chỉ bước `read` được gửi. Bước `write`/`money` có request thì dừng («dùng Chạy trên màn hình, có Duyệt»); bước chỉ thao tác màn hình thì bỏ qua. Máy chủ trả mã ≥400, `//EX` của GWT, hoặc trang đăng nhập thì dừng, không thử đoán. Thiếu giá trị thì hỏi.
+5. **Hiển thị và audit.** Dữ liệu trả về được rút gọn (`ie/response_view.py`: JSON thành cặp khoá/giá trị và bảng, GWT thành các chuỗi đọc được, HTML thành ô bảng và chữ) và chỉ hiện trên trang quản lý của máy GDV. Audit chỉ ghi tên luồng, các bước và trạng thái.
+6. **Chưa làm.** Giá trị lấy từ trả lời của bước trước để dùng ở bước sau; mã chống giả (XSRF) phải lấy mới mỗi lần, cần thử trên UAT để biết dạng.
+
 ## 7. Bước tư duy: đối chiếu 2 báo cáo
 
 Ngoài lấy dữ liệu, agent so sánh theo rule của người dùng và giải thích chênh lệch.

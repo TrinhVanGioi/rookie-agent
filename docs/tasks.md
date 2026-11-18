@@ -171,6 +171,19 @@ Thiết kế: `docs/design.md` mục 6.1 và 6.2. Không đổi quy tắc cứng
 | 6.8 | Màn soát chứng từ trong tab Trợ lý: ảnh cạnh từng trường, sửa/xác nhận, chặn khi trường dưới ngưỡng | Test webui: chưa xác nhận thì không có nút Chạy; ảnh và giá trị không vào trace/audit. **Xong**: mục «Đưa chứng từ vào» ở tab Trợ lý; phải đánh dấu «đã soát từng trường»; `tests/test_voucher_run.py` |
 | 6.9 | Nối chứng từ đã xác nhận vào Trợ lý và Runner (luồng chuyển tiền trên mock) | Chạy trọn trên mock: dừng ở bước `money` chờ người kiểm soát; audit chỉ có tên trường và người xác nhận. **Xong** trên mock giả (test); chưa chạy trên IE thật với luồng chuyển tiền đã học |
 
+## Gate 7: chạy mô phỏng bằng request trong sơ đồ
+
+Thiết kế: `docs/design.md` mục 6.3. Chỉ bước `read` được gửi; request đi trong phiên của chính trang IE của GDV; dữ liệu trả về chỉ hiện trên máy GDV.
+
+| # | Task | Tiêu chí nghiệm thu |
+|---|---|---|
+| 7.1 | Lưu request mẫu cùng bản ghi, giá trị đã gõ thay bằng dấu sự kiện | Test: giá trị gõ và mật khẩu không có trong file; request có `***` hoặc bị cắt thì `complete=false`. **Xong**: `replay.templates`, bộ ghi trong trang giữ header và cờ `cut`; `tests/test_replay.py`, `test_webui.py` |
+| 7.2 | Gắn request vào bước khi Học | Test: request thuộc đúng bước, dấu thành `⟦tham_số⟧` hoặc chữ cố định, request lúc tải trang bị bỏ. **Xong**: `replay.attach`, `flows[].requests` |
+| 7.3 | Lệnh `send` của bridge: gửi từ đúng frame trong phiên của trang | Test IE thật: cookie trang đi theo, header được đặt, không có gì trên màn hình đổi; frame không có thì `no_frame`. **Xong**: `send`/`sendres` trong `page_recorder.js`, `IeBridge.send` |
+| 7.4 | Rút gọn dữ liệu trả về | Test: JSON, GWT (bỏ tên lớp Java), HTML. **Xong**: `ie/response_view.py` |
+| 7.5 | Nút «Chạy mô phỏng», sơ đồ sáng theo bước, khung chi tiết 4 phần | Test: request đi với giá trị mới; bước ghi có request thì dừng, không gửi; `//EX` thì dừng hỏi; audit không có giá trị. **Xong**: `replay.simulate`, `Core._simulate_start`, `run_status.details` |
+| 7.6 | Tài liệu và đóng gói | **Xong**. Chưa thử trên TouchPoint UAT; mã chống giả và giá trị nối giữa các bước để sau |
+
 ## Phần để sau PoC
 
 - Đánh giá độ chính xác của LLM nội bộ (Learner, giải thích lệch, self-healing) trên bộ mẫu; self-healing bằng ảnh nếu model nhận được ảnh.
