@@ -307,6 +307,30 @@ def test_the_configured_folder_is_used_when_there_is_one(tmp_path, monkeypatch):
     assert len(list((tmp_path / "mine").glob("*.pdf"))) == 1
 
 
+def test_the_address_of_a_dialog_is_learned_as_a_dialog_node_and_a_window_open_is_not():
+    for target, expected in (("dialog", True), ("_blank", False)):
+        raw, events, requests = export_requests()
+        requests.append({"kind": "open", "frame": "main", "method": "GET", "url": "/touchpoint/utilities/dlgMessageBox.jsp?language=vi", "status": 200, "req": "", "res": "",
+                         "hdr": "", "target": target, "file": {"guess": True, "ctype": "", "size": 0, "name": ""}, "after": {"t": 1_700_000_003_000}})
+        nodes = replay.build_api(flow(), events, replay.templates(raw, events, requests))
+        opened = next(n for n in nodes if n["url"].endswith("language=vi"))
+        assert bool(opened.get("dialog")) is expected and opened["kind"] == "file"
+
+
+@pytest.mark.parametrize("dialog, status", [(True, "finished"), (False, "needs_help")])
+def test_a_dialog_of_the_page_that_shows_a_page_is_skipped_but_a_file_request_that_gets_a_page_still_needs_help(tmp_path, monkeypatch, dialog, status):
+    """TouchPoint opens its own message box (Đồng ý, Hủy) with showModalDialog: a guess made from the address of a dialog is not a file the run must get."""
+    core = export_core(tmp_path, monkeypatch, {"ok": True, "status": 200, "ms": 5, "text": "<xml><button>Đồng ý</button></xml>"})
+    node = {**file_nodes()[2:][-1], "via": "open", "method": "GET", "body": "", "file": {"guess": True, "ctype": "", "size": 0, "name": ""}, **({"dialog": True} if dialog else {})}
+    flows = core.store.get("flows")
+    flows[0]["api"] = [node]
+    core.store.put("flows", flows)
+    run = run_to_end(core)
+    assert run["result"]["status"] == status, run
+    if dialog:
+        assert not any(r.get("view") or r.get("error") for d in run["details"].values() for r in d["requests"])      # nothing of the dialog's page is shown
+
+
 def test_the_open_routes_open_only_a_file_inside_the_rookie_folder(tmp_path, monkeypatch):
     core = export_core(tmp_path, monkeypatch, {"ok": True, "status": 200, "ms": 5, "text": "", "file": {"data": PDF_BYTES, "ctype": "application/pdf", "disposition": ""}})
     run_to_end(core)

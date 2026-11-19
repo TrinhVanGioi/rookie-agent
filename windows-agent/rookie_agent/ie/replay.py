@@ -225,6 +225,7 @@ def templates(raw: list[dict[str, Any]], events: list[dict[str, Any]], requests:
             "complete": not item.get("cut") and not hidden and "***" not in body and body != "[object]",
             "status": int(item.get("status") or 0), "answer": "file" if file else response_view.kind_of(str(item.get("res") or "")),
             "ms": int(item.get("ms") or 0), **({"file": file} if file else {}),
+            **({"target": "dialog"} if item.get("target") == "dialog" else {}),
         })
     for index, item in enumerate(out):   # task 9.4: the answer's skeleton (no value), made so that the links to it still find a value
         rules = [rule for other in out for rule in other["links"].values() if rule["from"] == index]
@@ -285,6 +286,7 @@ def build_api(workflow: dict[str, Any], events: list[dict[str, Any]], found: lis
         node = {
             "id": f"a{item['index']}", "step_id": step_id, "kind": "file" if item.get("file") else item["kind"],
             "via": item["kind"], **({"file": item["file"]} if item.get("file") else {}),
+            **({"dialog": True} if item.get("target") == "dialog" else {}),     # the address of a dialog (showModalDialog): a message box of the page as likely as a file
             "group": f"g{group_count}", "group_label": describe(step) if step else "Mở màn hình",
             "label": f"{describe(step) if step else 'Mở màn hình'} → {item['method']} {path[-60:]}",
             "frame": item["frame"], "method": item["method"], "url": url, "headers": headers, "body": body,
@@ -608,6 +610,11 @@ def run_api(workflow: dict[str, Any], nodes: list[dict[str, Any]], values: dict[
             text = str(answer.get("text") or "")
             answers[node["id"]] = text
             sent["view"] = response_view.summarize(text)
+            if node.get("dialog"):
+                # a dialog the page opened that shows a page (TouchPoint's own message box: Đồng ý, Hủy) is not a file this flow must get: skipped, nothing of it shown
+                sent.pop("view", None)
+                sent["skipped"] = "hộp thoại của trang, không phải file: bỏ qua"
+                continue
             why = "" if twin else refused(int(answer.get("status") or 0), text)
             if not why and node.get("kind") == "file":
                 why = "máy chủ trả về trang hoặc chữ chứ không phải file (có thể sai tiêu chí, hoặc báo cáo chưa sẵn sàng)"
