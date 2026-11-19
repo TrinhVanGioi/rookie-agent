@@ -930,8 +930,12 @@ async function pollRun(ids = RUN_IDS) {
     } else if (status.ask && status.ask.kind === "confirm_read") {   // a step no rule named: does it only look? (docs/design.md 6.4)
       const a = status.ask, card = el("div", undefined, "msg bad");
       card.append(el("strong", a.question));
-      card.append(el("div", "Sẽ gửi " + a.calls.length + " lời gọi:", "detail"));
-      a.calls.forEach((c, j) => card.append(el("div", (j + 1) + ". " + c.name, "detail")));
+      const callList = el("details"), callBox = el("div", undefined, "calls");
+      callList.append(el("summary", "Sẽ gửi " + a.calls.length + " lời gọi (bấm để xem)"));
+      if (openCalls.has("ask#" + a.id)) callList.open = true;
+      callList.addEventListener("toggle", () => { if (callList.open) openCalls.add("ask#" + a.id); else openCalls.delete("ask#" + a.id); });
+      a.calls.forEach((c, j) => { const line = el("div", (j + 1) + ". " + c.name, "cname"); line.title = c.name; line.style.padding = "2px 8px"; line.style.fontSize = "12px"; callBox.append(line); });
+      callList.append(callBox); card.append(callList);
       card.append(el("div", "Chọn «Chỉ xem — gửi» thì agent nhớ bước này trên máy này, lần sau gửi luôn không hỏi lại (rút lại được ở trang luồng). Chọn «Có thay đổi — không gửi» thì không gửi gì và không nhớ gì.", "detail"));
       const yes = el("button", "Chỉ xem — gửi", "primary"), no = el("button", "Có thay đổi — không gửi");
       yes.tabIndex = -1; lockButton(yes, a);
