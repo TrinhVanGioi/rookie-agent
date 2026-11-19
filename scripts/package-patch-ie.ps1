@@ -25,6 +25,8 @@ function Copy-Tree([string]$from, [string]$to, [string[]]$include) {
 Copy-Tree (Join-Path $repo "windows-agent\rookie_agent") (Join-Path $stage "windows-agent\rookie_agent") @(".py", ".js", ".ps1", ".html", ".json", ".cmd", ".png", ".txt")
 Copy-Tree (Join-Path $repo "server\app") (Join-Path $stage "server\app") @(".py", ".json", ".html", ".js", ".css")   # the admin page (task 10.6) too
 Copy-Tree (Join-Path $repo "config") (Join-Path $stage "config") @(".json")
+New-Item -ItemType Directory -Force (Join-Path $stage "mock-site") | Out-Null      # the TouchPoint look-alike (task 11.1), tests left out
+Get-ChildItem (Join-Path $repo "mock-site") -File -Filter *.py | Copy-Item -Destination (Join-Path $stage "mock-site")
 Copy-Tree (Join-Path $repo "schemas") (Join-Path $stage "schemas") @(".json")
 foreach ($loose in @("windows-agent\install\Xem-loi.cmd", "windows-agent\install\start.js", "windows-agent\soi-ie-click.ps1", "windows-agent\soi-ie-dom.ps1", "windows-agent\soi-ie.py")) {
     $source = Join-Path $repo $loose

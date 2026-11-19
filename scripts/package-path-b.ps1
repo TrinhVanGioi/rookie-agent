@@ -42,6 +42,10 @@ $serverTarget = Join-Path $stage "server"
 New-Item -ItemType Directory -Force $serverTarget | Out-Null
 Copy-Item -Recurse (Join-Path $repo "server\app") (Join-Path $serverTarget "app")
 Copy-Item (Join-Path $repo "server\requirements-run.txt") $serverTarget
+# The mock site with the TouchPoint look-alike (task 11.1), for demos and the sandbox: synthetic data only
+$mockTarget = Join-Path $stage "mock-site"
+New-Item -ItemType Directory -Force $mockTarget | Out-Null
+Get-ChildItem (Join-Path $repo "mock-site") -File -Filter *.py | Copy-Item -Destination $mockTarget
 
 # Python wheels for the server, for the target's Python
 $wheels = Join-Path $stage "wheels"
