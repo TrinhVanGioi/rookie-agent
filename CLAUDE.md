@@ -59,6 +59,13 @@ $env:ROOKIE_REAL_IE = "1"; $env:RK_DOCMODE = "8"; pytest tests/test_ie_real.py  
 python -m rookie_agent status
 python -m rookie_agent web   # trang quản lý tại http://localhost:8765 (Kiểm tra máy, Ghi, Học)
 
+# ma trận Ghi → Học → Chạy trên IE thật, trên TouchPoint giả lập (Gate 11): bắt buộc khi sửa phần ghi hoặc học
+.\scripts\run-ie-matrix.ps1
+# TouchPoint giả lập để demo: chạy mock site rồi mở http://localhost:8001/tp/ bằng Internet Explorer (gdv01 / demo-only-1234)
+# MCP cho Genie Codie (Gate 11): stdio; hoặc HTTP khi Codie ở máy khác
+python -m rookie_agent mcp
+$env:ROOKIE_MCP_TOKEN = "<ít nhất 24 ký tự>"; python -m rookie_agent mcp --http 8770 --allow 10.0.0.5
+
 # đóng gói hướng B để mang vào máy nội bộ (xem windows-agent/README.md)
 .\scripts\package-path-b.ps1
 ```

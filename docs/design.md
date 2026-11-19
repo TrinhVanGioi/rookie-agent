@@ -582,3 +582,22 @@ Tab Luồng ở `:8765` có «Kiểm tra bản mới». Mỗi bản mới hiện
 - Chưa bấm «Dùng bản này», hoặc không kết nối được máy chủ, thì máy vẫn chạy bản của mình.
 
 Mỗi lần chạy, dòng audit có `run_id`, `workflow_id`, `version` và được gửi lên `POST /runs`. Gửi theo `run_id` nên gửi lại không bị trùng; gửi lỗi thì giữ lại gửi lần sau. Chỉ gửi id bước, trạng thái và quyết định Duyệt, không gửi chữ chi tiết của bước. Trang quản trị hiện lịch sử chạy và tỉ lệ lỗi theo luồng.
+## 14. Ghi và Học chắc chắn tổng thể (Gate 11)
+
+Không sửa lỗi ghi hay học khi gặp từng cái trên TouchPoint. Thay vào đó:
+
+1. **TouchPoint giả lập** (`mock-site/touchpoint.py`, `/tp/`) có đủ các mẫu khó đã gặp: khung trang, getToken rồi TPClassLoader có Bearer (chỉ token mới nhất), thân và trả lời GWT-RPC đúng dạng, Enter hay nút, tick dòng, hộp thoại In tự gửi form lấy PDF, `window.open` ra PDF, form vào khung ẩn ra file đính kèm, hộp thông báo khi bấm sai, trang tự hỏi định kỳ, lập lệnh tiền và duyệt của KSV. Dữ liệu tự sinh. Dùng chung cho test, demo và sandbox.
+2. **Ma trận trên IE thật** (`tests/test_ie_matrix.py`, `scripts/run-ie-matrix.ps1`, chế độ 8 và 9): mỗi kịch bản ghi hai lần với dữ liệu khác và có nhiễu, Học, chạy với dữ liệu mới, so lời gọi máy chủ giả lập nhận được. Sửa phần ghi hoặc học thì phải qua ma trận.
+3. **Làm sạch có luật** (`ie/clean.py`), một chỗ, theo thứ tự:
+   - Luật 0, trang tự hỏi: cùng một lời gọi từ 3 lần (số dài trong địa chỉ coi như một), không lời gọi sau nào cần trả lời của nó.
+   - Luật 2, bấm nhầm: hộp thông báo của trang, lời gọi mở nó và thao tác trong nó bị bỏ; một cú bấm không gọi dịch vụ nào mà sau đó cùng nút được bấm lại có tác dụng là bấm nhầm.
+   - Luật 1, cùng tác dụng là cùng bước: Enter trong một ô thành cú bấm nút có cùng tác dụng (dịch vụ và method GWT, hay đường dẫn) ở lần ghi khác. Lời gọi bị ghi dưới ô nhập ngay trước Enter là của Enter.
+   - Sau cùng đánh số lại sự kiện, `after_seq` và dấu `⟦eN⟧`.
+4. **Ba quy tắc ghi** do ma trận tìm ra:
+   - Giá trị đã nhập chỉ thành dấu `⟦eN⟧` khi đứng riêng, không ở giữa một chữ hay số dài hơn (strong name GWT).
+   - Một lời gọi thuộc về thao tác cuối cùng xảy ra trước lúc nó được gửi, theo đồng hồ (mỗi khung có hàng đợi riêng nên thứ tự đọc không phải thứ tự thật); gửi chỉ vài trăm mili giây trước một cú bấm thì thuộc cú bấm đó.
+   - Form do script của trang gửi vào một khung được ghi lúc khung đó bắt đầu rời đi, hoặc lúc bộ ghi vào trang nếu trang tự gửi khi vừa mở (`onload` có `.submit(` và form không có nút gửi cho người bấm). Khung rời đi vì cả trang cha rời đi thì không tính.
+5. **Bản ghi tự kiểm tra** (`ie/check.py`) sau Dừng ghi: dùng được, đáng biết, hay cần ghi lại và ở bước nào, bằng chữ dễ hiểu.
+6. Lúc chạy, file mà khung con lấy về không đọc được byte qua COM thì cùng lời gọi chỉ xem đó được gửi lại từ khung gốc (cùng trang, cùng phiên, địa chỉ tuyệt đối).
+
+Còn để sau: lắng nghe điều hướng của trình duyệt (`BeforeNavigate2`) từ cầu nối, để bắt form gửi trong hộp thoại modal có câu trả lời là file tải về.
