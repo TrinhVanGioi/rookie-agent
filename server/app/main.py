@@ -283,7 +283,12 @@ def create_app(db_path: str | Path | None = None, auth_mode: str | None = None, 
         who = caller(request)
         rows = [{**row, "owner_display": row["owner_display"] or (NO_OWNER if row["owner"] is None else row["owner"])}
                 for row in storage.list_workflows() if can_see(who, row)]
-        return {"workflows": rows}
+        highest: dict[str, str] = {}
+        for workflow_id in {row["id"] for row in rows}:      # task 10.6: the highest risk of the newest version, for the list
+            workflow, _ = load(workflow_id)
+            risks = [s["risk"] for s in workflow["steps"]] + [n["risk"] for n in storage.get_api(workflow_id, workflow["version"]) or []]
+            highest[workflow_id] = max(risks, key=lambda r: {"read": 0, "write": 1, "money": 2}[r], default="read")
+        return {"workflows": [{**row, "max_risk": highest[row["id"]]} for row in rows]}
 
     @app.get("/workflows/{workflow_id}")
     def latest_workflow(workflow_id: str, request: Request) -> dict[str, Any]:
@@ -385,6 +390,19 @@ def create_app(db_path: str | Path | None = None, auth_mode: str | None = None, 
         storage.add_edit(workflow_id, edited["version"], version, caller(request).name, body.ops)
         return workflow_reply(edited, warnings)
 
+    @app.post("/workflows/{workflow_id}/versions/{version}/edit/preview")
+    def edit_preview(workflow_id: str, version: int, body: EditIn, request: Request) -> dict[str, Any]:
+        """The flow as it would be after the edits, checked by the same rules; nothing is kept (the canvas shows the server's truth)."""
+        from app import edit
+
+        changeable(request, workflow_id)
+        workflow, warnings = load(workflow_id, version)
+        try:
+            edited, api = edit.apply(workflow, storage.get_api(workflow_id, version), body.ops)
+        except edit.EditError as error:
+            raise HTTPException(422, str(error)) from error
+        return {"workflow": edited, "api": api, "warnings": warnings}
+
     @app.get("/workflows/{workflow_id}/versions/{version}/edit")
     def edit_record(workflow_id: str, version: int, request: Request) -> dict[str, Any]:
         visible(request, workflow_id)
@@ -476,6 +494,11 @@ def create_app(db_path: str | Path | None = None, auth_mode: str | None = None, 
         load(workflow_id)
         storage.set_owner(workflow_id, body.owner, body.owner_display or body.owner, body.unit)
         return storage.meta(workflow_id)
+
+    # ---- the admin page (task 10.6): plain files, no build step, nothing from outside (offline network) ------------------
+    from fastapi.staticfiles import StaticFiles
+
+    app.mount("/admin", StaticFiles(directory=Path(__file__).resolve().parent / "admin", html=True), name="admin")
 
     from app.twin.routes import register as register_twin
 

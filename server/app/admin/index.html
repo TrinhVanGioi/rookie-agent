@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rookie Agent · Quản trị luồng</title>
+<link rel="stylesheet" href="admin.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand">Rookie Agent <span>· Quản trị luồng</span></div>
+  <div class="who"><span id="whoName"></span><button id="logout" class="ghost" hidden>Đăng xuất</button></div>
+</header>
+<div id="offBanner" class="banner" hidden>Máy chủ chưa bật đăng nhập (ROOKIE_AUTH=off): ai mở trang này cũng có quyền quản trị. Chỉ dùng trên một máy hoặc để thử.</div>
+
+<main id="loginView" class="login" hidden>
+  <form id="loginForm" class="card">
+    <h1>Đăng nhập</h1>
+    <p class="sub">Dùng tài khoản AD của bạn.</p>
+    <label for="loginUser">Tên đăng nhập</label>
+    <input id="loginUser" autocomplete="username" required>
+    <label for="loginPass">Mật khẩu</label>
+    <input id="loginPass" type="password" autocomplete="current-password" required>
+    <button class="primary" type="submit">Đăng nhập</button>
+    <div id="loginMsg" class="msg"></div>
+  </form>
+</main>
+
+<main id="appView" class="app" hidden>
+  <aside class="list">
+    <div class="filters">
+      <input id="fText" placeholder="Tìm theo tên luồng">
+      <div class="row2">
+        <select id="fOwner"><option value="">Mọi người tạo</option></select>
+        <select id="fUnit"><option value="">Mọi đơn vị</option></select>
+      </div>
+      <div class="row2">
+        <select id="fStatus"><option value="">Mọi trạng thái</option><option value="draft">Nháp</option><option value="tested">Đã chạy thử</option><option value="approved">Đã duyệt</option></select>
+        <select id="fRisk"><option value="">Mọi mức rủi ro</option><option value="read">Chỉ xem</option><option value="write">Ghi dữ liệu</option><option value="money">Liên quan tiền</option></select>
+      </div>
+    </div>
+    <div id="flowCount" class="count"></div>
+    <ul id="flows" class="flows"></ul>
+  </aside>
+
+  <section class="detail">
+    <div id="empty" class="empty">Chọn một luồng ở bên trái.</div>
+    <div id="flowView" hidden>
+      <div class="head">
+        <div>
+          <h1 id="flowTitle"></h1>
+          <div id="flowMeta" class="sub"></div>
+        </div>
+        <div class="versionPick"><label for="versionSel">Phiên bản</label><select id="versionSel"></select></div>
+      </div>
+      <nav class="tabs" role="tablist">
+        <button role="tab" data-tab="canvas" class="on">Sơ đồ</button>
+        <button role="tab" data-tab="versions">Phiên bản</button>
+        <button role="tab" data-tab="runs">Lần chạy</button>
+        <button role="tab" data-tab="share">Chia sẻ</button>
+      </nav>
+
+      <div data-panel="canvas">
+        <div class="toolbar">
+          <button id="addHttp" hidden>+ Thêm nút API</button>
+          <span id="pending" class="pending"></span>
+          <button id="discard" class="ghost" hidden>Bỏ thay đổi</button>
+          <button id="save" class="primary" hidden>Lưu thành bản nháp</button>
+          <span id="readOnly" class="sub"></span>
+        </div>
+        <div id="editMsg" class="msg"></div>
+        <div class="board">
+          <div class="canvasWrap"><svg id="canvas" role="img" aria-label="Sơ đồ luồng"></svg></div>
+          <aside id="inspector" class="inspector"><p class="sub">Bấm vào một nút để xem và sửa. Kéo nút để sắp chỗ.</p></aside>
+        </div>
+        <div class="legend"><span class="chip read">Chỉ xem</span><span class="chip write">Ghi dữ liệu</span><span class="chip money">Liên quan tiền</span><span class="dash">- - - lấy dữ liệu từ</span><span class="lock">⏸ chờ người bấm Duyệt</span></div>
+        <h2>Ô nhập</h2>
+        <table class="grid"><thead><tr><th>Tên</th><th>Nhãn hiển thị</th><th>Kiểu</th><th></th></tr></thead><tbody id="inputs"></tbody></table>
+      </div>
+
+      <div data-panel="versions" hidden>
+        <table class="grid"><thead><tr><th>Bản</th><th>Trạng thái</th><th>Tạo lúc</th><th>Người sửa</th><th></th></tr></thead><tbody id="versions"></tbody></table>
+        <div id="versionMsg" class="msg"></div>
+        <h2 id="diffTitle" hidden></h2>
+        <ul id="diff" class="diff"></ul>
+      </div>
+
+      <div data-panel="runs" hidden>
+        <table class="grid"><thead><tr><th>Lúc</th><th>Người chạy</th><th>Đơn vị</th><th>Bản</th><th>Cách chạy</th><th>Kết quả</th><th>Giây</th><th>Duyệt</th></tr></thead><tbody id="runs"></tbody></table>
+        <div id="runsEmpty" class="sub"></div>
+      </div>
+
+      <div data-panel="share" hidden>
+        <h2>Nội dung sẽ chia sẻ</h2>
+        <p class="sub">Đúng những gì người khác thấy: các bước, nhãn, tên ô nhập. Không có giá trị nào.</p>
+        <ol id="sharePreview" class="preview"></ol>
+        <div id="shareInputs" class="sub"></div>
+        <div id="shareBox">
+          <fieldset class="radios"><legend>Ai được thấy</legend>
+            <label><input type="radio" name="vis" value="private"> Chỉ mình tôi</label>
+            <label><input type="radio" name="vis" value="unit"> Đơn vị của tôi</label>
+            <label><input type="radio" name="vis" value="all"> Toàn ngân hàng</label>
+          </fieldset>
+          <label class="check"><input type="checkbox" id="shareConfirm"> Tôi đã xem nội dung sẽ chia sẻ ở trên</label>
+          <button id="shareBtn" class="primary">Lưu cách chia sẻ</button>
+        </div>
+        <div id="shareNote" class="sub"></div>
+        <div id="shareMsg" class="msg"></div>
+        <h2>Sao chép thành luồng của tôi</h2>
+        <p class="sub">Bản sao thuộc về bạn, bắt đầu là bản nháp. Luồng gốc không đổi.</p>
+        <div class="row"><input id="cloneTitle" placeholder="Tên luồng mới"><button id="cloneBtn">Sao chép</button></div>
+        <div id="cloneMsg" class="msg"></div>
+        <div id="ownerBox" hidden>
+          <h2>Gán chủ luồng</h2>
+          <div class="row"><input id="ownerName" placeholder="Tên đăng nhập"><input id="ownerDisplay" placeholder="Họ tên"><input id="ownerUnit" placeholder="Đơn vị"><button id="ownerBtn">Gán</button></div>
+          <div id="ownerMsg" class="msg"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+<script src="admin.js"></script>
+</body>
+</html>
