@@ -1,0 +1,14 @@
+{
+  "_note": "Task 10.1. groups: tên nhóm AD (CN) cho từng vai trò khi ROOKIE_AUTH=ldap; người không thuộc nhóm nào bị từ chối. dev_users: chỉ dùng khi ROOKIE_AUTH=dev (test, demo với dữ liệu synthetic), không dùng trên máy thật.",
+  "groups": {
+    "maker": ["RK-GDV"],
+    "checker": ["RK-KSV"],
+    "admin": ["RK-QUANTRI"]
+  },
+  "dev_users": [
+    {"name": "gdv1", "password": "gdv1", "display": "GDV Một", "unit": "CN Hà Nội", "roles": ["maker"]},
+    {"name": "gdv2", "password": "gdv2", "display": "GDV Hai", "unit": "CN Hồ Chí Minh", "roles": ["maker"]},
+    {"name": "ksv1", "password": "ksv1", "display": "KSV Một", "unit": "CN Hà Nội", "roles": ["checker"]},
+    {"name": "quantri", "password": "quantri", "display": "Quản trị", "unit": "Hội sở", "roles": ["admin"]}
+  ]
+}

@@ -212,6 +212,21 @@ Quy trình đầu cuối nhiều vai trò: GDV tra CIF và lập lệnh chuyển
 | 9.6 | Trang «Bản sao quy trình», cả quy trình thành một luồng kiểu n8n | Nút «Dựng quy trình từ các lần ghi» ghép chặng maker và checker thành một sơ đồ: nút API, Bàn giao, Duyệt, nhánh theo biến thể. Cùng sơ đồ đó dùng cho số đo, chạy thử và nếu… thì…. «Xuất JSON kiểu n8n» là file trên máy, test chứng minh không có giá trị gốc. Chữ tiếng Việt. **Xong** |
 | 9.7 | Dữ liệu demo, tài liệu, đóng gói | `scripts/twin_seed.py` sinh ca synthetic; tài liệu; gói `patch-ie.7z`. **Xong**. Test IE thật đạt ở 5/8/9; trang chưa mở bằng trình duyệt (chỉ kiểm cú pháp JS); chưa thử trên UAT |
 
+## Gate 10: trang quản trị luồng kiểu n8n trên máy chủ
+
+Mỗi người thấy luồng của mình và luồng được chia sẻ cho mình; vai trò quản trị thấy hết. Đăng nhập bằng AD. Sửa luồng trên canvas như n8n. Chạy vẫn chỉ ở máy GDV, trong phiên của GDV (quy tắc 4): trang quản trị không chạy và không Duyệt hộ bước của lần chạy. Mỗi lần sửa thành version `draft`; `risk` do luật gán lại, chỉ nâng không hạ; người sửa không tự duyệt bản mình sửa; mẫu không chứa giá trị. Thiết kế ở `docs/design.md` mục 13.
+
+| Task | Nội dung | Tiêu chí nghiệm thu |
+| --- | --- | --- |
+| 10.1 | Định danh và vai trò | `ROOKIE_AUTH=off` (mặc định, như trước), `dev` (người cố định trong `config/roles.json`), `ldap` (AD; vai trò theo nhóm AD). Test: không đăng nhập thì 401 tiếng Việt; sai mật khẩu không nói sai phần nào; 5 lần sai khoá 10 phút; token hết hạn và đăng xuất; server chỉ giữ SHA-256 của token, không giữ mật khẩu; AD: vai trò theo nhóm, không thuộc nhóm thì từ chối, mật khẩu rỗng không gửi, tên lạ không vào câu tìm. Agent: «Đăng nhập máy chủ» ở trang `:8765`, chỉ giữ token, nhật ký «Gửi và nhận» không hiện mật khẩu hay token. **Xong** |
+| 10.2 | Chủ luồng, quyền xem, chia sẻ, sao chép | Test: chủ luồng là người Học; mỗi người chỉ thấy luồng của mình và luồng chia sẻ cho đơn vị mình, quản trị thấy hết; chia sẻ có xem trước (bước, nhãn, tên tham số), chỉ chủ luồng chia sẻ được; clone thuộc người clone, bản gốc không đổi; luồng cũ «Chưa rõ chủ», quản trị gán chủ |
+| 10.3 | Nút API lên server | `schemas/api-nodes.schema.json`. Test: lúc Học gửi nút theo danh sách trường được phép (không `answer`, `shape`); server từ chối mẫu có giá trị nhạy cảm; digest tính trên cả luồng và nút; bản đã duyệt trả cả nút |
+| 10.4 | API sửa luồng | Test: di chuyển, xoá, đổi thứ tự, thêm nút HTTP, sửa mẫu, đổi nhãn, thêm nút Duyệt, nâng mode; hạ rủi ro bị từ chối; url chuyển tiền thành `money`; xoá nút nguồn của liên kết bị từ chối; mẫu có số tài khoản bị từ chối; người sửa tự duyệt bị 409 |
+| 10.5 | Nhật ký chạy lên server | Test: dòng audit gửi lên (gửi lỗi thì giữ lại gửi sau); lịch sử chạy theo luồng: ai chạy, version, từng nút, ai Duyệt; không giá trị nào lọt qua |
+| 10.6 | Trang quản trị `/admin` | JS thuần, SVG, không CDN. Đăng nhập; danh sách luồng có lọc; canvas kéo thả, thêm và xoá nút, bảng thuộc tính, Lưu thành bản nháp; lịch sử version và so sánh; lịch sử chạy; chia sẻ và clone. Chữ tiếng Việt |
+| 10.7 | Đồng bộ về máy GDV | Test: tab Luồng báo «Có bản mới», xem khác biệt, «Dùng bản này»; chưa bấm thì vẫn chạy bản cũ; mất kết nối thì chạy bản đang có; audit ghi version |
+| 10.8 | Test đầu cuối, tài liệu, đóng gói | Playwright cho `/admin`: đăng nhập, sửa, lưu nháp, người khác duyệt. `docs/design.md` mục 13, `CLAUDE.md`, wheel `ldap3`, gói mới |
+
 ## Phần để sau PoC
 
 - Đánh giá độ chính xác của LLM nội bộ (Learner, giải thích lệch, self-healing) trên bộ mẫu; self-healing bằng ảnh nếu model nhận được ảnh.

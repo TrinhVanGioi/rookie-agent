@@ -220,6 +220,7 @@ class Core:
         return {
             "version": __version__, "bits": self._own_bits, "recording": recording, "preview": bool(getattr(self._ie_session, "preview", False)),
             "server": self.store.get("server_url", DEFAULT_SERVER), "recordings": len(self.store.listing()),
+            "server_user": (self.store.get("server_user") or {}).get("display"),
         }
 
     def check(self, _: dict[str, Any]) -> dict[str, Any]:
@@ -439,7 +440,35 @@ class Core:
                 url = self._server_starter()
             except RuntimeError as error:
                 raise UserError(str(error)) from error
-        return self._server_client(url)
+        client = self._server_client(url)
+        token = self.store.get("server_token")
+        if token:
+            client.token = token          # task 10.1: the login of this PC on the server
+        return client
+
+    def server_login(self, body: dict[str, Any]) -> dict[str, Any]:
+        """Log in to the server once (its AD account); only the token it gives is kept on this PC, never the password."""
+        name, password = str(body.get("username") or "").strip(), str(body.get("password") or "")
+        if not name or not password:
+            raise UserError("Nhập tên đăng nhập và mật khẩu.")
+        client = self._server()
+        client.token = None
+        try:
+            reply = client.login(name, password)
+        except ServerError as error:
+            raise UserError(str(error).split(": ", 1)[-1] if getattr(error, "status", None) in (401, 429) else str(error)) from error
+        self.store.put("server_token", reply["token"])
+        self.store.put("server_user", reply["user"])
+        return {"user": reply["user"]}
+
+    def server_logout(self, _: dict[str, Any]) -> dict[str, Any]:
+        try:
+            self._server().logout()
+        except (ServerError, UserError):
+            pass                          # the token is dropped on this PC either way
+        self.store.put("server_token", None)
+        self.store.put("server_user", None)
+        return {}
 
     def server_check(self, body: dict[str, Any]) -> dict[str, Any]:
         url = str(body.get("url") or self.store.get("server_url", DEFAULT_SERVER)).strip()
@@ -1471,7 +1500,8 @@ class Core:
         "GET /api/state": "state", "GET /api/check": "check", "POST /api/enable-bridge": "enable_bridge",
         "POST /api/switch-bits": "switch_bits", "GET /api/windows": "windows", "POST /api/record/start": "record_start",
         "POST /api/record/stop": "record_stop", "GET /api/recordings": "recordings", "POST /api/recordings/delete": "delete_recording",
-        "POST /api/server/check": "server_check", "POST /api/server/start": "server_start", "POST /api/learn": "learn",
+        "POST /api/server/check": "server_check", "POST /api/server/start": "server_start",
+        "POST /api/server/login": "server_login", "POST /api/server/logout": "server_logout", "POST /api/learn": "learn",
         "POST /api/diagnostics": "diagnostics", "GET /api/flows": "flows",
         "GET /api/codie": "codie_status", "POST /api/codie/test": "codie_test", "GET /api/calls": "calls", "GET /api/seen": "seen", "GET /api/requests": "requests", "GET /api/live": "live", "GET /api/screen": "screen", "POST /api/ie/inspect": "ie_inspect", "POST /api/flow/approve": "flow_approve", "POST /api/flow/read-withdraw": "flow_read_withdraw","POST /api/run/start": "run_start", "GET /api/run/status": "run_status", "POST /api/run/decide": "run_decide", "POST /api/run/stop": "run_stop", "POST /api/assistant/plan": "assistant_plan", "POST /api/assistant/answer": "assistant_answer", "POST /api/assistant/run": "assistant_run", "GET /api/assistant/habits": "assistant_habits", "GET /api/library": "library", "POST /api/library/n8n": "library_n8n", "GET /api/trace/last": "last_trace",
         "POST /api/voucher/read": "voucher_read", "POST /api/voucher/confirm": "voucher_confirm", "POST /api/voucher/run": "voucher_run",

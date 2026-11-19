@@ -45,23 +45,38 @@ def digest(workflow: dict[str, Any]) -> str:
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
+def _hidden(path: str, text: str) -> str:
+    """What the exchange log shows of a login: never the password, never the token."""
+    if not path.startswith("/auth/"):
+        return text
+    try:
+        data = json.loads(text)
+    except ValueError:
+        return text
+    if isinstance(data, dict):
+        data = {k: ("***" if k in ("password", "token") else v) for k, v in data.items()}
+    return json.dumps(data, ensure_ascii=False)
+
+
 class ServerClient:
-    def __init__(self, base_url: str) -> None:
+    def __init__(self, base_url: str, token: str | None = None) -> None:
         self.base_url = base_url.rstrip("/")
+        self.token = token   # task 10.1: from a login on the server; sent as `Authorization: Bearer`
 
     def _call(self, method: str, path: str, body: Any = None, timeout: float = TIMEOUT_SECONDS) -> Any:
         data = None if body is None else json.dumps(body, ensure_ascii=False).encode("utf-8")
-        request = urllib.request.Request(
-            self.base_url + path, data=data, method=method, headers={"Content-Type": "application/json"}
-        )
+        headers = {"Content-Type": "application/json"}
+        if self.token:
+            headers["Authorization"] = "Bearer " + self.token
+        request = urllib.request.Request(self.base_url + path, data=data, method=method, headers=headers)
         entry: dict[str, Any] = {"at": time.strftime("%H:%M:%S"), "method": method, "url": self.base_url + path,
-                                 "sent": _shown(data.decode("utf-8")) if data else "", "status": None, "received": ""}
+                                 "sent": _shown(_hidden(path, data.decode("utf-8"))) if data else "", "status": None, "received": ""}
         started = time.monotonic()
         try:
             try:
                 with urllib.request.urlopen(request, timeout=timeout) as response:
                     raw = response.read().decode("utf-8")
-                    entry["status"], entry["received"] = response.status, _shown(raw)
+                    entry["status"], entry["received"] = response.status, _shown(_hidden(path, raw))
                     return json.loads(raw)
             except urllib.error.HTTPError as error:
                 raw = error.read().decode("utf-8", "replace")
@@ -81,6 +96,13 @@ class ServerClient:
 
     def health(self) -> dict[str, Any]:
         return self._call("GET", "/health")
+
+    def login(self, username: str, password: str) -> dict[str, Any]:
+        """Task 10.1: the server checks the password (AD) and gives a token; the password is not kept anywhere."""
+        return self._call("POST", "/auth/login", {"username": username, "password": password, "client": "agent"})
+
+    def logout(self) -> dict[str, Any]:
+        return self._call("POST", "/auth/logout", {})
 
     def post_session(self, session_id: str, engine: str, events: list[dict[str, Any]], role: str | None = None,
                      case_key: str | None = None) -> dict[str, Any]:

@@ -7,8 +7,9 @@ import hashlib
 import json
 import os
 import re
+import time
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Callable, Literal
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
@@ -65,10 +66,14 @@ def digest(workflow: dict[str, Any]) -> str:
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
-def create_app(db_path: str | Path | None = None) -> FastAPI:
+def create_app(db_path: str | Path | None = None, auth_mode: str | None = None, identity: Any = None,
+               clock: Callable[[], float] = time.time) -> FastAPI:
     app = FastAPI(title="Rookie Agent Server")
     storage = Storage(db_path or os.environ.get("ROOKIE_DB") or DEFAULT_DB)
     app.state.storage = storage
+    from app.auth import Auth, install
+
+    install(app, Auth(storage, auth_mode, identity, clock))   # task 10.1: who is calling (ROOKIE_AUTH)
     # The model that builds a workflow from traces (Genie Codie on this PC). None: the rule-based learner builds it. A test can replace it.
     from app.llm.flow import CodieFlowBuilder
 

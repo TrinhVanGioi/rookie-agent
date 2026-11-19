@@ -46,6 +46,12 @@ CREATE TABLE IF NOT EXISTS process_models (
     created_at TEXT NOT NULL,
     PRIMARY KEY (id, version)
 );
+CREATE TABLE IF NOT EXISTS auth_tokens (
+    hash TEXT PRIMARY KEY,
+    user TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    expires_at REAL NOT NULL
+);
 """
 
 
@@ -214,6 +220,25 @@ class Storage:
                 if ms is not None and step_id:
                     found.setdefault(step_id, []).append(float(ms))
         return found
+
+    # ---- login tokens (task 10.1): only the SHA-256 of a token is kept -------------------------------------------------------
+
+    def add_token(self, token_hash: str, user: dict[str, Any], kind: str, expires_at: float) -> None:
+        with self._lock, self._db:
+            self._db.execute("INSERT INTO auth_tokens VALUES (?, ?, ?, ?)", (token_hash, _dump(user), kind, expires_at))
+
+    def get_token(self, token_hash: str) -> tuple[dict[str, Any], str, float] | None:
+        with self._lock:
+            row = self._db.execute("SELECT * FROM auth_tokens WHERE hash = ?", (token_hash,)).fetchone()
+        return (json.loads(row["user"]), row["kind"], row["expires_at"]) if row else None
+
+    def delete_token(self, token_hash: str) -> None:
+        with self._lock, self._db:
+            self._db.execute("DELETE FROM auth_tokens WHERE hash = ?", (token_hash,))
+
+    def purge_tokens(self, now: float) -> None:
+        with self._lock, self._db:
+            self._db.execute("DELETE FROM auth_tokens WHERE expires_at <= ?", (now,))
 
     # ---- process models -------------------------------------------------------------------
 

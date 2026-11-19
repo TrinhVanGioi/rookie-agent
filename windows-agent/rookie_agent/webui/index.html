@@ -231,6 +231,13 @@
       <button id="serverStart" hidden>Bật máy chủ trên máy này</button>
     </div>
     <div id="servermsg"></div>
+    <div class="row" id="serverLoginRow">
+      <input type="text" id="serverUser" placeholder="Tên đăng nhập (AD)" autocomplete="username">
+      <input type="password" id="serverPass" placeholder="Mật khẩu" autocomplete="current-password">
+      <button id="serverLogin">Đăng nhập máy chủ</button>
+    </div>
+    <div class="row" id="serverWhoRow" hidden><span id="serverWho" class="grow"></span><button id="serverLogout">Đăng xuất máy chủ</button></div>
+    <div id="loginmsg"></div>
     <label class="field" for="title">Tên việc</label>
     <input type="text" id="title" placeholder="Ví dụ: Vấn tin tài khoản">
     <div class="row"><button class="primary" id="learn">Học</button></div>
@@ -699,6 +706,21 @@ async function serverCheck() {
   } catch (e) { say("servermsg", e.message, "bad"); }
 }
 $("serverCheck").onclick = serverCheck;
+// task 10.1: the server may ask who is learning; only the token it gives is kept on this PC, never the password
+function showServerUser(name) {
+  $("serverWhoRow").hidden = !name; $("serverLoginRow").hidden = !!name;
+  $("serverWho").textContent = name ? "Đã đăng nhập máy chủ: " + name : "";
+}
+$("serverLogin").onclick = async () => {
+  try {
+    const r = await api("POST", "/api/server/login", { username: $("serverUser").value, password: $("serverPass").value });
+    $("serverPass").value = ""; showServerUser(r.user.display); say("loginmsg", "Đăng nhập được.", "ok");
+  } catch (e) { $("serverPass").value = ""; say("loginmsg", e.message, "bad"); }
+};
+$("serverLogout").onclick = async () => {
+  try { await api("POST", "/api/server/logout"); showServerUser(null); say("loginmsg", "Đã đăng xuất máy chủ.", "ok"); }
+  catch (e) { say("loginmsg", e.message, "bad"); }
+};
 $("serverStart").onclick = async () => {
   say("servermsg", "Đang bật máy chủ...", "ok");
   try { const r = await api("POST", "/api/server/start"); $("server").value = r.url; say("servermsg", r.message, r.ok ? "ok" : "bad"); $("serverStart").hidden = r.ok; }
@@ -735,7 +757,7 @@ $("check").onclick = runCheck;
 (async () => {
   const state = await api("GET", "/api/state");
   $("bits").textContent = "Agent " + state.bits + "-bit · bản " + state.version;
-  $("server").value = state.server;
+  $("server").value = state.server; showServerUser(state.server_user);
   recording = state.recording; preview = !!state.preview;
   showMode();
   loadRecordings(); runCheck(); serverCheck();
