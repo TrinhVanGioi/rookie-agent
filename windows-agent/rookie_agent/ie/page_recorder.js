@@ -75,10 +75,26 @@
         parts.push(encodeURIComponent(n) + "=" + encodeURIComponent(v));
       }
       v = parts.join("&");
+      try { window.top.__rkFormAt = new Date().getTime(); } catch (eTop) {}    // for formGo: the page that leaves may be another frame than this one
       return "{" + '"uid":"f' + new Date().getTime() + "-" + Math.floor(Math.random() * 1000000000) + '","t":' + new Date().getTime() + ',"kind":"form","frame":' + str(ownPath()) + ',"method":' + str(String(f.method || "GET").toUpperCase()) +
-        ',"url":' + str(String(f.action || doc.location.href)) + ',"req":' + str(v.slice(0, FORM_MAX)) + (v.length > FORM_MAX ? ',"cut":true' : "") + "}\n";
+        ',"url":' + str(String(f.action || doc.location.href)) + ',"target":' + str(String(f.target || "")) + ',"req":' + str(v.slice(0, FORM_MAX)) + (v.length > FORM_MAX ? ',"cut":true' : "") + "}\n";
     } catch (eF) { return ""; }
   }
+  // The page starts to leave a moment after a form was sent: a sign that the form really went (a page's own script may stop it), also when
+  // the answer is a download and no new document comes. Only a line in memory; nothing is written to the page.
+  // the moment of the press, taken at once: the page starts to leave (beforeunload) before our timer makes the form line
+  function markForm() { try { window.top.__rkFormAt = new Date().getTime(); } catch (eMf) {} }
+  function formGo() {
+    var at = 0;
+    try { at = window.top.__rkFormAt || 0; } catch (eAt) {}
+    try {
+      if (window.__rkRec && at && new Date().getTime() - at < 3000) {
+        window.top.__rkFormAt = 0;
+        window.__rkq += "{" + '"uid":"g' + new Date().getTime() + "-" + Math.floor(Math.random() * 1000000000) + '","t":' + new Date().getTime() + ',"kind":"formgo","frame":' + str(ownPath()) + "}\n";
+      }
+    } catch (eGo) {}
+  }
+  try { if (!window.__rkOnly) { if (window.attachEvent) { window.attachEvent("onbeforeunload", formGo); } else if (window.addEventListener) { window.addEventListener("beforeunload", formGo, false); } } } catch (eBu) {}
   function keepLines() {
     var s, enc, cut, sent = "";
     try { if (window.__rkDrain) { window.__rkDrain(); } } catch (eD) {}    // events still waiting to be read are lines too
@@ -372,6 +388,34 @@
     } catch (e9) {}
   }
   var AJAX_REQ = 16000, AJAX_RES = 100000, AJAX_QUEUE_MAX = 2000000;   // a whole answer: a later request may take a value from it (Gate 8)
+  // An answer that is a file (a report as PDF, a statement as Excel; docs/design.md 6.4) is told by its headers only: an attachment, or a
+  // content type that is a document or a picture. Its bytes and its text are never read here: only its type, its size and a pattern of its
+  // name (digits and words masked) are reported. The agent fetches the bytes itself over COM when a flow is run.
+  var FILE_TYPE = /^(application\/(pdf|x-pdf|octet-stream|zip|x-zip-compressed|msword|rtf|excel|x-excel|x-msexcel|force-download|download|x-download|vnd\..+)|binary\/octet-stream|text\/csv|image\/.+)$/;
+  function header(x, name) { var v = ""; try { v = x.getResponseHeader(name); } catch (eHd) {} return v === null || v === undefined ? "" : String(v); }
+  function isFileHeaders(ct, cd) {
+    var kind = String(ct).split(";")[0].replace(/^\s+|\s+$/g, "").toLowerCase();
+    if (/attachment/i.test(String(cd))) { return true; }
+    return FILE_TYPE.test(kind) && !/\+(json|xml)$/.test(kind);
+  }
+  function namePattern(cd) {
+    var m = /filename\*?\s*=\s*(?:[\w\-]*'[^']*')?"?([^";]*)/i.exec(String(cd)), f, dot, ext, base;
+    if (!m) { return ""; }
+    f = m[1]; dot = f.lastIndexOf(".");
+    ext = dot >= 0 ? f.slice(dot + 1) : ""; base = dot >= 0 ? f.slice(0, dot) : f;
+    base = base.replace(/\d+/g, "#").replace(/[^#_\-. ]+/g, "A");
+    return (base + (/^[A-Za-z0-9]{1,5}$/.test(ext) ? "." + ext.toLowerCase() : "")).slice(0, 80);
+  }
+  function fileFacts(x) {
+    var ct, cd, size = 0, st = 0;
+    try { st = x.status; } catch (eSt) {}
+    if (st >= 400) { return null; }
+    ct = header(x, "Content-Type"); cd = header(x, "Content-Disposition");
+    if (!isFileHeaders(ct, cd)) { return null; }
+    try { size = new VBArray(x.responseBody).ubound(1) + 1; } catch (eSz) {}
+    if (!size) { size = parseInt(header(x, "Content-Length"), 10) || 0; }
+    return { ctype: String(ct).split(";")[0].replace(/^\s+|\s+$/g, "").toLowerCase().slice(0, 80), size: size, name: namePattern(cd) };
+  }
   var SECRET_HEADER = /cookie|pass|secret/i;   // an Authorization or token header stays in memory like a token in a body (6.4): its value is never written, only where it comes from
   function emitAjax(rec) {
     if (window.__rkAjaxOff || !window.__rkRec || String(window.__rkq).length > AJAX_QUEUE_MAX) { return; }
@@ -382,7 +426,8 @@
       ',"t":' + rec.t0 + ',"kind":"ajax","frame":' + str(ownPath()) + ',"title":' + str(clean(doc.title)) +
       ',"method":' + str(rec.method) + ',"url":' + str(rec.url) + ',"status":' + (rec.status > 0 ? rec.status : 0) +
       ',"ms":' + rec.ms + ',"async":' + (rec.async ? "true" : "false") +
-      ',"req":' + str(rec.req) + ',"res":' + str(rec.res) + ',"hdr":' + str(rec.hdr || "") + (rec.cut ? ',"cut":true' : "") + "}\n";
+      ',"req":' + str(rec.req) + ',"res":' + str(rec.file ? "" : rec.res) + ',"hdr":' + str(rec.hdr || "") + (rec.cut ? ',"cut":true' : "") +
+      (rec.file ? ',"file":{"ctype":' + str(rec.file.ctype) + ',"size":' + (Number(rec.file.size) || 0) + ',"name":' + str(rec.file.name) + "}" : "") + "}\n";
     // The press that sent the request may still wait in the queue (a local answer can come before our timer): the line waits behind it.
     if (pending.length) { pending.push({ name: "ajax", line: line, teller: true }); return; }
     window.__rkq += line;
@@ -432,7 +477,11 @@
       try { p.readyState = real.readyState; } catch (e1) {}
       try { p.status = real.status; p.statusText = real.statusText; } catch (e2) {}
       if (p.readyState === 4) {
-        try { p.responseText = real.responseText; p.response = p.responseText; } catch (e3) {}
+        try {
+          rec.file = fileFacts(real);   // a file answer: its text is not read; a page that wants the bytes gets responseBody
+          if (rec.file) { p.responseText = ""; p.response = ""; try { p.responseBody = real.responseBody; p.ResponseBody = p.responseBody; } catch (eB) {} }
+          else { p.responseText = real.responseText; p.response = p.responseText; }
+        } catch (e3) {}
       }
       grabXml();
     }
@@ -453,7 +502,7 @@
         if (window.__rkTestFail) { throw new Error("forced by the test"); }
         rec.status = p.status;
         rec.ms = new Date().getTime() - rec.t0;
-        rec.res = typeof p.responseText === "string" ? p.responseText.slice(0, AJAX_RES) : "";
+        rec.res = typeof p.responseText === "string" && !rec.file ? p.responseText.slice(0, AJAX_RES) : "";
         rememberReq(rec);
         emitAjax(rec);
       } catch (e5) { ajaxFailed("finish", e5); }
@@ -570,6 +619,31 @@
   window.__rkEnsureErr();
   window.__rkAjax = "off";
   try { hookRequests(); } catch (e0) {}
+  // window.open(url) of a page or of a file (a report as PDF): the call is reported (method GET, the url as the page gave it, the window name)
+  // and then made as the page meant. Put in with the request hook only, so a page where the teller did not ask for requests is left alone;
+  // if putting it in fails the page keeps its own window.open. The function is kept apart and called plainly (a host method of old IE has no .apply).
+  var openReal = null;
+  function openLine(url, name) {
+    var u = String(url === null || url === undefined ? "" : url);
+    if (!window.__rkRec || !u || /^(javascript|about):/i.test(u)) { return; }
+    uidCount++;
+    window.__rkq += "{" + '"uid":"o' + new Date().getTime() + "-" + Math.floor(Math.random() * 1000000000) + "-" + uidCount + '","t":' + new Date().getTime() + ',"kind":"open","frame":' + str(ownPath()) +
+      ',"method":"GET","url":' + str(u) + ',"target":' + str(String(name === null || name === undefined ? "" : name)) + "}\n";
+  }
+  function hookOpen() {
+    if (window.__rkNoXhr || window.__rkOpenHooked || !window.open) { return; }
+    openReal = window.open;
+    window.open = function (url, name, features, replace) {
+      try { openLine(url, name); } catch (eO) {}
+      if (arguments.length >= 4) { return openReal(url, name, features, replace); }
+      if (arguments.length === 3) { return openReal(url, name, features); }
+      if (arguments.length === 2) { return openReal(url, name); }
+      if (arguments.length === 1) { return openReal(url); }
+      return openReal();
+    };
+    window.__rkOpenHooked = true;
+  }
+  try { hookOpen(); } catch (eHo) { try { if (openReal) { window.open = openReal; } } catch (eHo2) {} }
 
   // ---- The runner (tasks 4.38 to 4.40): find an element by the selectors of a step and act on it. The agent calls
   // window.__rkOp(op, selectors, value): selectors are separated by a line break, most stable first, as the recorder wrote them
@@ -799,6 +873,11 @@
         if (x.readyState !== 4 || rec.done) { return; }
         rec.done = true; rec.ms = new Date().getTime() - rec.t0;
         try { rec.status = x.status; } catch (e3) {}
+        // A file answer (told by its headers) is not read as text: the request object is kept and the agent reads its bytes (window.__rkFileX).
+        try { if (isFileHeaders(header(x, "Content-Type"), header(x, "Content-Disposition")) && !(rec.status >= 400)) {
+          rec.file = true; rec.ctype = header(x, "Content-Type"); rec.disp = header(x, "Content-Disposition"); rec.len = parseInt(header(x, "Content-Length"), 10) || 0; rec.x = x;
+          return;
+        } } catch (eF) {}
         try { rec.text = String(x.responseText).slice(0, SEND_MAX); } catch (e4) {}
       };
       x.send(method === "GET" || method === "HEAD" ? null : parts[4]);
@@ -810,8 +889,22 @@
     if (!rec) { return ""; }
     if (!rec.done) { return '{"id":' + str(String(id)) + ',"done":false}'; }
     delete sending[String(id)];
+    if (rec.file) {
+      keptFiles[String(id)] = rec.x; keptOrder.push(String(id));
+      while (keptOrder.length > 5) { delete keptFiles[keptOrder.shift()]; }
+      return '{"id":' + str(String(id)) + ',"done":true,"status":' + (rec.status || 0) + ',"ms":' + rec.ms + ',"text":"","error":"","file":true,"ctype":' + str(rec.ctype) +
+        ',"disp":' + str(rec.disp) + ',"len":' + (rec.len || 0) + "}";
+    }
     return '{"id":' + str(String(id)) + ',"done":true,"status":' + (rec.status || 0) + ',"ms":' + rec.ms + ',"text":' + str(rec.text) + ',"error":' + str(rec.error) + "}";
   }
+  // The request object of a file answer waits here (at most 5) until the agent has read its bytes over COM and drops it.
+  var keptFiles = {}, keptOrder = [];
+  window.__rkFileX = function (id, drop) {
+    try {
+      if (drop) { delete keptFiles[String(id)]; return ""; }
+      return keptFiles[String(id)] || null;
+    } catch (eK) { return null; }
+  };
   window.__rkOp = function (op, selText, value) {
     var sels = String(selText).split("\n"), own = framePath(window), i, s, cut, hits, found = null, rank = -1;
     if (op === "send") { return sendNow(own, value); }
@@ -1052,7 +1145,7 @@
       try { if (el.form == window.__rkEnterForm) { return; } } catch (eClick) {}
     }
     emit(kind, el, null, actionLabel(el), ',"ctl":' + (ctl ? "true" : "false"));
-    if (typeOf(el) === "submit" || typeOf(el) === "image") { try { leavingForm = el.form; leavingAt = new Date().getTime(); laterForm(); } catch (eLf) {} }
+    if (typeOf(el) === "submit" || typeOf(el) === "image") { try { leavingForm = el.form; leavingAt = new Date().getTime(); markForm(); laterForm(); } catch (eLf) {} }
   }
   // A form sent into a frame (target=...) leaves this page in place: its line is made by our own timer, once the page's script has
   // finished (never in the middle of it). A page that leaves first makes it on unload (keepLines).
@@ -1091,7 +1184,7 @@
       if (tag(el) === "INPUT" && isField(el) && !isSecret(el)) {
         flushField(el);                       // the typed value first, then the Enter that sends it
         window.__rkEnter = new Date().getTime();
-        try { window.__rkEnterForm = el.form; leavingForm = el.form; leavingAt = new Date().getTime(); laterForm(); } catch (eForm) { window.__rkEnterForm = null; }
+        try { window.__rkEnterForm = el.form; leavingForm = el.form; leavingAt = new Date().getTime(); markForm(); laterForm(); } catch (eForm) { window.__rkEnterForm = null; }
         emit("submit", el, null, labelOf(el));
         return;
       }
@@ -1187,7 +1280,7 @@
         try { probe(window.__rkBody, ev); } catch (eP) {}
         return;
       }
-      if (teller) { lastPress = now; } else { teller = now - lastPress <= GATE_MS; }
+      if (teller) { lastPress = now; if (name !== "dblclick") { markForm(); } } else { teller = now - lastPress <= GATE_MS; }   // a press: if the page then leaves (beforeunload), it may be a form sent (see formGo)
       pending.push({ name: name, fn: fn, el: el, kc: kc, teller: teller });
       if (!drainTimer) { try { drainTimer = window.setTimeout(drain, 0); } catch (eT) { drain(); } }
     };

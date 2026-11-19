@@ -99,6 +99,8 @@ document.cookie = '__rkkeep=' + encodeURIComponent(line) + '; path=/';
   'click-login' { $e = $d.getElementById('btnLogin'); $e.focus(); $e.click() }
   'role-lang' { $s = $d.getElementById('cboLanguages'); $s.focus(); $s.selectedIndex = 1; $s.blur() }
   'click-ok'  { $e = $d.getElementById('btnSelect'); $e.focus(); $e.click() }
+  'e-type'    { $e = $d.getElementById($env:RK_ID); Do-Focus $d $e; $e.value = $env:RK_VALUE; Do-Blur $d $e }
+  'e-click'   { $e = $d.getElementById($env:RK_ID); Send-MouseDown $d $env:RK_ID; $e.focus(); $e.click() }
   'quit'      { $w.Quit() }
   'js'        { $null = $d.parentWindow.execScript([string]$env:RK_JS, 'javascript'); Write-Output ([System.__ComObject].InvokeMember('__res', 'GetProperty', $null, $d.parentWindow, $null)) }
   'cookie'    { Write-Output $d.cookie }

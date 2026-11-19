@@ -95,6 +95,27 @@ def test_ie_clicks_are_classified_by_screen_and_label_since_there_is_no_api_to_s
     assert risk_of(ie_event("click", label, screen)) == expected
 
 
+@pytest.mark.parametrize(
+    "label,screen,expected",
+    [
+        ("XUẤT BÁO CÁO", "TouchPoint/Báo cáo giao dịch", Risk("read")),
+        ("Xuất", "TouchPoint/Main", Risk("read")),
+        ("In", "TouchPoint/Main", Risk("read")),
+        ("Tải xuống", "TouchPoint/Main", Risk("read")),
+        ("Export", "TouchPoint/Main", Risk("read")),
+        ("Print", "TouchPoint/Main", Risk("read")),
+        ("Download", "TouchPoint/Main", Risk("read")),
+        ("Báo cáo giao dịch", "TouchPoint/Main", Risk("read")),
+        ("Thông tin", "TouchPoint/Main", Risk("write")),          # "in" is a whole word only: a label that merely contains it is not an export
+        ("Lưu báo cáo", "TouchPoint/Main", Risk("write")),        # saving still changes something
+        ("Xuất", "TouchPoint/Chuyển tiền", Risk("write")),        # on a money screen the old rules win: it was not read there before, and is not now
+        ("Chuyển tiền", "TouchPoint/Chuyển tiền", Risk("money")),
+    ],
+)
+def test_ie_export_and_print_buttons_are_read_except_on_a_money_screen(label, screen, expected):
+    assert risk_of(ie_event("click", label, screen)) == expected
+
+
 def test_ie_typing_and_links_that_are_not_buttons_change_nothing():
     assert risk_of(ie_event("input", "Mã khách hàng", tag="input")) == Risk("read")
     assert risk_of(ie_event("click", "Một ô bất kỳ", tag="div")) == Risk("read")

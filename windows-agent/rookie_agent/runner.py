@@ -186,8 +186,12 @@ def run_workflow(
     element_timeout: float = 10.0,
     settle: float = 0.15,
     sleep: Callable[[float], None] = time.sleep,
+    download_steps: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     """Execute the workflow. Returns `{"status", "message", "steps": [{"id", "status", "detail"}]}`.
+
+    `download_steps` {step id: name}: steps whose press makes the page answer a file (a report as PDF). IE then shows its own Open/Save bar,
+    which the agent cannot press reliably: the run stops right after the press and tells the teller to press Lưu (docs/design.md 6.4.11).
 
     status: finished, stopped (Dừng khẩn), rejected (GDV không duyệt), needs_help
     (không tìm thấy phần tử), refused (vi phạm quy tắc), failed (lỗi khi thao tác).
@@ -384,6 +388,10 @@ def run_workflow(
             note(step, "failed", type(error).__name__)
             return result("failed", f"Lỗi ở bước {step['id']}: {error}")
 
+        if step["id"] in (download_steps or {}):
+            note(step, "needs_help", "tải file về: bấm Lưu trên thanh của IE")
+            return result("needs_help", f"Bước «{download_steps[step['id']]}» tải một file về. IE hiện thanh Mở/Lưu của riêng nó mà agent không bấm được chắc chắn: "
+                                        "hãy bấm Lưu trên thanh đó. Muốn agent tự lưu file vào thư mục Rookie, dùng «Chạy mô phỏng».")
         note(step, "done")
         sleep(settle)
 

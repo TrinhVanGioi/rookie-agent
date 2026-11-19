@@ -986,6 +986,18 @@ function detailCard(run, stepId) {
   if (!d.requests.length) { card.append(el("div", "Không có lời gọi: bước này chỉ là thao tác trên màn hình.", "detail")); return card; }
   const okCount = d.requests.filter((r) => !r.state && !r.error && r.status && r.status < 400).length;
   card.append(el("div", d.requests.length + " lời gọi · " + okCount + " trả về tốt. Bấm một dòng để xem chi tiết.", "detail"));
+  // a call that answered a file: where it was saved (on this PC only) and the two buttons that open it from here
+  d.requests.filter((r) => r.file).forEach((r) => {
+    const row = el("div", undefined, "detail");
+    if (r.file.saved) {
+      row.append(el("strong", "Đã lưu file: " + r.file.name + " (" + r.file.size_text + ") "));
+      const openIt = (folder) => async () => { try { await api("POST", "/api/file/open", { path: r.file.path, folder }); } catch (e) { $("runMsg").append(el("div", e.message, "msg bad")); } };
+      const file = el("button", "Mở file"), dir = el("button", "Mở thư mục");
+      file.onclick = openIt(false); dir.onclick = openIt(true);
+      row.append(file, dir);
+    } else row.append(el("span", r.file.name + " (" + r.file.size_text + ")"));
+    card.append(row);
+  });
   const list = el("div", undefined, "calls simreq");
   d.requests.forEach((r, i) => {
     const key = stepId + "#" + i, det = el("details");
@@ -1062,7 +1074,7 @@ function drawFlow(flow) {
         .concat(a.read_confirmed !== null && a.read_confirmed !== undefined ? ["Đã xác nhận là chỉ xem" + (a.read_confirmed ? " lúc " + a.read_confirmed : "") + ": chạy bằng request không hỏi lại."]
           : a.asks_read ? ["Chưa biết nút này có thay đổi dữ liệu không: lần chạy request sẽ hỏi bạn một lần."] : [])
         .concat(["Gửi lần lượt " + a.call_count + " lời gọi:"])
-        .concat(a.calls.map((c, j) => "  " + (j + 1) + ". " + c.name + " (" + ({ xhr: "gọi API", form: "gửi biểu mẫu", page: "tải trang" }[c.kind] || c.kind) + ")" + (c.ready ? "" : " — chưa gửi lại được")))
+        .concat(a.calls.map((c, j) => "  " + (j + 1) + ". " + c.name + " (" + ({ xhr: "gọi API", form: "gửi biểu mẫu", page: "tải trang", file: "tải file về máy", open: "mở cửa sổ" }[c.kind] || c.kind) + ")" + (c.ready ? "" : " — chưa gửi lại được")))
         .concat(a.inputs.map((x) => "Đầu vào «" + x + "»: GDV nhập"))
         .concat(Object.entries(a.links).map(([x, from]) => "Giá trị «" + x + "»: lấy từ trả lời của " + (labelOfApi[from] || from)))
         .concat(a.ready ? [] : ["Chưa gửi lại được: có giá trị không rõ nguồn hoặc mật khẩu/mã đã che"]),

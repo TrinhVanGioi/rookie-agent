@@ -8,7 +8,7 @@ from __future__ import annotations
 import copy
 from typing import Any, Callable
 
-from rookie_agent.ie import replay, shape
+from rookie_agent.ie import files, replay, shape
 
 SCREEN_MS = {"fill": 2500, "select": 1800, "click": 1200, "submit": 1500}
 DEFAULT_MS = 120
@@ -22,6 +22,9 @@ def make_twin_send(inputs: dict[str, str], seed: str = "") -> Callable[[dict[str
         skeleton = node.get("shape")
         if not skeleton:
             return {"ok": False, "status": 0, "ms": 0, "error": "chưa có bản sao của trả lời này"}
+        if skeleton.get("kind") == "file":     # a file answers with a tiny synthetic one: run_api shows it and saves nothing (not to Downloads, not to a temp folder)
+            return {"ok": True, "status": 200, "ms": int(node.get("ms") or DEFAULT_MS),
+                    "file": {"data": files.placeholder(), "ctype": "application/pdf", "disposition": ""}}
         return {"ok": True, "status": 200, "ms": int(node.get("ms") or DEFAULT_MS), "text": shape.fake(skeleton, inputs, seed + "|" + node["id"])}
     return twin_send
 

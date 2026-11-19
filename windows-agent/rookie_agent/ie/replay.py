@@ -21,7 +21,7 @@ import urllib.parse
 from datetime import datetime, timezone
 from typing import Any, Callable
 
-from rookie_agent.ie import response_view, shape as shaper
+from rookie_agent.ie import files, response_view, shape as shaper
 
 MIN_TYPED = 3           # a shorter typed value could be found by chance in a request: it is left as it is
 MIN_LINKED = 4
@@ -135,6 +135,19 @@ def take_value(answer: str, rule: dict[str, Any]) -> str | None:
 
 # ---- 7.1 and 8.1 to 8.3: the requests of one recording as templates -------------------------------------------------
 
+def file_facts(found: Any) -> dict[str, Any] | None:
+    """What a recording keeps of an answer that was a file: that it was one, its content type, its size and a pattern of its name (digits and
+    words already masked by the page's recorder). Never a byte, a text or a shape. `guess`: the page showed no document for the request, so
+    it is taken as a download; the run decides by what really comes back."""
+    if not isinstance(found, dict):
+        return None
+    try:
+        size = max(0, int(found.get("size") or 0))
+    except (TypeError, ValueError):
+        size = 0
+    return {"ctype": str(found.get("ctype") or "")[:80], "size": size, "name": str(found.get("name") or "")[:80], "guess": bool(found.get("guess"))}
+
+
 _AUTH_HEADER = re.compile(r"^((?:proxy-)?authorization:)(.*)$", re.IGNORECASE | re.MULTILINE)
 
 
@@ -173,6 +186,8 @@ def templates(raw: list[dict[str, Any]], events: list[dict[str, Any]], requests:
                         or not (any(c.isdigit() for c in value) or len(value) >= 16)):
                     continue
                 for source in range(index - 1, -1, -1):
+                    if requests[source].get("file"):
+                        continue                        # a file is not read for values: it is the customer's document
                     rule = locate_value(str(requests[source].get("res") or ""), value)
                     if rule:
                         name = f"l{len(links) + 1}"
@@ -202,16 +217,20 @@ def templates(raw: list[dict[str, Any]], events: list[dict[str, Any]], requests:
 
         headers = _AUTH_HEADER.sub(hide_auth, headers)
         after = item.get("after") or {}
+        file = file_facts(item.get("file"))
         out.append({
             "index": index, "after_seq": _seq_at(events, after.get("t")), "kind": str(item.get("kind") or "xhr"),
             "frame": str(item.get("frame") or "top"), "method": str(item.get("method") or "GET").upper(),
             "url": url, "headers": headers, "body": body, "links": links,
             "complete": not item.get("cut") and not hidden and "***" not in body and body != "[object]",
-            "status": int(item.get("status") or 0), "answer": response_view.kind_of(str(item.get("res") or "")),
-            "ms": int(item.get("ms") or 0),
+            "status": int(item.get("status") or 0), "answer": "file" if file else response_view.kind_of(str(item.get("res") or "")),
+            "ms": int(item.get("ms") or 0), **({"file": file} if file else {}),
         })
     for index, item in enumerate(out):   # task 9.4: the answer's skeleton (no value), made so that the links to it still find a value
         rules = [rule for other in out for rule in other["links"].values() if rule["from"] == index]
+        if item.get("file"):
+            item["shape"] = {"v": 1, "kind": "file", "body": None}    # the twin answers a file with a placeholder; nothing of the real one is kept
+            continue
         try:
             item["shape"] = shaper.shape(str(requests[index].get("res") or ""), rules)
         except Exception:  # noqa: BLE001  a template without a skeleton only means no twin run for it
@@ -264,7 +283,8 @@ def build_api(workflow: dict[str, Any], events: list[dict[str, Any]], found: lis
             group_count += 1
             last_step = step_id
         node = {
-            "id": f"a{item['index']}", "step_id": step_id, "kind": item["kind"],
+            "id": f"a{item['index']}", "step_id": step_id, "kind": "file" if item.get("file") else item["kind"],
+            "via": item["kind"], **({"file": item["file"]} if item.get("file") else {}),
             "group": f"g{group_count}", "group_label": describe(step) if step else "Mở màn hình",
             "label": f"{describe(step) if step else 'Mở màn hình'} → {item['method']} {path[-60:]}",
             "frame": item["frame"], "method": item["method"], "url": url, "headers": headers, "body": body,
@@ -419,7 +439,8 @@ def run_api(workflow: dict[str, Any], nodes: list[dict[str, Any]], values: dict[
             send: Callable[[dict[str, Any], str, str, str], dict[str, Any]], controller: Any, stop: threading.Event,
             twin: bool = False, role: str = "maker",
             peek: Callable[[dict[str, Any]], list[str]] | None = None, read_rules: dict[str, Any] | None = None,
-            confirmed: dict[str, Any] | None = None, remember: Callable[[str], None] | None = None) -> dict[str, Any]:
+            confirmed: dict[str, Any] | None = None, remember: Callable[[str], None] | None = None,
+            save_file: Callable[[bytes, str, str], dict[str, Any]] | None = None) -> dict[str, Any]:
     """The nodes in order. Each node: its inputs (what the teller typed, values linked from the answers before), the request sent
     from the teller's page, the answer. A node of the sign-in is passed over (the open page's session is used); a node that writes
     or moves money stops the run; anything missing or refused stops it and asks. `send(node, url, headers, body)` sends one.
@@ -430,7 +451,9 @@ def run_api(workflow: dict[str, Any], nodes: list[dict[str, Any]], values: dict[
     A real run refuses a step that is not read, except a `write` step that is so only by default (no rule of `read_rules`, the "ie" section
     of config/risk-rules.json, matched it; `ie/read_rules.py`): the teller is asked «chỉ xem?» once (`controller.confirm_read`); «Chỉ xem»
     is kept by `remember(step_id)` and in `confirmed` ({step_id: ...}, the flow's own record) so a later run sends without asking. Money,
-    a step an explicit rule matched, no rules, no `confirm_read`, any other answer: refused, nothing remembered."""
+    a step an explicit rule matched, no rules, no `confirm_read`, any other answer: refused, nothing remembered.
+    An answer that is a file (`answer["file"] = {data, ctype, disposition}`) is written by `save_file(data, ctype, disposition)` -> {name, path} on
+    this PC and shown only as its name and size; a twin run saves nothing. A node that was a file and now answers a page or text stops."""
     groups = groups_of(nodes)
     steps_by_id = {s["id"]: s for s in workflow.get("steps", [])}
     confirmed = dict(confirmed or {})
@@ -555,14 +578,39 @@ def run_api(workflow: dict[str, Any], nodes: list[dict[str, Any]], values: dict[
             sent: dict[str, Any] = {"method": node["method"], "url": url, "body": body[:4000], "status": answer.get("status", 0), "ms": answer.get("ms", 0)}
             shown["requests"][slot[node["id"]]] = sent
             if not answer.get("ok"):
-                sent["error"] = {"no_frame": "không thấy khung trang lúc ghi (trang đã đổi màn hình?)", "timeout": "quá 30 giây không có trả lời"}.get(
-                    str(answer.get("error")), str(answer.get("error")))
+                sent["error"] = {"no_frame": "không thấy khung trang lúc ghi (trang đã đổi màn hình?)", "timeout": "quá 30 giây không có trả lời",
+                                 "too_big": f"file lớn hơn {files.MAX_MB} MB, không lưu"}.get(str(answer.get("error")), str(answer.get("error")))
                 note(group, "failed", f"{ref}: {sent['error']}", shown)
                 return end("failed", f"«{label}», lời gọi {ref}: {sent['error']}.")
+            received = answer.get("file")
+            if received is not None:
+                # The answer is a file (a report as PDF): kept on this PC only, never read as text, never shown, never linked from.
+                size = len(received.get("data") or b"")
+                if size > files.MAX_BYTES:
+                    sent["error"] = f"file lớn hơn {files.MAX_MB} MB, không lưu"
+                    note(group, "failed", f"{ref}: {sent['error']}", shown)
+                    return end("failed", f"«{label}», lời gọi {ref}: {sent['error']}.")
+                if twin:
+                    sent["file"] = {"name": "BẢN SAO – file giả, không lưu", "size": size, "size_text": files.size_text(size), "saved": False, "twin": True}
+                else:
+                    try:
+                        saved = save_file(received["data"], str(received.get("ctype") or ""), str(received.get("disposition") or "")) if save_file else None
+                    except OSError as error:
+                        saved = None
+                        sent["error"] = f"không lưu được file: {error}"
+                    if saved is None:
+                        sent["error"] = sent.get("error") or "không có chỗ lưu file"
+                        note(group, "failed", f"{ref}: {sent['error']}", shown)
+                        return end("failed", f"«{label}», lời gọi {ref}: {sent['error']}.")
+                    sent["file"] = {"name": saved["name"], "path": saved["path"], "size": size, "size_text": files.size_text(size), "saved": True}
+                answers[node["id"]] = ""
+                continue
             text = str(answer.get("text") or "")
             answers[node["id"]] = text
             sent["view"] = response_view.summarize(text)
             why = "" if twin else refused(int(answer.get("status") or 0), text)
+            if not why and node.get("kind") == "file":
+                why = "máy chủ trả về trang hoặc chữ chứ không phải file (có thể sai tiêu chí, hoặc báo cáo chưa sẵn sàng)"
             if why:
                 sent["error"] = why
                 note(group, "needs_help", f"{ref}: {why}", shown)
@@ -571,7 +619,9 @@ def run_api(workflow: dict[str, Any], nodes: list[dict[str, Any]], values: dict[
             note(group, "done", f"màn hình · {group_ms} ms (mô phỏng)", shown)
         elif len(real_calls) == 1:
             only = shown["requests"][0]
-            note(group, "done", f"{only.get('status')} · {only.get('ms', 0)} ms", shown)
+            made = only.get("file")
+            note(group, "done", (f"{'file giả (bản sao)' if made.get('twin') else 'đã lưu file'} · {made['size_text']} · {only.get('ms', 0)} ms" if made
+                                 else f"{only.get('status')} · {only.get('ms', 0)} ms"), shown)
         else:
             note(group, "done", f"{len(real_calls)} lời gọi · {group_ms} ms", shown)
     return end("finished", "Chạy xong.")

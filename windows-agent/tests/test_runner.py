@@ -248,3 +248,11 @@ def test_enter_in_a_field_that_is_not_on_screen_stops_and_asks():
     }
     result, _, _ = run(workflow=workflow, inputs={}, driver=FakeDriver(missing={"role=text[name='Số tiền']"}))
     assert result["status"] == "needs_help"
+
+
+def test_a_step_that_makes_the_page_answer_a_file_stops_after_the_press_and_tells_the_teller_to_press_luu():
+    driver = FakeDriver()
+    result, _, _ = run(driver=driver, download_steps={"s2": "Bấm «Xuất báo cáo»"})
+    assert result["status"] == "needs_help" and "Lưu" in result["message"] and "Chạy mô phỏng" in result["message"]
+    assert driver.calls[-1] == ("click", "role=push button[name='Tra cứu CIF']")      # it pressed the button, and went no further
+    assert [s["id"] for s in result["steps"]] == ["s1", "s2"] and result["steps"][-1]["status"] == "needs_help"

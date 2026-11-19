@@ -172,7 +172,26 @@ function find() {
   t.send('');
 }
 </script></body></html>"""
-PAGES = {"/tokapp": TOKAPP, "/sessapp": SESSAPP, "/cifapp": CIFAPP, "/jslink": JSLINK, "/slowpage": SLOW, "/opener": OPENER, "/ajaxtab": AJAXTAB, "/ajaxnav": AJAXNAV, "/ajax2": AJAX2, "/form": FORM, "/ajax": AJAX, "/search": SEARCH_TOP, "/clock": CLOCK, "/searchform": SEARCH_FORM, "/desktop": DESKTOP, "/rhidden": RHIDDEN, "/rhidden2": RHIDDEN2, "/blank": BLANK}
+# A report exported as a PDF, delivered the three ways a site may: (a) a request of the page, (b) a form sent to the same window, (c) window.open of the file.
+# The label is «Xuất báo cáo» (written as entities: this file keeps the pages in ASCII bytes).
+PDF_BYTES = b"%PDF-1.4\nRKPDFMARK 0123456789 NGUYEN VAN A\n" + bytes(range(256)) * 8 + b"\r\n\x00\xff\r%%EOF"
+EXPORT = b"""<html><head><title>RookieE2E Export</title></head><body>
+<table><tr><td>Tu ngay:</td><td><input type="text" id="txtFrom" name="txtFrom"></td></tr></table>
+<input type="button" id="btnXhr" value="Xu&#7845;t b&aacute;o c&aacute;o" onclick="exportXhr()">
+<form id="fExp" method="post" action="/api/exportform"><input type="hidden" name="kind" value="pdf"><input type="text" id="txtFrom2" name="txtFrom2">
+<input type="submit" id="btnForm" value="Xu&#7845;t b&aacute;o c&aacute;o"></form>
+<input type="button" id="btnWin" value="Xu&#7845;t b&aacute;o c&aacute;o" onclick="exportWin()">
+<div id="res"></div>
+<script>
+function xhr() { return window.XMLHttpRequest ? new XMLHttpRequest() : new ActiveXObject('Msxml2.XMLHTTP'); }
+function exportXhr() {
+  var x = xhr(); x.open('POST', '/api/export', true); x.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+  x.onreadystatechange = function () { if (x.readyState == 4) { document.getElementById('res').innerHTML = 'exported ' + x.status; } };
+  x.send('from=' + document.getElementById('txtFrom').value + '&fmt=pdf');
+}
+function exportWin() { window.open('/api/exportpdf?from=' + document.getElementById('txtFrom').value + '&fmt=pdf', '_blank'); }
+</script></body></html>"""
+PAGES = {"/export": EXPORT, "/tokapp": TOKAPP, "/sessapp": SESSAPP, "/cifapp": CIFAPP, "/jslink": JSLINK, "/slowpage": SLOW, "/opener": OPENER, "/ajaxtab": AJAXTAB, "/ajaxnav": AJAXNAV, "/ajax2": AJAX2, "/form": FORM, "/ajax": AJAX, "/search": SEARCH_TOP, "/clock": CLOCK, "/searchform": SEARCH_FORM, "/desktop": DESKTOP, "/rhidden": RHIDDEN, "/rhidden2": RHIDDEN2, "/blank": BLANK}
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -196,6 +215,10 @@ class Handler(BaseHTTPRequestHandler):
         if self.path.startswith("/api/ping"):
             self._json(b'{"pong":true,"name":"NGUYEN VAN A"}')
             return
+        if self.path.startswith("/api/exportpdf"):    # (c) a file url opened by window.open
+            Handler.seen.append("win:" + self.path.split("from=", 1)[-1].split("&")[0])
+            self._pdf()
+            return
         if self.path.startswith("/slow.js"):      # a script the page waits for: until it comes, the document is not "complete"
             time.sleep(3.5)
             self.send_response(200); self.send_header("Content-Type", "application/javascript"); self.end_headers(); self.wfile.write(b"window.__slow = 1;")
@@ -204,10 +227,21 @@ class Handler(BaseHTTPRequestHandler):
             time.sleep(2.5)     # a slow next screen: the tab is between two pages for a while
         self._send(PAGES.get(self.path, LOGIN))
 
+    def _pdf(self, attachment=False):
+        self.send_response(200); self.send_header("Content-Type", "application/pdf"); self.send_header("Content-Length", str(len(PDF_BYTES)))
+        if attachment:
+            self.send_header("Content-Disposition", 'attachment; filename="BaoCao_20261119.pdf"')
+        self.end_headers(); self.wfile.write(PDF_BYTES)
+
     def _json(self, body):
         self.send_response(200); self.send_header("Content-Type", "application/json"); self.end_headers(); self.wfile.write(body)
 
     def do_POST(self):
+        if self.path.startswith("/api/export"):       # (a) a request of the page, (b) a form posted: both answer the PDF
+            body = self.rfile.read(int(self.headers.get("Content-Length") or 0)).decode("utf-8")
+            Handler.seen.append(("form:" if self.path.startswith("/api/exportform") else "xhr:") + body)
+            self._pdf(attachment=self.path.startswith("/api/exportform"))
+            return
         if self.path.startswith("/api/gettoken"):   # a bare token, fresh each time; only the newest one is accepted by the service
             self.rfile.read(int(self.headers.get("Content-Length") or 0))
             Handler.jwts += 1
@@ -1509,3 +1543,82 @@ def test_a_click_no_rule_names_asks_once_sends_after_chi_xem_and_the_next_run_do
         assert core.dispatch("POST", "/api/run/start", {**start, "refresh": True})[0] == 200
         run = wait(lambda r: r.get("ask") or r.get("result"))
         assert run["ask"] is None and run["result"]["status"] == "finished" and run["details"]["g1"]["requests"][0]["status"] == 200, run
+
+
+# ---- a report exported as a PDF: recorded, learned and run by request, the saved file equal to the served bytes (docs/design.md 6.4) ----------
+
+def _quit_windows_of_this_site(port):
+    """A window.open of the test opens one more IE window on this test's own site: closed too (matched by the site's port, never another window)."""
+    for _ in range(6):
+        if drive("quit", rf"127\.0\.0\.1:{port}") == "no window":
+            break
+
+
+@pytest.mark.parametrize("path_kind, field, button", [("xhr", "txtFrom", "btnXhr"), ("form", "txtFrom2", "btnForm")])
+def test_a_pdf_answer_is_recorded_as_a_file_learned_and_run_by_request_and_the_saved_file_equals_the_served_bytes(tmp_path, path_kind, field, button):
+    import sys
+    import time as _time
+
+    repo = Path(__file__).resolve().parents[2]
+    from tests.test_webui import make_core
+    sys.path.append(str(repo / "server"))
+    from app.main import create_app
+    from fastapi.testclient import TestClient
+
+    app = create_app(tmp_path / "server.db")
+    app.state.flow_builder = None
+    Handler.seen.clear()
+    folder = tmp_path / "Rookie"
+    with TestClient(app) as server, real_ie("/export") as bridge:
+        core, _ = make_core(tmp_path, ie_bridge=lambda: bridge, server_client=lambda url: _InProcessServer(server))
+        core.store.put("download_folder", str(folder))
+        for _ in range(75):
+            tab = next((t for t in bridge.tabs() if "RookieE2E Export" in t["title"]), None)
+            if tab:
+                break
+            _time.sleep(0.2)
+        assert tab, bridge.tabs()
+        try:
+            assert core.dispatch("POST", "/api/record/start", {"window": f"ie-tab:{tab['id']}", "requests": True})[0] == 200
+            _time.sleep(1.0)
+            os.environ["RK_ID"], os.environ["RK_VALUE"] = field, "2026-01-31"
+            drive("e-type", "RookieE2E Export")
+            _time.sleep(0.5)
+            os.environ["RK_ID"] = button
+            drive("e-click", "RookieE2E Export")
+            _time.sleep(7.0)                       # the page that left, or a window that opened, has no document to show: the recorder waits a few seconds for one
+            assert any(s.startswith({"xhr": "xhr:", "form": "form:", "open": "win:"}[path_kind]) for s in Handler.seen), Handler.seen
+            status, saved = core.dispatch("POST", "/api/record/stop", {"name": "xuat bao cao " + path_kind})
+            assert status == 200, saved
+            status, shown = core.dispatch("POST", "/api/learn", {"ids": [saved["id"]], "title": "Xuất báo cáo giao dịch"})
+            assert status == 200, shown
+            flow = core.store.get("flows")[0]
+            nodes = [n for n in flow["api"] if n["kind"] == "file"]
+            assert len(nodes) == 1, [(n["kind"], n["method"], n["url"]) for n in flow["api"]]
+            node = nodes[0]
+            assert node["via"] == path_kind and (node["file"]["guess"] is (path_kind != "xhr"))
+            if path_kind == "xhr":
+                assert node["file"]["ctype"] == "application/pdf" and node["file"]["size"] == len(PDF_BYTES) and node["method"] == "POST"
+            on_disk = "\n".join(p.read_text(encoding="utf-8", errors="ignore") for p in core.store.home.rglob("*") if p.is_file() and p.suffix in (".json", ".txt", ".jsonl"))
+            assert "RKPDFMARK" not in on_disk and "RKPDFMARK" not in json.dumps(flow) and "NGUYEN VAN A" not in on_disk      # the file's content is kept nowhere
+            assert flow["workflow"]["steps"][-1]["risk"] == "read", flow["workflow"]["steps"][-1]   # «Xuất báo cáo» is a read
+            inputs = {i["name"]: "2026-02-15" for i in flow["workflow"]["inputs"]}
+            Handler.seen.clear()
+            status, reply = core.dispatch("POST", "/api/run/start", {"title": "Xuất báo cáo giao dịch", "mode": "simulate", "window": f"ie-tab:{tab['id']}", "inputs": inputs})
+            assert status == 200, reply
+            for _ in range(200):
+                run = core.dispatch("GET", "/api/run/status", {})[1]
+                if run.get("result"):
+                    break
+                _time.sleep(0.2)
+            core._run["thread"].join(5)
+        finally:
+            _quit_windows_of_this_site(bridge.test_port)
+    assert run["result"]["status"] == "finished", run
+    made = list(folder.glob("Xuất báo cáo giao dịch-*.pdf"))
+    assert len(made) == 1 and made[0].read_bytes() == PDF_BYTES, (made, run)                       # every byte as the server sent it
+    assert len(Handler.seen) == 1, Handler.seen
+    if inputs:
+        assert "2026-02-15" in Handler.seen[0], Handler.seen                                          # this run's value, not the recorded one
+    shown = next(r for d in run["details"].values() for r in d["requests"] if r.get("file"))
+    assert shown["file"]["saved"] is True and shown["file"]["size"] == len(PDF_BYTES) and "view" not in shown

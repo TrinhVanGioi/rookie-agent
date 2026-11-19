@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any
 
 from rookie_agent import __version__, diagnose
+from rookie_agent.ie import files
 from rookie_agent.native_host import Host
 from rookie_agent.server_client import ServerClient, ServerError
 
@@ -686,7 +687,9 @@ class Core:
             try:
                 driver = IeDriver(bridge, tab["id"])
                 result = run_workflow(workflow, inputs, driver, controller, stop, values=shared, engine="ie", versions=(2, 3),
-                                      allow_write_on_real=bool(self.store.get("ie_allow_write_on_real", False)))
+                                      allow_write_on_real=bool(self.store.get("ie_allow_write_on_real", False)),
+                                      download_steps={n["step_id"]: str(n.get("label") or n["step_id"]).split(" → ")[0] for n in flow.get("api") or []
+                                                      if n.get("kind") == "file" and n.get("step_id")})
                 if mode == "dry" and result["status"] == "finished":
                     result["message"] = "Chạy thử xong" + (f", dừng trước bước «{stops_before}» (bước ghi hoặc tiền)." if stops_before else ".")
             except Exception as error:  # noqa: BLE001  the person sees a plain sentence, never a stack
@@ -776,9 +779,15 @@ class Core:
                         answer = bridge.send("top", node["method"], url, headers, body_text)
                     return answer
 
+                def save_file(data: bytes, ctype: str, disposition: str) -> dict[str, Any]:
+                    # the file answer of a call: written here, on this PC, and nowhere else (docs/design.md 6.4)
+                    folder = self._download_dir()
+                    path = files.save(folder, files.file_name(flow["title"], ctype, disposition), data)
+                    return {"name": path.name, "path": str(path)}
+
                 result = replay.run_api(workflow, api, inputs, send, controller, stop, peek=peek, read_rules=read_rules.load(),
                                         confirmed=flow.get("read_confirmed") or {},
-                                        remember=lambda step_id: self._read_confirm(flow["title"], step_id))
+                                        remember=lambda step_id: self._read_confirm(flow["title"], step_id), save_file=save_file)
             except Exception as error:  # noqa: BLE001
                 result = {"status": "failed", "message": f"Chạy mô phỏng bị lỗi: {error}", "steps": []}
             finally:
@@ -786,7 +795,8 @@ class Core:
                     bridge.unbind()
                 except Exception:  # noqa: BLE001
                     pass
-            if result["status"] == "finished":
+            saved_a_file = any(r.get("file") for d in controller.details.values() for r in d.get("requests", []))
+            if result["status"] == "finished" and not saved_a_file:      # an export is made again each time: its file is not "remembered"
                 self._cache[key] = {"at": time.time(), "tab": tab["id"], "steps": json.loads(json.dumps(controller.steps)),
                                     "details": json.loads(json.dumps(controller.details)), "result": dict(result)}
             elif "đăng nhập" in str(result.get("message")):
@@ -830,6 +840,34 @@ class Core:
         for key in gone:
             del self._cache[key]
         return len(gone)
+
+    # ---- files that a call answered (a report as PDF): saved on this PC only --------------------------------------------------
+
+    def _download_dir(self) -> Path:
+        """`%USERPROFILE%\\Downloads\\Rookie`, or the folder set in the agent's settings (`download_folder`, an absolute path)."""
+        return files.downloads_dir(str(self.store.get("download_folder") or "") or None)
+
+    def _open_path(self, path: Path) -> None:
+        import os
+
+        os.startfile(str(path))  # type: ignore[attr-defined]  Windows only: the program the teller's PC uses for this kind of file
+
+    def file_open(self, body: dict[str, Any]) -> dict[str, Any]:
+        """«Mở file» / «Mở thư mục» of a saved file. Only a path inside the Rookie folder is opened, and only a kind of file that a person reads
+        (never a program or a page); anything else is refused. Local only: nothing is sent."""
+        target = Path(str(body.get("path") or ""))
+        folder = self._download_dir()
+        if not str(body.get("path") or "") or not files.inside(folder, target):
+            raise UserError("Chỉ mở được file đã lưu trong thư mục Rookie của máy này.")
+        if body.get("folder"):
+            self._open_path(target.parent if target.parent != target else folder)
+            return {"opened": "folder"}
+        if not target.is_file():
+            raise UserError("Không còn file này (đã bị xoá hoặc dời đi).")
+        if target.suffix.lstrip(".").lower() not in files.OPENABLE:
+            raise UserError("Không mở loại file này từ đây. Mở thư mục để xem.")
+        self._open_path(target)
+        return {"opened": "file"}
 
     def cache_clear(self, _: dict[str, Any]) -> dict[str, Any]:
         """«Xoá bộ nhớ phiên»: every kept look-up is forgotten now."""
@@ -1362,7 +1400,7 @@ class Core:
         "GET /api/twin/discover": "twin_discover", "GET /api/twin/suggest": "twin_suggest", "GET /api/twin/metrics": "twin_metrics",
         "POST /api/twin/simulate": "twin_simulate", "POST /api/twin/run": "twin_run", "GET /api/twin/status": "run_status",
         "POST /api/twin/decide": "run_decide", "POST /api/twin/stop": "run_stop", "POST /api/twin/export": "twin_export",
-        "GET /api/server/log": "server_log", "POST /api/cache/clear": "cache_clear", "GET /api/cache": "cache_state",
+        "GET /api/server/log": "server_log", "POST /api/cache/clear": "cache_clear", "GET /api/cache": "cache_state", "POST /api/file/open": "file_open",
     }
 
     def server_log(self, _: dict[str, Any]) -> dict[str, Any]:

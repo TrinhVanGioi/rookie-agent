@@ -318,6 +318,31 @@ while ($true) {
                 }
                 Reply @{ ok = $true; frames = @($answers) }
             }
+            'fetchfile' {   # the bytes of a file answer a page's request got (docs/design.md 6.4): read from the request object's responseBody (a byte array) here,
+                # never converted in the page's JScript, and handed on as base64. Nothing is written by the bridge.
+                if ($null -eq $runTab) { Reply @{ ok = $false; error = 'not bound' }; continue }
+                $id = [string]$request.id
+                $limit = [int64]$request.max
+                $holder = $null; $xhr = $null
+                try { $top = $runTab.Document.parentWindow } catch { Reply @{ ok = $false; error = 'the tab is gone' }; continue }
+                foreach ($w in (Get-Windows $top)) {
+                    $found = Invoke-MethodArgs $w '__rkFileX' @($id)
+                    if ($found) { $xhr = $found; $holder = $w; break }
+                }
+                if ($null -eq $xhr) { Reply @{ ok = $true; found = $false }; continue }
+                $bytes = $null
+                try { $bytes = [byte[]][System.__ComObject].InvokeMember('responseBody', 'GetProperty', $null, $xhr, $null) } catch { }
+                $null = Invoke-MethodArgs $holder '__rkFileX' @($id, 'drop')
+                if ($null -eq $bytes) { Reply @{ ok = $true; found = $false }; continue }
+                if ($limit -gt 0 -and $bytes.Length -gt $limit) { Reply @{ ok = $true; found = $true; too_big = $true; size = $bytes.Length }; continue }
+                $b64 = [Convert]::ToBase64String($bytes)
+                [Console]::Out.WriteLine('{"ok":true,"found":true,"size":' + $bytes.Length + ',"b64":"' + $b64 + '"}')
+                [Console]::Out.Flush()
+            }
+            'dropfile' {
+                if ($null -ne $runTab) { try { foreach ($w in (Get-Windows $runTab.Document.parentWindow)) { $null = Invoke-MethodArgs $w '__rkFileX' @([string]$request.id, 'drop') } } catch { } }
+                Reply @{ ok = $true }
+            }
             'locate' {   # task 6.1: each frame's matches for every selector of a step; the agent weighs them, nothing is done to the page
                 if ($null -eq $runTab) { Reply @{ ok = $false; error = 'not bound' }; continue }
                 $selectors = ([string[]]@($request.selectors)) -join "`n"

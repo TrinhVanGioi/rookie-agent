@@ -15,6 +15,13 @@ from rookie_agent.ie.recorder import IeRecorder
 ACTION_KINDS = frozenset({"click", "dblclick", "submit", "input", "select", "key"})
 MAX_SEEN = 30
 MAX_REQUESTS = 500
+QUIET_SECONDS = 4.0     # a form sent or a window opened that no new document answered within this time: its answer was a file
+
+
+def _path_of(url: Any) -> str:
+    """A url without scheme, host, query: what tells a window.open from the document it opened."""
+    text = re.sub(r"^[A-Za-z][A-Za-z0-9+.\-]*://[^/]*", "", str(url or "")).split("?", 1)[0].split("#", 1)[0]
+    return text.rsplit("/", 1)[-1] if text else ""
 
 
 class IeSession:
@@ -33,6 +40,10 @@ class IeSession:
         self.on_hook_failed = None                # called with the host when the recorder took its stand-ins back: the caller remembers the site
         self.requests: list[dict[str, Any]] = []   # the requests the page made, full request and response: in memory only
         self._form: dict[str, Any] | None = None   # the last form the teller sent, until the next document says where it went
+        self._form_after: dict[str, Any] | None = None
+        self._go_at = -100.0                       # when the page last started to leave after a press
+        self._form_at, self._form_go = 0.0, False  # when it was seen, and whether the page then started to leave (an answer that is a download)
+        self._opens: list[dict[str, Any]] = []     # window.open calls no document has answered yet
         self.seen: list[dict[str, Any]] = []    # what the screen showed after each action: in memory only, the full values are here
         self.recorder = IeRecorder(app_title=app_title)
         self.app_title = app_title
@@ -93,6 +104,7 @@ class IeSession:
         """Keep every line. A line the recorder cannot read is skipped; it never ends the recording or hides the lines after it.
         True when one of the lines is an action of the teller (the screen may change after it)."""
         acted = False
+        self._flush_quiet()
         for line in lines:
             uid = line.get("uid")
             if uid:  # the same line can arrive twice (taken from the old page and restored by the new one): once is enough
@@ -138,15 +150,29 @@ class IeSession:
                     self.notes.append(f"{time.strftime('%H:%M:%S')} Lỗi JavaScript của trang: {detail} ({place}).{after}{link}")
                     del self.notes[:-30]
             if line.get("kind") == "ajax":
-                self.requests.append({**{k: line.get(k) for k in ("t", "frame", "method", "url", "status", "ms", "req", "res", "hdr", "cut")},
+                # an answer that is a file arrives as its facts only (`file`: type, size, name pattern): the page's recorder never read its bytes
+                self.requests.append({**{k: line.get(k) for k in ("t", "frame", "method", "url", "status", "ms", "req", "res", "hdr", "cut", "file")},
                                       "kind": "xhr", "after": self._last_action})
+                if line.get("file"):
+                    self.requests[-1]["res"] = ""          # whatever the page sent along, no text of a file is kept
                 del self.requests[:-MAX_REQUESTS]
             elif line.get("kind") == "form":
                 self._form = line           # the form the teller sent: the request is known when the next document says where it went
-            elif line.get("kind") == "nav" and self._last_action is not None:
+                self._form_at, self._form_after = time.monotonic(), self._last_action
+                self._form_go = self._form_at - self._go_at < 3.0    # the page may have started to leave just before its line was made
+                self._go_at = -100.0
+            elif line.get("kind") == "formgo":
+                self._go_at = time.monotonic()
+                self._form_go = self._form is not None        # the page started to leave because of it (even when the answer is a download and no document comes)
+            elif line.get("kind") == "open":
+                self._opens.append({"line": line, "at": time.monotonic(), "after": self._last_action})   # window.open(url): a document, or a file
+            if line.get("kind") == "nav":
+                self._opens = [o for o in self._opens if _path_of(o["line"].get("url")) != _path_of(line.get("url"))]   # the window showed a page: that is its request
+            if line.get("kind") == "nav" and self._last_action is not None:
                 # Gate 8: a document that came after a press is a request of its own (a form posted, a frame loaded). The documents
                 # already open when the recording started come before any action and are not requests of the teller's.
                 form, self._form = self._form, None
+                self._form_go = False
                 posted = form if form and int(line.get("t") or 0) - int(form.get("t") or 0) < 15000 else None
                 self.requests.append({
                     "t": line.get("t"), "frame": line.get("frame"), "kind": "form" if posted else "page",
@@ -164,6 +190,33 @@ class IeSession:
             except Exception as error:  # noqa: BLE001
                 self.error = f"Bỏ qua một dòng không đọc được: {error}"
         return acted
+
+    def _flush_quiet(self, force: bool = False) -> None:
+        """A form the page left for, or a window.open, that no document answered (QUIET_SECONDS, or the recording ended): the answer was not
+        a page, so it is taken as a file (a download shows no document). It is a request whose answer is not known yet (`file.guess`); the run
+        decides by what really comes back. A form the page's script stopped (no sign it left) is not a request."""
+        now = time.monotonic()
+        form = self._form
+        if form is not None and self._form_go and (force or now - self._form_at >= QUIET_SECONDS):
+            self._form = None
+            self._form_go = False
+            self._go_at = -100.0
+            self._quiet_request(form, "form", self._form_after)
+        for item in [o for o in self._opens if force or now - o["at"] >= QUIET_SECONDS]:
+            self._opens.remove(item)
+            self._quiet_request(item["line"], "open", item["after"])
+
+    def _quiet_request(self, line: dict[str, Any], kind: str, after: dict[str, Any] | None) -> None:
+        url = str(line.get("url") or "")
+        if not url or url.lower().startswith(("javascript:", "about:", "#")):
+            return
+        method = str(line.get("method") or "GET").upper()
+        self.requests.append({
+            "t": line.get("t"), "frame": line.get("frame"), "kind": kind, "method": method, "url": url, "status": 200, "ms": 0,
+            "req": str(line.get("req") or ""), "res": "", "cut": bool(line.get("cut")), "target": str(line.get("target") or ""),
+            "hdr": "Content-Type:application/x-www-form-urlencoded\n" if method == "POST" else "",
+            "file": {"guess": True, "ctype": "", "size": 0, "name": ""}, "after": after})
+        del self.requests[:-MAX_REQUESTS]
 
     def _look(self) -> None:
         """Read the screen three times, a moment apart: what keeps changing (a clock) is never taken for the result of the action.
@@ -219,4 +272,5 @@ class IeSession:
             self._take(self._bridge.stop_recording())
         except IeBridgeError as error:
             self.error = self.error or str(error)
+        self._flush_quiet(force=True)
         return self.recorder.stop()

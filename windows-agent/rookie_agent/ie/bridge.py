@@ -6,6 +6,7 @@ A child process, one JSON line per request and per reply, all ASCII. The bridge 
 
 from __future__ import annotations
 
+import base64
 import json
 import queue
 import subprocess
@@ -162,10 +163,33 @@ class IeBridge:
                 answer = done[0]
                 if answer.get("error"):
                     return {"ok": False, "error": str(answer["error"])}
+                if answer.get("file"):
+                    return self._file_answer(ask, answer)
                 return {"ok": True, "status": int(answer.get("status") or 0), "ms": int(answer.get("ms") or 0), "text": str(answer.get("text") or "")}
             if _time.monotonic() >= deadline:
                 return {"ok": False, "error": "timeout"}
             pause(0.2)
+
+    def _file_answer(self, ask: str, answer: dict[str, Any]) -> dict[str, Any]:
+        """The answer of `send` is a file. Its bytes are read by the bridge from the page's request object (`responseBody`, a byte array, over COM)
+        and come back as base64: never as text, so no byte is changed. Over 50 MB is not fetched. The file is only in memory here."""
+        from rookie_agent.ie import files
+
+        base = {"ok": True, "status": int(answer.get("status") or 0), "ms": int(answer.get("ms") or 0), "text": ""}
+        length = int(answer.get("len") or 0)
+        if length > files.MAX_BYTES:
+            self.request({"cmd": "dropfile", "id": ask})
+            return {"ok": False, "error": "too_big", "size": length}
+        reply = self.request({"cmd": "fetchfile", "id": ask, "max": files.MAX_BYTES}, timeout=180)
+        if reply.get("too_big"):
+            return {"ok": False, "error": "too_big", "size": int(reply.get("size") or 0)}
+        if not reply.get("found"):
+            return {"ok": False, "error": "không lấy được nội dung file từ trang"}
+        try:
+            data = base64.b64decode(str(reply.get("b64") or ""), validate=True)
+        except ValueError:
+            return {"ok": False, "error": "nội dung file nhận về bị hỏng"}
+        return {**base, "file": {"data": data, "ctype": str(answer.get("ctype") or ""), "disposition": str(answer.get("disp") or "")}}
 
     def last_requests(self, frame: str, path: str, timeout: float = 30.0) -> list[str]:
         """The last bodies (at most 3 per frame, oldest first) the live page sent to `path`, with passwords hidden. `frame` "" or "*":
