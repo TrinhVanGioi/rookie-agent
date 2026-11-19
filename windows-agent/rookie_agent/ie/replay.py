@@ -334,7 +334,13 @@ def run_api(workflow: dict[str, Any], nodes: list[dict[str, Any]], values: dict[
             return end("stopped", f"Dừng khẩn trước «{node['label']}».")
         shown: dict[str, Any] = {"action": node["label"], "risk": node["risk"], "requests": [], "inputs": []}
         if node.get("step_id") in sign_in:
-            note(node, "skipped", "đăng nhập: dùng phiên đang mở của trang IE", shown)
+            if twin and node.get("shape"):
+                # The twin answers the sign-in from its fake too (nothing is sent, the password is never used), so a value
+                # the next calls take from the sign-in answer (a session id) exists in the twin run.
+                answers[node["id"]] = str(send(node, node["url"], node["headers"], node["body"]).get("text") or "")
+                note(node, "skipped", "đăng nhập: bản sao tự trả lời giả để có giá trị cho bước sau, không gửi gì", shown)
+            else:
+                note(node, "skipped", "đăng nhập: dùng phiên đang mở của trang IE", shown)
             continue
         controller.progress(node["id"], "running", "")
         if twin:
@@ -357,6 +363,13 @@ def run_api(workflow: dict[str, Any], nodes: list[dict[str, Any]], values: dict[
         for name, rule in node.get("links", {}).items():
             value = take_value(answers.get(rule["from"], ""), rule)
             where = next((n["label"] for n in nodes if n["id"] == rule["from"]), rule["from"])
+            source = next((n for n in nodes if n["id"] == rule["from"]), None)
+            if value is None and source is not None and source.get("step_id") in sign_in and not twin:
+                why = (f"giá trị «{name}» lấy từ trả lời lúc đăng nhập («{where}»), mà lần chạy thật không đăng nhập lại "
+                       "(dùng phiên đang mở, không gửi mật khẩu). Hãy Ghi lại khi đã đăng nhập sẵn: đăng nhập trước, mở màn hình cần làm, "
+                       "rồi mới bấm Ghi; sau đó Học lại. Hoặc dùng «Chạy thử trên bản sao»")
+                note(node, "needs_help", why, shown)
+                return end("needs_help", f"«{node['label']}»: {why}.")
             if value is None:
                 why = f"không lấy được giá trị từ trả lời của «{where}»"
                 note(node, "needs_help", why, shown)

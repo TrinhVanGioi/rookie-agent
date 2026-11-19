@@ -384,3 +384,28 @@ def test_every_event_of_an_ie_session_sent_to_the_server_says_schema_3_like_the_
     events = Core._events_for_server(SimpleNamespace(_path_template=Core._path_template), document)
     assert [e["schema_version"] for e in events] == [3, 3]
     assert "api_calls" not in events[0] and events[1]["api_calls"] == [{"method": "POST", "path": "/api/cif", "status": 200, "ms": 12}]
+
+
+def _login_first(api):
+    """The first call made by the sign-in (Enter on Password), its answer feeding the next call (a session id)."""
+    api[0]["step_id"] = "s2_password"
+    return api
+
+
+def test_a_value_from_the_sign_in_answer_is_taken_from_the_twins_fake_and_nothing_is_sent(monkeypatch):
+    monkeypatch.setattr(replay, "_sign_in_steps", lambda workflow: {"s2_password"})
+    result, controller, person, sent = twin_run(_login_first(nodes()[:3]))
+    assert result["status"] == "finished" and sent == []
+    assert [s["status"] for s in controller.steps] == ["skipped", "done", "done"]
+    assert "không gửi gì" in controller.steps[0]["detail"]
+
+
+def test_a_real_run_that_needs_the_sign_in_answer_stops_and_says_to_record_after_signing_in(monkeypatch):
+    from rookie_agent.webui.run import WebController
+    monkeypatch.setattr(replay, "_sign_in_steps", lambda workflow: {"s2_password"})
+    stop, sent = threading.Event(), []
+    controller = WebController(stop, {}, lambda: "")
+    send = lambda *a: sent.append(a) or {"ok": True, "status": 200, "ms": 1, "text": "{}"}   # noqa: E731
+    result = replay.run_api(flow(), _login_first(nodes()[:3]), {"cif": "9988776655"}, send, controller, stop)
+    assert result["status"] == "needs_help" and sent == []
+    assert "lúc đăng nhập" in result["message"] and "bấm Ghi" in result["message"] and "bản sao" in result["message"]
