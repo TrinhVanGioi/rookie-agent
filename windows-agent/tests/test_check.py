@@ -45,6 +45,17 @@ def test_without_requests_it_says_only_the_screen_can_be_used():
     assert levels(found) == ["note"] and "Ghi yêu cầu" in found[0]["text"]
 
 
+def test_after_learning_it_says_how_many_steps_run_by_request_and_why_the_others_do_not():
+    api = [{"id": "a1", "group": "g1", "group_label": "Tra cứu", "step_id": "s1", "risk": "read", "complete": True, "unresolved": [], "method": "POST", "url": "/x"},
+           {"id": "a2", "group": "g2", "group_label": "Xem lịch sử", "step_id": "s2", "risk": "read", "complete": True, "unresolved": ["l9"], "method": "POST", "url": "/y"},
+           {"id": "a3", "group": "g3", "group_label": "In", "step_id": "s3", "risk": "read", "complete": True, "unresolved": [], "kind": "file", "method": "POST", "url": "/z"},
+           {"id": "a4", "group": "g4", "group_label": "Gửi duyệt", "step_id": "s4", "risk": "money", "complete": True, "unresolved": [], "method": "POST", "url": "/m"}]
+    report = check.learned(api, {"steps": []})
+    assert (report["ready"], report["total"]) == (2, 4)
+    assert report["lines"][0] == "Chạy lại được bằng yêu cầu: 2/3 bước chỉ xem. Có 1 bước trả về file (lưu vào thư mục Rookie, có nút In)."
+    assert any("«Xem lịch sử»" in line and "l9" in line for line in report["lines"]) and any("«Gửi duyệt»" in line and "Duyệt" in line for line in report["lines"])
+
+
 def test_a_part_of_the_page_the_recorder_cannot_read_asks_for_a_diagnosis():
     found = check.check({"events": [ev(0, "click", "A")], "requests": [call(0, 0)]}, notes=["window 2 frame='x' không với tới"])
     assert "redo" in levels(found) and "Gửi chẩn đoán" in found[-1]["hint"]

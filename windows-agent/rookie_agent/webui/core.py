@@ -559,6 +559,12 @@ class Core:
         }
         api = self._api_for(workflow, ids)
         shown["api_count"] = len(api)
+        try:      # task 11.4: what the flow can do, in plain words, right after Học
+            from rookie_agent.ie import check
+
+            shown["quality"] = check.learned(api, workflow)
+        except Exception:  # noqa: BLE001
+            pass
         put_api = getattr(client, "put_api", None)
         if api and put_api is not None and workflow.get("id") and workflow.get("version"):
             from rookie_agent.ie import api_share
@@ -1056,6 +1062,11 @@ class Core:
                     answer = bridge.send(node["frame"], node["method"], url, headers, body_text)
                     if answer.get("error") == "no_frame" and node["frame"] != "top":
                         # the frame of the recording is named or placed differently now: the tab's top page sends it, same site, same session
+                        answer = bridge.send("top", node["method"], url, headers, body_text)
+                    elif (answer.get("error") == "không lấy được nội dung file từ trang" and node["frame"] != "top" and node.get("kind") == "file"
+                          and str(node.get("risk") or "read") == "read" and url.startswith(("/", "http://", "https://"))):
+                        # task 11.2 (the TouchPoint look-alike): the bytes of a file a frame's request got cannot always be read over COM;
+                        # the same read-only call from the tab's top page (same site, same session, an address that does not depend on the frame) can
                         answer = bridge.send("top", node["method"], url, headers, body_text)
                     return answer
 

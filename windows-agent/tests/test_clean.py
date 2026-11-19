@@ -31,6 +31,12 @@ def test_an_enter_that_does_what_the_button_does_in_another_recording_becomes_th
     assert ENTER["events"][1]["type"] == "submit"           # the recording itself is not changed
 
 
+def test_an_enter_whose_calls_were_recorded_under_its_field_is_still_that_button_and_takes_the_calls():
+    late = {**ENTER, "requests": [{**token(0), "index": 0}, {**gwt(0, "AcctService", "find"), "index": 1}]}    # the page's key handler ran first
+    _, cleaned = clean.clean([BUTTON, late])
+    assert cleaned["events"][1]["type"] == "click" and [r["after_seq"] for r in cleaned["requests"]] == [1, 1]
+
+
 def test_an_enter_with_another_effect_stays_an_enter():
     other = {**ENTER, "requests": [token(1), gwt(1, "HistoryService", "list")]}
     assert clean.unify_triggers([BUTTON, other])[1][1]["type"] == "submit"

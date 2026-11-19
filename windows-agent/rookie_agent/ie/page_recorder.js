@@ -80,7 +80,10 @@
         parts.push(encodeURIComponent(n) + "=" + encodeURIComponent(v));
       }
       v = parts.join("&");
-      try { window.top.__rkFormAt = new Date().getTime(); window.top.__rkFormSent = String(f.action || "") + "|" + v; } catch (eTop) {}    // for formGo: the page that leaves may be another frame than this one
+      try {
+        window.top.__rkFormAt = new Date().getTime();   // for formGo: the page that leaves may be another frame than this one
+        if (!by) { window.top.__rkFormSent = String(f.action || "") + "|" + v; window.top.__rkFormSentAt = new Date().getTime(); }   // the teller's own form: not made twice
+      } catch (eTop) {}
       return "{" + '"uid":"f' + new Date().getTime() + "-" + Math.floor(Math.random() * 1000000000) + '","t":' + new Date().getTime() + ',"kind":"form","frame":' + str(ownPath()) + ',"method":' + str(String(f.method || "GET").toUpperCase()) +
         ',"url":' + str(String(f.action || doc.location.href)) + ',"target":' + str(String(f.target || "")) + ',"req":' + str(v.slice(0, FORM_MAX)) + (v.length > FORM_MAX ? ',"cut":true' : "") +
         (by ? ',"by":' + str(by) : "") + "}\n";
@@ -126,6 +129,7 @@
     if (!name) { return null; }
     while (depth < 6) {
       try { if (w === w.parent) { break; } w = w.parent; forms = w.document.forms; } catch (eP) { return null; }
+      try { if (w.__rkLeaving) { return null; } } catch (eLv) {}     // the page that holds the form is leaving: this frame goes with it, nothing was sent
       for (i = 0; i < forms.length; i++) { f = forms[i]; try { if (String(f.target || "") === name) { return { form: f, win: w }; } } catch (eF2) {} }
       depth++;
     }
@@ -136,13 +140,16 @@
   // the moment of the press, taken at once: the page starts to leave (beforeunload) before our timer makes the form line
   function markForm() { try { window.top.__rkFormAt = new Date().getTime(); } catch (eMf) {} }
   function formGo() {
-    var at = 0, f = null, line = "", sent = "";
-    try { at = window.top.__rkFormAt || 0; sent = String(window.top.__rkFormSent || ""); } catch (eAt) {}
+    var at = 0, f = null, line = "", sent = "", sentAt = 0;
+    // frames below see it: they leave with this page, no form of theirs went. IE also fires beforeunload for a javascript: link and the
+    // page stays: the mark goes away by itself
+    try { window.__rkLeaving = true; window.setTimeout(function () { try { window.__rkLeaving = false; } catch (eL2) {} }, 1500); } catch (eLv) {}
+    try { at = window.top.__rkFormAt || 0; sent = String(window.top.__rkFormSent || ""); sentAt = window.top.__rkFormSentAt || 0; } catch (eAt) {}
     try {
       if (window.__rkRec && !window.__rkNoXhr) { f = scriptForm(); }
       if (f) {
         line = formLineOf(f.form, "script");
-        if (line && sent && new Date().getTime() - at < 3000 && sent.indexOf(String(f.form.action || "") + "|") === 0) { line = ""; }   // the teller's own form, already a line
+        if (line && sent && new Date().getTime() - sentAt < 3000 && sent.indexOf(String(f.form.action || "") + "|") === 0) { line = ""; }   // the teller's own form, already a line
         // the line goes to the queue of the page that holds the form: this frame is leaving, its queue with it
         if (line) { try { if (typeof f.win.__rkq === "string") { f.win.__rkq += line; } else { window.__rkq += line; } } catch (eQ) { window.__rkq += line; } }
       }

@@ -113,7 +113,7 @@ def renumber(document: dict[str, Any]) -> dict[str, Any]:
 def clean(documents: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Every rule, in order, on the recordings of one task: copies; the stored recordings are not changed."""
     copies = [renumber(drop_mistakes(copy.deepcopy(d))) for d in documents]
-    unified = unify_triggers(copies)
+    unified = unify_triggers(copies, move_requests=True)
     return [{**d, "events": events} for d, events in zip(copies, unified)]
 
 
@@ -122,14 +122,30 @@ def _key(event: dict[str, Any]) -> str:
     return (target.get("selectors") or [""])[0]
 
 
-def unify_triggers(documents: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
-    """Rule 1. The events of each recording, an Enter rewritten as the press of the button with the same effect where one is known."""
+def _enter_effect(document: dict[str, Any], events: list[dict[str, Any]], place: int) -> tuple[tuple[str, ...], int]:
+    """The effect of the Enter at `place`, and the event it was recorded under. The page's own key handler may run before the recorder
+    hears the key, so the calls can be recorded under the field itself (the event just before, on the same field): they are the Enter's."""
+    event = events[place]
+    done = effect(document, int(event["seq"]))
+    if done or place == 0:
+        return done, int(event["seq"])
+    before = events[place - 1]
+    same = set((before.get("target") or {}).get("selectors") or []) & set((event.get("target") or {}).get("selectors") or [])
+    if before.get("type") in ("input", "select") and same and before.get("seq") is not None:
+        return effect(document, int(before["seq"])), int(before["seq"])
+    return done, int(event["seq"])
+
+
+def unify_triggers(documents: list[dict[str, Any]], move_requests: bool = False) -> list[list[dict[str, Any]]]:
+    """Rule 1. The events of each recording, an Enter rewritten as the press of the button with the same effect where one is known.
+    `move_requests`: the calls recorded under the field (see _enter_effect) are given to the Enter too (the documents are copies)."""
     out = [copy.deepcopy(d.get("events") or []) for d in documents]
     presses: dict[tuple[str, ...], Counter] = {}           # effect -> the buttons pressed for it, and how often
     typed: list[set[str]] = []
     targets: dict[str, dict[str, Any]] = {}
     for document, events in zip(documents, out):
-        typed.append({_key(e) for e in events if e.get("type") in ("input", "select")})
+        # every selector of every field typed: the same field may be named first by its id here and by its name there
+        typed.append({s for e in events if e.get("type") in ("input", "select") for s in (e.get("target") or {}).get("selectors") or []})
         for event in events:
             if event.get("type") == "click" and event.get("seq") is not None:
                 done = effect(document, int(event["seq"]))
@@ -138,14 +154,19 @@ def unify_triggers(documents: list[dict[str, Any]]) -> list[list[dict[str, Any]]
                     targets.setdefault(_key(event), event.get("target") or {})
     for number, (document, events) in enumerate(zip(documents, out)):
         mine = {_key(e) for e in events if e.get("type") == "click"}
-        for event in events:
+        for place, event in enumerate(events):
             if event.get("type") != "submit" or event.get("seq") is None:
                 continue
-            done = effect(document, int(event["seq"]))
+            done, under = _enter_effect(document, events, place)
             button = next((b for b, _ in presses.get(done, Counter()).most_common()), None) if done else None
-            others_typed = any(_key(event) in typed[i] for i in range(len(out)) if i != number)
+            mine_sels = set((event.get("target") or {}).get("selectors") or [])
+            others_typed = any(mine_sels & typed[i] for i in range(len(out)) if i != number)
             if button and button not in mine and others_typed:
                 event["type"] = "click"
                 event["target"] = copy.deepcopy(targets[button])
                 event["value"] = None
+                if move_requests and under != int(event["seq"]):
+                    for request in document.get("requests") or []:
+                        if request.get("after_seq") == under:
+                            request["after_seq"] = int(event["seq"])
     return out

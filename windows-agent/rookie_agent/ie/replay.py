@@ -66,6 +66,19 @@ def _press_right_after(events: list[dict[str, Any]], sent: Any, after_seq: int |
     return None
 
 
+def _last_action_before(events: list[dict[str, Any]], sent: Any) -> int | None:
+    """The last action done at or before the moment a call was sent, by the clock. The order the lines were read in is not that: each
+    frame has its own queue and the queues are read one after the other."""
+    if not sent:
+        return None
+    best, best_at = None, None
+    for event in events:
+        at = _stamp_ms(event)
+        if at is not None and at <= int(sent) and (best_at is None or at >= best_at):
+            best, best_at = int(event["seq"]), at
+    return best
+
+
 def _seq_at(events: list[dict[str, Any]], moment: Any, kinds: tuple[str, ...] = ()) -> int | None:
     if not moment:
         return None
@@ -247,6 +260,9 @@ def templates(raw: list[dict[str, Any]], events: list[dict[str, Any]], requests:
         after = item.get("after") or {}
         file = file_facts(item.get("file"))
         after_seq = _seq_at(events, after.get("t"))
+        if item.get("t"):
+            by_clock = _last_action_before(events, item.get("t"))
+            after_seq = by_clock if by_clock is not None else (after_seq if after_seq is not None and after.get("t") and int(after["t"]) <= int(item["t"]) else None)
         pressed = _press_right_after(events, item.get("t"), after_seq)
         out.append({
             "index": index, "after_seq": pressed if pressed is not None else after_seq, "kind": str(item.get("kind") or "xhr"),

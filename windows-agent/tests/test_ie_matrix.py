@@ -226,9 +226,9 @@ def inputs_for(flow, values):
     return out
 
 
-def show(core, *ids):
-    """RK_SHOW=1: what each recording holds (for reading a failure; values are the synthetic ones of the look-alike)."""
-    if not os.environ.get("RK_SHOW"):
+def show(core, *ids, force=False):
+    """RK_SHOW=1 (or a failure): what each recording holds, for reading it (values are the synthetic ones of the look-alike)."""
+    if not os.environ.get("RK_SHOW") and not force:
         return
     for i in ids:
         doc = core.store.load(i)
@@ -250,6 +250,8 @@ def test_statement_slips_printed_in_a_dialog_recorded_twice_with_a_mistake_learn
                                                               print_first_row()))
         show(core, first, second)
         status, shown = core.dispatch("POST", "/api/learn", {"ids": [first, second], "title": "In báo nợ có"})
+        if status != 200:
+            show(core, first, second, force=True)
         assert status == 200, shown
         flow = core.store.get("flows")[0]
         names = "\n".join(f"{n['label']} [{n['kind']}] {n['url']}" for n in flow["api"])
@@ -352,28 +354,41 @@ def test_a_transfer_is_learned_as_money_never_sent_by_request_and_on_the_screen_
         flow = core.store.get("flows")[0]
         last = flow["workflow"]["steps"][-1]
         assert (last["risk"], last["mode"]) == ("money", "approve"), flow["workflow"]["steps"]
-        values = {"txtFromAcct": "9988776655", "txtToAcct": "1231231231", "txtAmount": "500000"}
-        inputs = {i["name"]: v for i in flow["workflow"]["inputs"] for k, v in values.items()
-                  if (i.get("label") or "") in {"txtFromAcct": "Tài khoản chuyển", "txtToAcct": "Tài khoản nhận", "txtAmount": "Số tiền"}[k]}
+        by_label = {"Tài khoản chuyển": "9988776655", "Tài khoản nhận": "1231231231", "Số tiền": "500000", "Nội dung": "Chuyen tien thu"}
+        inputs = {i["name"]: by_label[i["label"]] for i in flow["workflow"]["inputs"] if i.get("label") in by_label}
         made = [s for s in tp.seen if s.startswith("TransferService.create")]
         tp.seen.clear()
-        refused = run(core, tab, "Lập lệnh chuyển tiền", inputs)                  # by request: money is never sent that way
-        assert refused["result"]["status"] in ("refused", "needs_help"), refused["result"]
+        # by request: money is never sent that way (an unclassified step asks «chỉ xem?» first: the person says no)
+        status, reply = core.dispatch("POST", "/api/run/start", {"title": "Lập lệnh chuyển tiền", "mode": "simulate", "window": f"ie-tab:{tab['id']}", "inputs": inputs})
+        assert status == 200, reply
+        end = time.monotonic() + 60
+        while time.monotonic() < end:
+            refused = core.dispatch("GET", "/api/run/status", {})[1]
+            if refused.get("ask"):
+                core.dispatch("POST", "/api/run/decide", {"ask_id": refused["ask"]["id"], "approve": False})
+            if refused.get("result"):
+                break
+            time.sleep(0.3)
+        assert refused["result"]["status"] in ("refused", "needs_help", "stopped"), refused["result"]
         assert not [s for s in tp.seen if s.startswith("TransferService")], tp.seen
         assert core.dispatch("POST", "/api/flow/approve", {"title": "Lập lệnh chuyển tiền"})[0] == 200
         drive("fr-click", frame="menu", id="mnuTransfer")
         wait_for("work", "document.getElementById('txtFromAcct') != null")
         status, reply = core.dispatch("POST", "/api/run/start", {"title": "Lập lệnh chuyển tiền", "window": f"ie-tab:{tab['id']}", "inputs": inputs})
         assert status == 200, reply
+        asked, risks = [], []
         end = time.monotonic() + 60
         while time.monotonic() < end:
             state = core.dispatch("GET", "/api/run/status", {})[1]
-            if state["state"] == "waiting_approval":
-                assert state["ask"]["risk"] == "money"
-                core.dispatch("POST", "/api/run/decide", {"ask_id": state["ask"]["id"], "approve": False})     # the person says no
+            if state.get("ask") and state["ask"]["id"] not in asked:
+                asked.append(state["ask"]["id"])
+                risks.append(state["ask"].get("risk"))
+                # the menu step (unclassified, so write) is let through on the mock; at the money step the person says no
+                core.dispatch("POST", "/api/run/decide", {"ask_id": state["ask"]["id"], "approve": state["ask"].get("risk") != "money"})
             if state.get("result"):
                 break
             time.sleep(0.3)
     assert len(made) == 2                                                                  # the two recordings really sent their orders
+    assert risks[-1] == "money", risks                                                     # the run stopped at the money step for a person
     assert state["result"]["status"] in ("rejected", "stopped"), state["result"]
     assert not [s for s in tp.seen if s.startswith("TransferService")], tp.seen           # no order without the person's yes

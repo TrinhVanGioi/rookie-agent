@@ -764,6 +764,7 @@ $("learn").onclick = async () => {
     r.warnings.forEach((w) => msg.append(el("div", "Lưu ý: " + w, "detail")));
     msg.append(el("div", r.method === "codie" ? "Dựng bằng trợ lý (Codie), đã qua kiểm chứng của chương trình." : "Dựng bằng cách học theo luật." + (r.fallback_reason ? " Trợ lý không dùng được vì: " + r.fallback_reason : ""), "detail"));
     (r.questions || []).forEach((q) => msg.append(el("div", "Trợ lý hỏi: " + q, "detail")));
+    ((r.quality || {}).lines || []).forEach((line, i) => msg.append(el("div", (i ? "• " : "✓ ") + line, "detail")));   // task 11.4
     box.append(msg); loadRecordings();
   } catch (e) { say("learnmsg", e.message, "bad"); }
   button.disabled = false;

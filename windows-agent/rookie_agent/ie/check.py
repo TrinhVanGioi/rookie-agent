@@ -12,6 +12,36 @@ from typing import Any
 from rookie_agent.ie import clean
 
 
+def learned(api: list[dict[str, Any]], workflow: dict[str, Any]) -> dict[str, Any]:
+    """Task 11.4: what a flow just learned can do, in plain words: how many of its steps run again by request, which are not sure and
+    why, what to do. Steps that write or move money are counted apart: they run on the screen with a Duyệt, never by request."""
+    from rookie_agent.ie import replay
+
+    if not api:
+        return {"ready": 0, "total": len(workflow.get("steps", [])), "lines": ["Luồng này chạy bằng cách bấm trên màn hình (không có lời gọi hệ thống được ghi)."]}
+    by_id = {n["id"]: n for n in api}
+    groups = replay.groups_of(api)
+    ready, lines = 0, []
+    for group in groups:
+        calls = [by_id[c] for c in group["calls"]]
+        if group["risk"] != "read":
+            lines.append(f"«{group['label']}» ghi dữ liệu hoặc liên quan tiền: chạy trên màn hình, chờ bạn Duyệt.")
+            continue
+        broken = [c for c in calls if not c.get("complete") or c.get("unresolved")]
+        if not broken:
+            ready += 1
+            continue
+        why = ("có giá trị chưa biết lấy từ đâu: " + ", ".join(sorted({u for c in broken for u in c.get("unresolved") or []}))
+               if any(c.get("unresolved") for c in broken) else "có mã bảo mật không rõ nguồn hoặc yêu cầu bị cắt khi ghi")
+        lines.append(f"«{group['label']}» chưa chạy lại được bằng yêu cầu ({why}). Nên ghi thêm một lần, bắt đầu từ lúc mở màn hình.")
+    reads = sum(1 for g in groups if g["risk"] == "read")
+    head = f"Chạy lại được bằng yêu cầu: {ready}/{reads} bước chỉ xem." if reads else "Không có bước chỉ xem nào."
+    files = sum(1 for n in api if n.get("kind") == "file")
+    if files:
+        head += f" Có {files} bước trả về file (lưu vào thư mục Rookie, có nút In)."
+    return {"ready": ready, "total": len(groups), "lines": [head] + lines}
+
+
 def _label(event: dict[str, Any] | None) -> str:
     if not event:
         return "lúc mở màn hình"
