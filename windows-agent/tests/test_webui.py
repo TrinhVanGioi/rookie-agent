@@ -465,6 +465,16 @@ def test_inspecting_a_plugin_screen_without_html_fields_says_so(tmp_path):
     _, reply = core.dispatch("POST", "/api/ie/inspect", {"window": "Internet Explorer: " + bridge.tabs()[0]["title"]})
     assert "plugin" in "\n".join(reply["summary"])
 
+def test_inspecting_tells_the_dialogs_apart_from_the_page(tmp_path):
+    core, bridge = ie_core(tmp_path)
+    bridge.probe = lambda tab_id: {
+        "frames": [{"name": "main", "counts": {"input": 2}, "controls": []}], "unreadable": [],
+        "dialogs": [{"readable": True, "frames": [{"name": "", "counts": {"input": 1, "embed": 1}}]}, {"readable": False, "frames": []}]}
+    _, reply = core.dispatch("POST", "/api/ie/inspect", {"window": "Internet Explorer: " + bridge.tabs()[0]["title"]})
+    text = chr(10).join(reply["summary"])
+    assert "2 hộp thoại" in text and "Hộp thoại 1: 1 khung" in text and "1 embed" in text
+    assert "Hộp thoại 2: không đọc được nội dung" in text and "plugin" in text
+
 
 def test_inspecting_needs_an_ie_page_chosen(tmp_path):
     core, _ = ie_core(tmp_path)

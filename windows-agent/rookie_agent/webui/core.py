@@ -1125,6 +1125,21 @@ class Core:
                 shown = sum(1 for c in controls if c.get("visible"))
                 lines.append(f"Khung «{frame.get('name') or '(trang chính)'}» có {len(controls)} ô/nút "
                              f"({shown} đang hiện trên màn hình, {len(controls) - shown} bị ẩn); kích thước khung {frame.get('size') or '?'}.")
+        dialogs = info.get("dialogs") or []
+        if dialogs:       # a dialog of IE is a window of its own: what it holds is told apart from the page
+            lines.append(f"Đang có {len(dialogs)} hộp thoại mở.")
+            for number, dialog in enumerate(dialogs, 1):
+                inside = dialog.get("frames") or []
+                if not dialog.get("readable") or not inside:
+                    lines.append(f"Hộp thoại {number}: không đọc được nội dung (thường là plugin đang hiện file, ví dụ PDF); bộ ghi trang không thấy gì bên trong. "
+                                 "Việc lấy file phải dựa vào địa chỉ mà trang mở hộp thoại hoặc request của trang chính.")
+                    continue
+                count: dict[str, int] = {}
+                for frame in inside:
+                    for key, value in (frame.get("counts") or {}).items():
+                        count[key] = count.get(key, 0) + int(value)
+                lines.append(f"Hộp thoại {number}: {len(inside)} khung, " + ", ".join(f"{count.get(k, 0)} {label}" for k, label in
+                             (("input", "ô nhập/nút"), ("a", "liên kết"), ("iframe", "khung nhúng"), ("object", "object/ActiveX"), ("embed", "embed"), ("applet", "applet"))) + ".")
         if unreadable:
             lines.append("Khung không đọc được thường là trang khác tên miền hoặc bị chặn: bộ ghi không thấy gì bên trong khung đó, "
                          "và màn đang xem có thể nằm ở đó.")

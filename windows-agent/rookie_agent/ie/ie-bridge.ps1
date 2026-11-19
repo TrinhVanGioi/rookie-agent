@@ -14,7 +14,12 @@ $shell = New-Object -ComObject Shell.Application
 # window class, and their document is taken from the window with the message IE answers for the accessibility API (WM_HTML_GETOBJECT).
 # Any failure here leaves the recording as it was (no dialogs): $dialogsOk stays false.
 $script:dialogsOk = $false
-try {
+$script:dialogsTried = $false
+# Compiled the first time it is needed (Ghi, Soi), not when the bridge starts: the compiler takes a second or two.
+function Enable-Dialogs {
+  if ($script:dialogsTried) { return }
+  $script:dialogsTried = $true
+  try {
     Add-Type -TypeDefinition @"
 using System;
 using System.Collections.Generic;
@@ -57,7 +62,8 @@ public static class RkDialogs {
 }
 "@
     $script:dialogsOk = $true
-} catch { $script:dialogsOk = $false }
+  } catch { $script:dialogsOk = $false }
+}
 function New-DialogTarget([long]$server) {
     $o = New-Object psobject -Property @{ Hwnd = $server; Dlg = $true }
     # the document is taken again at each use: a dialog that goes to another page has a new document
@@ -305,11 +311,29 @@ while ($true) {
             }
             'probe' {
                 $tab = Get-IeTabs | Where-Object { $_.id -eq [int]$request.id } | Select-Object -First 1
-                if ($null -eq $tab) { Reply @{ ok = $false; error = 'tab not found' } } else { Reply @{ ok = $true; info = (Describe $tab) } }
+                if ($null -eq $tab) { Reply @{ ok = $false; error = 'tab not found' }; continue }
+                Enable-Dialogs
+                $info = Describe $tab
+                # the dialogs open now (Shell.Application does not list them): what each holds, or that its document cannot be read (a plugin shows a file in it)
+                $dialogs = @()
+                if ($script:dialogsOk) {
+                    try {
+                        foreach ($server in [RkDialogs]::Servers()) {
+                            $doc = $null; try { $doc = [RkDialogs]::DocumentOf([long]$server) } catch { }
+                            if ($null -eq $doc) { $dialogs += [pscustomobject]@{ readable = $false; frames = @() }; continue }
+                            $fake = [pscustomobject]@{ window = [pscustomobject]@{ Document = $doc } }
+                            $d = Describe $fake
+                            $dialogs += [pscustomobject]@{ readable = $true; frames = $d.frames; unreadable = $d.unreadable }
+                        }
+                    } catch { }
+                }
+                $info | Add-Member -NotePropertyName dialogs -NotePropertyValue @($dialogs)
+                Reply @{ ok = $true; info = $info }
             }
             'start' {
                 $tab = Get-IeTabs | Where-Object { $_.id -eq [int]$request.id } | Select-Object -First 1
                 if ($null -eq $tab) { Reply @{ ok = $false; error = 'tab not found' }; continue }
+                Enable-Dialogs
                 $script:bound = $tab.window
                 $script:hookRequests = [bool]$request.requests
                 $script:diagMode = [string]$request.diag
