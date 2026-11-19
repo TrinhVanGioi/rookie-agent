@@ -9,11 +9,11 @@ Hệ thống để agent học thao tác của giao dịch viên (GDV) qua vài 
 ```
 extension/      Chrome/Edge extension Manifest V3 (TypeScript): recorder web và side panel Ghi, Học (hướng A; runner web chưa làm); cài thử xem extension/README.md
 windows-agent/  Windows agent (Python): recorder, runner Java qua Java Access Bridge (hướng B), trang web trong IE cũ qua COM (ie/, hướng B2), Native Messaging host
-server/         FastAPI (Python): ingest, learner, kho agent, audit, sandbox runner
+server/         FastAPI (Python): ingest, learner, kho agent, audit, sandbox runner, đăng nhập (app/auth/), trang quản trị luồng /admin (app/admin/)
 mock-site/      Hệ thống web giả lập: Báo cáo A, B, CIF, chuyển tiền, phê duyệt
 mock-java/      Ứng dụng Java Swing giả lập TPSS (CIF, chuyển tiền, phê duyệt) cho hướng B
 schemas/        JSON Schema của event và workflow (hợp đồng giữa các phần), kèm mẫu hợp lệ và mẫu sai
-config/         Bảng phân loại trường nhập, dùng chung cho extension và Windows agent
+config/         Bảng phân loại trường nhập, luật rủi ro, vai trò theo nhóm AD (roles.json); dùng chung cho extension, Windows agent và server
 scripts/        Script đóng gói
 tests/e2e/   Test Playwright chạy extension thật trên mock site
 docs/        design.md, tasks.md, demo-reference.html
@@ -27,6 +27,9 @@ cd server; python -m venv .venv; .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt -r ..\mock-site\requirements.txt
 pytest
 uvicorn app.main:app --reload --port 8000
+# trang quản trị luồng (Gate 10): http://localhost:8000/admin/. Đăng nhập: ROOKIE_AUTH=off (mặc định, một máy), dev (người trong config/roles.json), ldap (AD)
+$env:ROOKIE_AUTH = "dev"; uvicorn app.main:app --port 8000
+$env:ROOKIE_AUTH = "ldap"; $env:ROOKIE_LDAP_URL = "ldaps://dc.bank.local"; $env:ROOKIE_LDAP_DOMAIN = "bank.local"; $env:ROOKIE_LDAP_BASE_DN = "DC=bank,DC=local"
 
 # LLM nội bộ (tuỳ chọn; không đặt thì server dùng RuleBasedClient, chạy offline)
 $env:ROOKIE_LLM_BASE_URL = "http://node:port/v1"; $env:ROOKIE_LLM_MODEL = "<tên model đang serve>"
@@ -42,8 +45,9 @@ uvicorn app:app --reload --port 8001
 # extension
 cd extension; npm install; npm run build; npm test
 
-# e2e
+# e2e (kể cả trang quản trị: tự chạy máy chủ thứ hai ở cổng 8002 với ROOKIE_AUTH=dev)
 cd tests/e2e; npm install; npx playwright install chromium; npx playwright test
+# pytest của server phải chạy trong thư mục server (một test gọi python -c "import app")
 
 # mock Java (cần JDK 8 trở lên, không dùng Maven/Gradle): build, đóng jar và chạy SelfTest
 .\mock-java\build.ps1

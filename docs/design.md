@@ -503,3 +503,82 @@ Máy GDV/KSV (agent, extension)       Máy chủ nội bộ (server/app/twin/)
    - Sơ đồ này dùng chung cho xem quy trình thật (thời gian, chờ, điểm nghẽn tô đỏ), chạy thử trên bản sao (nút sáng lần lượt) và mô phỏng.
    - «Xuất JSON kiểu n8n» tải về một file trên máy. Nút API là `httpRequest` chỉ có mẫu `⟦…⟧`, không có giá trị, không có header cookie hoặc token. Duyệt là `wait`. File chỉ để xem và lưu: chạy thật vẫn phải trong phiên IE của GDV.
 7. **Dữ liệu demo.** `scripts/twin_seed.py` sinh ca synthetic đầu cuối (có hàng chờ duyệt dài cố ý), gắn cờ `synthetic`.
+
+## 13. Trang quản trị luồng (Gate 10)
+
+Luồng sinh ra theo từng người. Trang quản trị trên máy chủ (`/admin`, `server/app/admin/`) cho mỗi người xem luồng của mình và luồng được chia sẻ cho mình; vai trò quản trị thấy hết. Luồng sửa được trên canvas kiểu n8n. **Chạy vẫn chỉ ở máy GDV**, trong phiên đăng nhập của chính GDV (quy tắc 4): trang quản trị không chạy luồng và không Duyệt hộ một bước của lần chạy.
+
+### 13.1 Phần nào ở máy GDV, phần nào ở máy chủ
+
+| Ở máy GDV (không rời máy) | Ở máy chủ |
+| --- | --- |
+| Bản ghi gốc, file tải về, giá trị nhập và giá trị đọc được, phiên TouchPoint | Sự kiện đã che, luồng (workflow) và các version |
+| Mẫu đầy đủ của nút API, câu trả lời mẫu và khung của nó (`answer`, `shape`), liên kết theo chữ xung quanh | Nút API đã che (`schemas/api-nodes.schema.json`), bố cục canvas |
+| Token đăng nhập máy chủ (không giữ mật khẩu) | Chủ luồng, quyền xem, chia sẻ, lịch sử sửa |
+| Nhật ký `audit.jsonl` đầy đủ | Lần chạy: luồng, version, trạng thái từng bước, ai bấm Duyệt (không chữ chi tiết, không giá trị) |
+
+### 13.2 Đăng nhập và vai trò
+
+`ROOKIE_AUTH` chọn cách:
+- `off` (mặc định): một máy với máy chủ đi kèm; mọi người gọi là «máy này», như trước Gate 10.
+- `dev`: người cố định trong `config/roles.json` (`dev_users`), chỉ cho test và demo.
+- `ldap`: AD của ngân hàng qua `ldap3`. Vai trò lấy theo nhóm AD ghi trong `config/roles.json` (`groups`): `maker`, `checker`, `admin`. Người không thuộc nhóm nào bị từ chối. Cấu hình: `ROOKIE_LDAP_URL`, `ROOKIE_LDAP_DOMAIN`, `ROOKIE_LDAP_BASE_DN`, `ROOKIE_LDAP_UNIT_ATTRIBUTE` (mặc định `department`).
+
+Quy tắc:
+- Trang quản trị nhận cookie `HttpOnly`, `SameSite=Strict`. Agent đăng nhập một lần ở trang `:8765` («Đăng nhập máy chủ»), nhận token có hạn (`ROOKIE_TOKEN_HOURS`, mặc định 10 giờ) và gửi kèm `Authorization: Bearer`.
+- Máy chủ chỉ giữ SHA-256 của token. Mật khẩu được kiểm rồi bỏ, không ghi ở đâu.
+- Sai 5 lần thì tên đó bị khoá 10 phút. Mật khẩu rỗng không bao giờ gửi lên AD, vì AD coi đó là đăng nhập ẩn danh.
+- Nhật ký «Gửi và nhận» của agent không hiện mật khẩu hay token.
+
+### 13.3 Ai thấy, ai sửa (`app/auth/access.py`)
+
+- Chủ luồng là người bấm Học. Luồng mặc định riêng tư.
+- Chỉ chủ luồng chia sẻ được, cho đơn vị hoặc toàn ngân hàng, sau khi xem trước đúng nội dung sẽ chia sẻ: bước, nhãn, tên ô nhập.
+- Quản trị thấy và sửa mọi luồng nhưng không chia sẻ thay chủ.
+- Luồng không xem được thì trả «không tìm thấy», không lộ là luồng đó có tồn tại.
+- Bản ghi chỉ người ghi (và quản trị) đọc được, và chỉ học được từ bản ghi của mình.
+- Clone tạo luồng mới thuộc người clone, bắt đầu là bản nháp; bản gốc không đổi.
+- Luồng có từ trước Gate 10 hiện «Chưa rõ chủ», quản trị gán chủ.
+
+### 13.4 Nút API lên máy chủ
+
+Lúc Học, máy GDV gửi các nút API theo danh sách trường được phép (`ie/api_share.py`). Không gửi câu trả lời mẫu hay khung của nó.
+
+Mỗi đoạn của url, body, header trông giống dữ liệu đều bị che thành `•••`: có từ 3 chữ số, có khoảng trắng hoặc `+` hoặc dấu cách đã mã hoá, có chữ ngoài ASCII (cả dạng `%..`), hoặc dài hơn 40 ký tự. Lý do: tên khách lấy từ một câu trả lời mà không thành liên kết (không có chữ số, ngắn hơn 16 ký tự) sẽ còn nguyên trong mẫu. Liên kết tìm theo chữ xung quanh chỉ gửi loại, không gửi chữ đó.
+
+Máy chủ kiểm lại bằng cùng luật (`app/api_nodes.py`) và từ chối nút còn đoạn giống dữ liệu. `api_digest` là digest riêng của các nút; `digest` vẫn là của workflow.
+
+### 13.5 Sửa trên canvas (`app/edit.py`)
+
+Mỗi lần Lưu tạo một version `draft` mới; version gốc không đổi. Trước khi lưu, mỗi thay đổi được gửi `…/edit/preview` để canvas hiện đúng điều máy chủ tính.
+
+Một nút trên canvas là một nhóm lời gọi API (luồng có nút API) hoặc một bước (luồng không có). Các thao tác:
+- xoá, đổi thứ tự, đổi tên, đổi nhãn ô nhập;
+- thêm nút HTTP;
+- sửa mẫu của nút không bị che;
+- nâng mức kiểm soát. «Thêm bước Duyệt» là nâng `mode` lên `approve`; máy GDV hỏi người trước khi gửi, kể cả bước chỉ xem;
+- nâng mức rủi ro.
+
+Máy chủ kiểm lại mọi luật:
+- `risk` chỉ nâng, không hạ.
+- Nút thêm hoặc sửa nhận rủi ro bằng luật: mức cao hơn của luật `api` (method và đường dẫn, chữ không dấu) và luật `ie` theo nhãn, trong `config/risk-rules.json`. Không phân loại được: GET là read, còn lại là write.
+- Bước Duyệt hoặc Từ chối của người kiểm soát không được đưa vào luồng.
+- `write` luôn là `approve`, `money` không bao giờ là `auto`.
+- Không xoá nút mà nút khác đang lấy dữ liệu, và không đặt một nút trước nút nó lấy dữ liệu.
+- Nút bị che trên đường lên không sửa mẫu được, vì một phần mẫu chỉ có trên máy GDV.
+- Mẫu không chứa đoạn giống dữ liệu.
+
+**Hai người.** Người sửa một version không tự Duyệt được version đó (409). Luật này không áp khi tắt đăng nhập (một máy).
+
+Bố cục canvas lưu riêng (`PUT /workflows/{id}/layout`), không tạo version.
+
+### 13.6 Về máy GDV
+
+Tab Luồng ở `:8765` có «Kiểm tra bản mới». Mỗi bản mới hiện version, trạng thái, người sửa và các thay đổi bằng lời.
+
+- **Bản nháp:** «Chạy thử bản này trên bản sao». Bản đó không thay bản đang dùng. Chạy xong, agent gửi kết quả chạy thử lên máy chủ và chuyển bản đó sang «đã chạy thử». Sau đó người khác người sửa Duyệt trên trang quản trị.
+- **Bản đã Duyệt:** «Dùng bản này». Bản mới thay bản trên máy: thứ tự, nhãn, rủi ro và Duyệt lấy từ máy chủ; mẫu đầy đủ, liên kết và khung trả lời lấy từ máy này theo id nút (`api_share.merge`). Nút thêm trên máy chủ thì bản sao trả lời rỗng. Nút ghi ở máy khác không gửi được từ máy này.
+- Hai digest được kiểm trước khi dùng. Audit ghi `mode: update`, version cũ, version mới và người sửa.
+- Chưa bấm «Dùng bản này», hoặc không kết nối được máy chủ, thì máy vẫn chạy bản của mình.
+
+Mỗi lần chạy, dòng audit có `run_id`, `workflow_id`, `version` và được gửi lên `POST /runs`. Gửi theo `run_id` nên gửi lại không bị trùng; gửi lỗi thì giữ lại gửi lần sau. Chỉ gửi id bước, trạng thái và quyết định Duyệt, không gửi chữ chi tiết của bước. Trang quản trị hiện lịch sử chạy và tỉ lệ lỗi theo luồng.

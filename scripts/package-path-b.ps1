@@ -47,7 +47,7 @@ Copy-Item (Join-Path $repo "server\requirements-run.txt") $serverTarget
 $wheels = Join-Path $stage "wheels"
 $python = Join-Path $repo "server\.venv\Scripts\python.exe"
 if (-not (Test-Path $python)) { $python = "python" }
-& $python -m pip download --quiet --dest $wheels --only-binary=:all: --python-version $PythonVersion --platform $Platform -r (Join-Path $serverTarget "requirements-run.txt")
+& $python -m pip download --quiet --disable-pip-version-check --dest $wheels --only-binary=:all: --python-version $PythonVersion --platform $Platform -r (Join-Path $serverTarget "requirements-run.txt")
 if ($LASTEXITCODE -ne 0) { throw "pip download failed: wheels for Python $PythonVersion / $Platform" }
 
 # The browser extension (path A), built, ready to load unpacked

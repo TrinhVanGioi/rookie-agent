@@ -10,6 +10,8 @@ const python = path.join(repoRoot, "server", ".venv", "Scripts", "python.exe");
 
 export const MOCK_SITE_URL = "http://localhost:8001";
 export const SERVER_URL = "http://localhost:8000";
+// Task 10.8: the admin page with logins on (the dev people of config/roles.json), on its own database.
+export const ADMIN_URL = "http://localhost:8002";
 
 export default defineConfig({
   testDir: "./specs",
@@ -30,6 +32,13 @@ export default defineConfig({
       env: { ROOKIE_DB: path.join(os.tmpdir(), "rookie-e2e.db") },
       url: `${SERVER_URL}/health`,
       reuseExistingServer: true,
+    },
+    {
+      command: `"${python}" -m uvicorn app.main:app --port 8002`,
+      cwd: path.join(repoRoot, "server"),
+      env: { ROOKIE_DB: path.join(os.tmpdir(), `rookie-admin-e2e-${process.pid}.db`), ROOKIE_AUTH: "dev" },
+      url: `${ADMIN_URL}/health`,
+      reuseExistingServer: false,
     },
   ],
 });
