@@ -644,6 +644,28 @@
     window.__rkOpenHooked = true;
   }
   try { hookOpen(); } catch (eHo) { try { if (openReal) { window.open = openReal; } } catch (eHo2) {} }
+  // A dialog (showModalDialog, alert, confirm, prompt) makes the page's script wait, and what waits in our queue waits with it: so the queue
+  // is drained just before the page's call, and the address of a dialog that shows a page or a file is reported like a window.open.
+  // Not in a run (the agent drives the page then), and a stand-in that cannot be put in leaves the page's own function.
+  function hookWaiting(name) {
+    var real = window[name], dialog = (name === "showModalDialog" || name === "showModelessDialog");
+    if (!real || window["__rkW_" + name]) { return; }
+    window[name] = function (a, b, c) {
+      try { if (window.__rkRec && window.__rkDrain) { window.__rkDrain(); } } catch (eD) {}
+      try { if (dialog && !window.__rkNoXhr) { openLine(a, "dialog"); } } catch (eL) {}
+      if (arguments.length >= 3) { return real(a, b, c); }
+      if (arguments.length === 2) { return real(a, b); }
+      if (arguments.length === 1) { return real(a); }
+      return real();
+    };
+    window["__rkW_" + name] = true;
+  }
+  try {
+    if (!window.__rkRunMode) {
+      var waiting = ["showModalDialog", "showModelessDialog", "alert", "confirm", "prompt"], wi;
+      for (wi = 0; wi < waiting.length; wi++) { try { hookWaiting(waiting[wi]); } catch (eW1) {} }
+    }
+  } catch (eW) {}
 
   // ---- The runner (tasks 4.38 to 4.40): find an element by the selectors of a step and act on it. The agent calls
   // window.__rkOp(op, selectors, value): selectors are separated by a line break, most stable first, as the recorder wrote them
@@ -1235,8 +1257,25 @@
   // its answer comes) is not read at all, not even later: the teller's press is a mouse button going down or a key, at most GATE_MS
   // before. Of such an event only one thing is kept, without reading the element: that the field the teller was in has lost the cursor
   // (its value is read at the teller's next press), or that the page put the cursor in a field (its value is the page's, not typed).
-  var pending = [], drainTimer = null, lastPress = 0, GATE_MS = 800;
-  function onPress() { lastPress = new Date().getTime(); }      // mouse button down: the time only, nothing of the event or the element
+  var pending = [], drainTimer = null, lastPress = 0, GATE_MS = 800, pressEl = null;
+  // Mouse button down. The press is put in the queue NOW (only the element is kept, nothing of it is read): a button whose own onclick
+  // waits in a dialog (showModalDialog, alert, confirm) runs before our click listener (old IE: attachEvent, bubbling), so the click
+  // would come to us only when the dialog is closed, or never. The click that follows is the same press and is not queued again.
+  function onPress(ev) {
+    var e, el = null;
+    lastPress = new Date().getTime();
+    try {
+      if (!window.__rkRec || window.__rkEmpty) { return; }
+      e = ev || window.event;
+      el = e ? (e.srcElement || e.target) : null;
+      if (e && e.button === 2) { return; }                        // the right button is not a press
+      pressEl = el;
+      if (!el) { return; }
+      markForm();
+      pending.push({ name: "click", fn: onClick, el: el, kc: 0, teller: true });
+      if (!drainTimer) { try { drainTimer = window.setTimeout(drain, 0); } catch (eT) { drain(); } }
+    } catch (eP) { pressEl = null; }
+  }
   function pageMade(item) {
     var f;
     if (!window.__rkRec || !item.el) { return; }
@@ -1280,6 +1319,7 @@
         try { probe(window.__rkBody, ev); } catch (eP) {}
         return;
       }
+      if (name === "click" && pressEl && el && el === pressEl) { pressEl = null; lastPress = now; return; }   // already queued at mouse-down
       if (teller) { lastPress = now; if (name !== "dblclick") { markForm(); } } else { teller = now - lastPress <= GATE_MS; }   // a press: if the page then leaves (beforeunload), it may be a form sent (see formGo)
       pending.push({ name: name, fn: fn, el: el, kc: kc, teller: teller });
       if (!drainTimer) { try { drainTimer = window.setTimeout(drain, 0); } catch (eT) { drain(); } }

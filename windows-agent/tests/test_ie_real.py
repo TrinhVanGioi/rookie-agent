@@ -191,7 +191,18 @@ function exportXhr() {
 }
 function exportWin() { window.open('/api/exportpdf?from=' + document.getElementById('txtFrom').value + '&fmt=pdf', '_blank'); }
 </script></body></html>"""
-PAGES = {"/export": EXPORT, "/tokapp": TOKAPP, "/sessapp": SESSAPP, "/cifapp": CIFAPP, "/jslink": JSLINK, "/slowpage": SLOW, "/opener": OPENER, "/ajaxtab": AJAXTAB, "/ajaxnav": AJAXNAV, "/ajax2": AJAX2, "/form": FORM, "/ajax": AJAX, "/search": SEARCH_TOP, "/clock": CLOCK, "/searchform": SEARCH_FORM, "/desktop": DESKTOP, "/rhidden": RHIDDEN, "/rhidden2": RHIDDEN2, "/blank": BLANK}
+# A button whose own script makes the page wait (a dialog): here alert is a stand-in that reports, by a request, whether the press is already in the recorder's queue.
+WAITING = b"""<html><head><title>RookieE2E Waiting</title></head><body>
+<table><tr><td><input type="checkbox" id="chkRow"></td><td>Row 1</td></tr></table>
+<input type="button" id="btnWait" value="In b&aacute;o n&#7907;/c&oacute;" onclick="waitCall()">
+<script>
+window.alert = function () {
+  var x = window.XMLHttpRequest ? new XMLHttpRequest() : new ActiveXObject('Msxml2.XMLHTTP');
+  x.open('GET', '/api/mark?queued=' + ((window.__rkq || '').indexOf('btnWait') >= 0 ? 'yes' : 'no'), false); x.send('');
+};
+function waitCall() { alert('x'); }
+</script></body></html>"""
+PAGES = {"/waiting": WAITING, "/export": EXPORT, "/tokapp": TOKAPP, "/sessapp": SESSAPP, "/cifapp": CIFAPP, "/jslink": JSLINK, "/slowpage": SLOW, "/opener": OPENER, "/ajaxtab": AJAXTAB, "/ajaxnav": AJAXNAV, "/ajax2": AJAX2, "/form": FORM, "/ajax": AJAX, "/search": SEARCH_TOP, "/clock": CLOCK, "/searchform": SEARCH_FORM, "/desktop": DESKTOP, "/rhidden": RHIDDEN, "/rhidden2": RHIDDEN2, "/blank": BLANK}
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -211,6 +222,10 @@ class Handler(BaseHTTPRequestHandler):
             return
         if self.path.startswith("/api/fail"):
             self.send_response(500); self.send_header("Content-Type", "text/plain"); self.end_headers(); self.wfile.write(b"server error")
+            return
+        if self.path.startswith("/api/mark"):     # the page tells what its recorder held at the moment its script began to wait
+            Handler.seen.append(self.path)
+            self._json(b"{}")
             return
         if self.path.startswith("/api/ping"):
             self._json(b'{"pong":true,"name":"NGUYEN VAN A"}')
@@ -1622,3 +1637,21 @@ def test_a_pdf_answer_is_recorded_as_a_file_learned_and_run_by_request_and_the_s
         assert "2026-02-15" in Handler.seen[0], Handler.seen                                          # this run's value, not the recorded one
     shown = next(r for d in run["details"].values() for r in d["requests"] if r.get("file"))
     assert shown["file"]["saved"] is True and shown["file"]["size"] == len(PDF_BYTES) and "view" not in shown
+
+
+def test_a_press_is_in_the_recorders_queue_before_the_page_script_that_it_started_waits():
+    """Tick a row, press «In báo nợ/có» whose own script waits (a dialog): the press must already be recorded when the wait begins, and once only."""
+    Handler.seen.clear()
+    with real_ie("/waiting") as bridge:
+        session = start_session(bridge, requests=True)
+        time.sleep(1.0)
+        os.environ["RK_ID"] = "chkRow"
+        drive("e-click", "RookieE2E Waiting")
+        time.sleep(1.0)
+        os.environ["RK_ID"] = "btnWait"
+        drive("e-click", "RookieE2E Waiting")
+        time.sleep(2.0)
+        session.stop()
+    assert any(x.startswith("/api/mark?queued=yes") for x in Handler.seen), Handler.seen
+    ids = [line.get("id") for line in session.raw if line.get("kind") == "click"]
+    assert ids.count("chkRow") == 1 and ids.count("btnWait") == 1, ids
