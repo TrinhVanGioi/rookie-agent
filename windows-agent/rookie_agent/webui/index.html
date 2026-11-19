@@ -224,6 +224,7 @@
       <div id="flowEmpty" class="msg bad" hidden>Chưa có luồng nào. Hãy Ghi 3 lần rồi bấm Học ở tab «Ghi và Học».</div>
       <div class="canvas" id="canvas" hidden><div class="flowrow" id="flowrow"></div></div>
       <div id="flowDetail"></div>
+      <div id="flowConfirms"></div>
     </section>
     <section id="runBox">
       <h2>Chạy luồng này</h2>
@@ -903,6 +904,17 @@ async function pollRun(ids = RUN_IDS) {
       card.append(row);
       card.append(el("div", a.risk === "read" ? "Chọn xong agent làm tiếp bước này và nhớ lại ô đó." : "Chọn xong agent nhớ lại ô đó và dừng: bước ghi hoặc tiền chỉ chạy sau khi bản sửa được Duyệt lại.", "detail"));
       ask.append(card);
+    } else if (status.ask && status.ask.kind === "confirm_read") {   // a step no rule named: does it only look? (docs/design.md 6.4)
+      const a = status.ask, card = el("div", undefined, "msg bad");
+      card.append(el("strong", a.question));
+      card.append(el("div", "Sẽ gửi " + a.calls.length + " lời gọi:", "detail"));
+      a.calls.forEach((c, j) => card.append(el("div", (j + 1) + ". " + c.name, "detail")));
+      card.append(el("div", "Chọn «Chỉ xem — gửi» thì agent nhớ bước này trên máy này, lần sau gửi luôn không hỏi lại (rút lại được ở trang luồng). Chọn «Có thay đổi — không gửi» thì không gửi gì và không nhớ gì.", "detail"));
+      const yes = el("button", "Chỉ xem — gửi", "primary"), no = el("button", "Có thay đổi — không gửi");
+      yes.tabIndex = -1; yes.disabled = true; setTimeout(() => { yes.disabled = false; }, (a.lock_seconds || 0.8) * 1000);
+      const answer = (approve) => async () => { try { await api("POST", "/api/run/decide", { approve, ask_id: a.id }); } catch (e) { $(ids.msg).append(el("div", e.message, "msg bad")); } };
+      yes.onclick = answer(true); no.onclick = answer(false);
+      const row = el("div", undefined, "row"); row.append(yes, no); card.append(row); ask.append(card);
     } else if (status.ask) {
       const a = status.ask, card = el("div", undefined, "msg bad");
       card.append(el("strong", "Bước " + (a.index + 1) + "/" + a.total + ": " + (a.label || a.step_id) + " (rủi ro: " + (a.risk === "money" ? "tiền" : a.risk === "write" ? "ghi dữ liệu" : "chỉ xem") + ")"));
@@ -989,7 +1001,10 @@ function drawFlow(flow) {
   const labelOfApi = Object.fromEntries(api.map((a, i) => [a.id, "Bước " + (i + 1)]));
   // Gate 8: a flow with API calls is drawn as its steps, one node per step that fires its batch of calls (what goes in, where each value comes from), like an n8n workflow
   const middle = api.length ? api.map((a, i) => ({ key: a.id, cls: a.risk, n: "Bước " + (i + 1) + " · " + a.call_count + " lời gọi", t: a.label,
-      lines: ["Mức rủi ro: " + (RISK_VN[a.risk] || a.risk), "Gửi lần lượt " + a.call_count + " lời gọi:"]
+      lines: ["Mức rủi ro: " + (RISK_VN[a.risk] || a.risk)]
+        .concat(a.read_confirmed !== null && a.read_confirmed !== undefined ? ["Đã xác nhận là chỉ xem" + (a.read_confirmed ? " lúc " + a.read_confirmed : "") + ": chạy bằng request không hỏi lại."]
+          : a.asks_read ? ["Chưa biết nút này có thay đổi dữ liệu không: lần chạy request sẽ hỏi bạn một lần."] : [])
+        .concat(["Gửi lần lượt " + a.call_count + " lời gọi:"])
         .concat(a.calls.map((c, j) => "  " + (j + 1) + ". " + c.name + " (" + ({ xhr: "gọi API", form: "gửi biểu mẫu", page: "tải trang" }[c.kind] || c.kind) + ")" + (c.ready ? "" : " — chưa gửi lại được")))
         .concat(a.inputs.map((x) => "Đầu vào «" + x + "»: GDV nhập"))
         .concat(Object.entries(a.links).map(([x, from]) => "Giá trị «" + x + "»: lấy từ trả lời của " + (labelOfApi[from] || from)))
@@ -999,6 +1014,19 @@ function drawFlow(flow) {
   const nodes = [{ cls: "start", n: "Bắt đầu", t: flow.title, lines: flow.inputs.length ? ["Nhập mỗi lần: " + flow.inputs.join(", ")] : ["Không có thông tin thay đổi"], badges: [] }]
     .concat(middle);
   nodes.push({ cls: "start", n: "Kết thúc", t: "Xong", lines: ["Bước ghi và bước tiền luôn dừng chờ người duyệt."], badges: [], key: "__end" });
+  // steps the teller confirmed as read-only: shown here, always, with a way back to «hỏi lại»
+  const confirms = $("flowConfirms"); confirms.textContent = "";
+  api.forEach((a, i) => {
+    if (a.read_confirmed === null || a.read_confirmed === undefined) return;
+    const line = el("div", undefined, "row");
+    line.append(el("span", "Bước " + (i + 1) + " «" + a.label + "»: đã xác nhận là chỉ xem" + (a.read_confirmed ? " lúc " + a.read_confirmed : "") + ". "));
+    const back = el("button", "Rút lại (hỏi lại lần sau)");
+    back.onclick = async () => {
+      try { await window.api("POST", "/api/flow/read-withdraw", { title: flow.title, step_id: a.step_id }); await loadFlows(); }
+      catch (e) { confirms.append(el("div", e.message, "msg bad")); }
+    };
+    line.append(back); confirms.append(line);
+  });
   nodes.forEach((node, i) => {
     if (i) row.append(el("div", undefined, "link"));
     const b = el("button", undefined, "node " + node.cls);

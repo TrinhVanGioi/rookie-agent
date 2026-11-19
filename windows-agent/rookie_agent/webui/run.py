@@ -49,14 +49,22 @@ class WebController:
                 return "(chưa có giá trị: bước trước chưa đọc được)"
         return None
 
-    def _ask(self, kind: str, step: dict[str, Any], index: int, total: int) -> bool:
+    def confirm_read(self, step: dict[str, Any], index: int, total: int, calls: list[dict[str, str]]) -> bool:
+        """A `write` step that no rule named (the server only took it as a change because it did not know the button): does it only look?
+        The card lists the calls to send (method and path, never a body). True = «Chỉ xem — gửi»."""
+        label = (step.get("target") or {}).get("label") or step["id"]
+        return self._ask("confirm_read", step, index, total,
+                         {"calls": [{"method": c["method"], "name": c["name"]} for c in calls],
+                          "question": f"Bước «{label}» chỉ xem dữ liệu, không thay đổi gì trên hệ thống?"})
+
+    def _ask(self, kind: str, step: dict[str, Any], index: int, total: int, extra: dict[str, Any] | None = None) -> bool:
         try:
             seen = self._see()
         except Exception:  # noqa: BLE001  the card is a help: a screen that cannot be read must not stop the question
             seen = "không đọc được màn hình lúc này"
         card = {"id": uuid.uuid4().hex, "kind": kind, "step_id": step["id"], "label": (step.get("target") or {}).get("label"),
                 "action": step.get("action"), "risk": step["risk"], "index": index, "total": total,
-                "will_send": self._resolve(step), "manual": bool(step.get("manual")), "seen": seen, "lock_seconds": ASK_LOCK_SECONDS, "asked_at": time.time(), **self.context}
+                "will_send": self._resolve(step), "manual": bool(step.get("manual")), "seen": seen, "lock_seconds": ASK_LOCK_SECONDS, "asked_at": time.time(), **self.context, **(extra or {})}
         with self._cv:
             self._answer, self.ask = None, card
             while self._answer is None and not self._stop.is_set():

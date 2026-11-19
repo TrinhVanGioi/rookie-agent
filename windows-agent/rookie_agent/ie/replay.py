@@ -418,15 +418,22 @@ NEED_LIVE = ("Hãy bấm Ghi rồi Dừng ngay một lần trên màn hình này
 def run_api(workflow: dict[str, Any], nodes: list[dict[str, Any]], values: dict[str, str],
             send: Callable[[dict[str, Any], str, str, str], dict[str, Any]], controller: Any, stop: threading.Event,
             twin: bool = False, role: str = "maker",
-            peek: Callable[[dict[str, Any]], list[str]] | None = None) -> dict[str, Any]:
+            peek: Callable[[dict[str, Any]], list[str]] | None = None, read_rules: dict[str, Any] | None = None,
+            confirmed: dict[str, Any] | None = None, remember: Callable[[str], None] | None = None) -> dict[str, Any]:
     """The nodes in order. Each node: its inputs (what the teller typed, values linked from the answers before), the request sent
     from the teller's page, the answer. A node of the sign-in is passed over (the open page's session is used); a node that writes
     or moves money stops the run; anything missing or refused stops it and asks. `send(node, url, headers, body)` sends one.
     `twin=True` (Gate 9): `send` answers from a fake, nothing leaves the PC; a node that writes or moves money then waits for the
     person's Duyệt (never automatic) and goes on after it. In a `role` "checker" stage a stage with no such node still waits at its last one.
     `peek(node)` (real run only): the last bodies the live page sent to the node's path; a value that came from the sign-in answer is taken
-    from the one that fits the node's template (the session the page uses now), never stored."""
+    from the one that fits the node's template (the session the page uses now), never stored.
+    A real run refuses a step that is not read, except a `write` step that is so only by default (no rule of `read_rules`, the "ie" section
+    of config/risk-rules.json, matched it; `ie/read_rules.py`): the teller is asked «chỉ xem?» once (`controller.confirm_read`); «Chỉ xem»
+    is kept by `remember(step_id)` and in `confirmed` ({step_id: ...}, the flow's own record) so a later run sends without asking. Money,
+    a step an explicit rule matched, no rules, no `confirm_read`, any other answer: refused, nothing remembered."""
     groups = groups_of(nodes)
+    steps_by_id = {s["id"]: s for s in workflow.get("steps", [])}
+    confirmed = dict(confirmed or {})
     by_id = {n["id"]: n for n in nodes}
     done: list[dict[str, Any]] = []
     answers: dict[str, str] = {}                       # this run's answers, in memory only, for the links of the next calls
@@ -476,6 +483,21 @@ def run_api(workflow: dict[str, Any], nodes: list[dict[str, Any]], values: dict[
             if not controller.approve(step, groups.index(group), len(groups)):      # one Duyệt for the whole step
                 note(group, "rejected" if not stop.is_set() else "stopped", "người duyệt không đồng ý" if not stop.is_set() else "Dừng khẩn", shown)
                 return end("stopped", f"«{label}» không được Duyệt: dừng (bản sao, chưa có gì gửi đi).")
+        elif group["risk"] != "read" and _by_default(group, steps_by_id, read_rules):
+            if group["step_id"] in confirmed:
+                shown["confirmed_read"] = str((confirmed[group["step_id"]] or {}).get("at") or "")
+            else:
+                ask = getattr(controller, "confirm_read", None)
+                answered = bool(ask(steps_by_id[group["step_id"]], groups.index(group), len(groups), [{"method": c["method"], "name": call_name(c)} for c in real_calls])) if ask else False
+                if not answered or stop.is_set():
+                    note(group, "refused" if not stop.is_set() else "stopped", "người dùng không xác nhận là chỉ xem: không gửi" if not stop.is_set() else "Dừng khẩn", shown)
+                    if stop.is_set():
+                        return end("stopped", f"Dừng khẩn trước «{label}».")
+                    return end("refused", f"«{label}» có thể thay đổi dữ liệu: không gửi bằng request. Dùng «Chạy trên màn hình», có bước Duyệt.")
+                if remember is not None:
+                    remember(group["step_id"])
+                confirmed[group["step_id"]] = {}
+                shown["confirmed_read"] = "vừa xác nhận"
         elif group["risk"] != "read":
             note(group, "refused", "ghi dữ liệu hoặc tiền: không gửi bằng request", shown)
             return end("refused", f"«{label}» ghi dữ liệu hoặc chuyển tiền: không chạy bằng request. Dùng «Chạy trên màn hình», có bước Duyệt.")
@@ -556,6 +578,14 @@ def run_api(workflow: dict[str, Any], nodes: list[dict[str, Any]], values: dict[
 
 
 NOT_SENT = "chưa gửi"
+
+
+def _by_default(group: dict[str, Any], steps: dict[str, dict[str, Any]], rules: dict[str, Any] | None) -> bool:
+    """A step of a real run that is `write` only because no rule matched it (never money, never an explicit write rule)."""
+    from rookie_agent.ie import read_rules
+
+    step = steps.get(group["step_id"]) if group["step_id"] is not None else None
+    return group["risk"] == "write" and step is not None and read_rules.write_by_default(step, rules)
 
 
 def _add_input(shown: dict[str, Any], name: str, source: str) -> None:

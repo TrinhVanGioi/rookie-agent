@@ -528,9 +528,10 @@ class Core:
         return found
 
     def flows(self, _: dict[str, Any]) -> dict[str, Any]:
-        def api_nodes(api: list[dict[str, Any]]) -> list[dict[str, Any]]:
-            from rookie_agent.ie import replay
+        def api_nodes(api: list[dict[str, Any]], flow: dict[str, Any]) -> list[dict[str, Any]]:
+            from rookie_agent.ie import read_rules, replay
 
+            rules, steps = read_rules.load(), {s["id"]: s for s in (flow.get("workflow") or {}).get("steps", []) if "id" in s}
             by_id = {n["id"]: n for n in api}
             call_group = {c: g["id"] for g in replay.groups_of(api) for c in g["calls"]}
             out = []
@@ -541,7 +542,10 @@ class Core:
                     for name, rule in n["links"].items():
                         if call_group.get(rule["from"], g["id"]) != g["id"]:
                             links[name] = call_group[rule["from"]]
+                by_default = g["risk"] == "write" and g["step_id"] in steps and read_rules.write_by_default(steps[g["step_id"]], rules)
+                kept = (flow.get("read_confirmed") or {}).get(g["step_id"]) if by_default else None
                 out.append({"id": g["id"], "label": g["label"], "risk": g["risk"], "step_id": g["step_id"], "ms": g["ms"],
+                            "asks_read": by_default, "read_confirmed": (kept or {}).get("at") or "" if kept is not None else None,
                             "kind": calls[0]["kind"], "call_count": len(calls),
                             "ready": all(n["complete"] and not n["unresolved"] for n in calls),
                             "inputs": sorted({x for n in calls for x in re.findall("⟦([a-z0-9_]+)⟧", n["url"] + n["body"] + n["headers"])}
@@ -553,9 +557,9 @@ class Core:
 
         def listed(flow: dict[str, Any]) -> dict[str, Any]:
             workflow = flow.get("workflow") or {}
-            return {k: v for k, v in flow.items() if k not in ("workflow", "requests", "api")} | {
+            return {k: v for k, v in flow.items() if k not in ("workflow", "requests", "api", "read_confirmed")} | {
                 # the nodes the canvas draws (task 8.5): one per step, with the calls it fires; never a template's body
-                "api_nodes": api_nodes(flow.get("api") or []),
+                "api_nodes": api_nodes(flow.get("api") or [], flow),
                 "approved": workflow.get("status") == "approved", "engine": workflow.get("engine"),
                 "workflow_id": workflow.get("id"), "twin_ready": replay_has_twin(flow.get("api") or []), "has_api": bool(flow.get("api")),
                 "step_count": len(workflow.get("steps", [])),
@@ -588,6 +592,28 @@ class Core:
         flow["workflow"]["status"] = "approved"
         self.store.put("flows", flows)
         return {"approved": True}
+
+    def _read_confirm(self, title: str, step_id: str) -> None:
+        """The teller said this step only looks: kept on the flow saved on this PC, per step (the time only; no value, no name)."""
+        flows = self.store.get("flows", [])
+        flow = next((f for f in flows if f.get("title") == title), None)
+        if flow is not None:
+            flow.setdefault("read_confirmed", {})[step_id] = {"at": time.strftime("%Y-%m-%d %H:%M:%S")}
+            self.store.put("flows", flows)
+
+    def flow_read_withdraw(self, body: dict[str, Any]) -> dict[str, Any]:
+        """Take the confirmation back: the next run asks again. What a look-up kept in memory is forgotten too."""
+        title, step_id = str(body.get("title") or ""), str(body.get("step_id") or "")
+        flows = self.store.get("flows", [])
+        flow = next((f for f in flows if f.get("title") == title), None)
+        if flow is None or step_id not in (flow.get("read_confirmed") or {}):
+            raise UserError("Bước này chưa được xác nhận là chỉ xem.")
+        del flow["read_confirmed"][step_id]
+        if not flow["read_confirmed"]:
+            del flow["read_confirmed"]
+        self.store.put("flows", flows)
+        self._cache_clear()
+        return {"withdrawn": True}
 
     def run_start(self, body: dict[str, Any], via: str | None = None) -> dict[str, Any]:
         from rookie_agent.ie.driver import IeDriver
@@ -687,7 +713,7 @@ class Core:
     def _simulate_start(self, flow: dict[str, Any], body: dict[str, Any], via: str | None) -> dict[str, Any]:
         """Task 7.5: the flow run by its learned requests, sent from inside the teller's IE page (the page's own session). The screen is
         not touched; only read-only steps send; what comes back is shown on the canvas and kept in memory only."""
-        from rookie_agent.ie import replay
+        from rookie_agent.ie import read_rules, replay
         from rookie_agent.runner import required_inputs
         from rookie_agent.webui.run import WebController
 
@@ -750,7 +776,9 @@ class Core:
                         answer = bridge.send("top", node["method"], url, headers, body_text)
                     return answer
 
-                result = replay.run_api(workflow, api, inputs, send, controller, stop, peek=peek)
+                result = replay.run_api(workflow, api, inputs, send, controller, stop, peek=peek, read_rules=read_rules.load(),
+                                        confirmed=flow.get("read_confirmed") or {},
+                                        remember=lambda step_id: self._read_confirm(flow["title"], step_id))
             except Exception as error:  # noqa: BLE001
                 result = {"status": "failed", "message": f"Chạy mô phỏng bị lỗi: {error}", "steps": []}
             finally:
@@ -1327,7 +1355,7 @@ class Core:
         "POST /api/record/stop": "record_stop", "GET /api/recordings": "recordings", "POST /api/recordings/delete": "delete_recording",
         "POST /api/server/check": "server_check", "POST /api/server/start": "server_start", "POST /api/learn": "learn",
         "POST /api/diagnostics": "diagnostics", "GET /api/flows": "flows",
-        "GET /api/codie": "codie_status", "POST /api/codie/test": "codie_test", "GET /api/calls": "calls", "GET /api/seen": "seen", "GET /api/requests": "requests", "GET /api/live": "live", "GET /api/screen": "screen", "POST /api/ie/inspect": "ie_inspect", "POST /api/flow/approve": "flow_approve", "POST /api/run/start": "run_start", "GET /api/run/status": "run_status", "POST /api/run/decide": "run_decide", "POST /api/run/stop": "run_stop", "POST /api/assistant/plan": "assistant_plan", "POST /api/assistant/answer": "assistant_answer", "POST /api/assistant/run": "assistant_run", "GET /api/assistant/habits": "assistant_habits", "GET /api/trace/last": "last_trace",
+        "GET /api/codie": "codie_status", "POST /api/codie/test": "codie_test", "GET /api/calls": "calls", "GET /api/seen": "seen", "GET /api/requests": "requests", "GET /api/live": "live", "GET /api/screen": "screen", "POST /api/ie/inspect": "ie_inspect", "POST /api/flow/approve": "flow_approve", "POST /api/flow/read-withdraw": "flow_read_withdraw","POST /api/run/start": "run_start", "GET /api/run/status": "run_status", "POST /api/run/decide": "run_decide", "POST /api/run/stop": "run_stop", "POST /api/assistant/plan": "assistant_plan", "POST /api/assistant/answer": "assistant_answer", "POST /api/assistant/run": "assistant_run", "GET /api/assistant/habits": "assistant_habits", "GET /api/trace/last": "last_trace",
         "POST /api/voucher/read": "voucher_read", "POST /api/voucher/confirm": "voucher_confirm", "POST /api/voucher/run": "voucher_run",
         "GET /api/twin/settings": "twin_settings", "POST /api/twin/settings": "twin_settings_save",
         "GET /api/twin/processes": "twin_processes", "POST /api/twin/processes": "twin_process_save",

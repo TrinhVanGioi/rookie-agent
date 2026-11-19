@@ -427,3 +427,118 @@ def test_the_flows_list_draws_one_node_per_step_with_its_calls(tmp_path):
     nodes_ = core.dispatch("GET", "/api/flows", {})[1]["flows"][0]["api_nodes"]
     assert [(n["id"], n["call_count"]) for n in nodes_] == [("g1", 1), ("g2", 1), ("g3", 2)]
     assert [c["name"] for c in nodes_[2]["calls"]] == ["POST /tp/detail", "POST /tp/detail2"] and nodes_[2]["links"] == {"l1": "g2"}
+
+
+# ---- a step that is write only by default: the teller is asked once «chỉ xem?» (docs/design.md 6.4 point 4) -----------------------------
+
+from rookie_agent.ie import read_rules  # noqa: E402
+
+RULES = read_rules.load()
+
+
+class Asking(Shown):
+    def __init__(self, answer):
+        super().__init__()
+        self.answer, self.asked = answer, []
+
+    def confirm_read(self, step, index, total, calls):
+        self.asked.append((step["id"], [c["name"] for c in calls]))
+        return self.answer
+
+
+def unknown_click(label="Khách hàng X", risk="write"):
+    """The flow whose last click is a button no rule names, so the server gave it write; its two calls are the group g3."""
+    wf = flow()
+    wf["steps"][3] = {**wf["steps"][3], "risk": risk, "target": {**wf["steps"][3]["target"], "label": label, "tag": "button"}}
+    api = batch_nodes()
+    for node in api:
+        if node["group"] == "g3":
+            node["risk"] = risk
+    return wf, api
+
+
+def run_it(wf, api, ctl, **kw):
+    sent = []
+    result = replay.run_api(wf, api, {"cif": "1"}, lambda n, u, h, b: sent.append(u) or {"ok": True, "status": 200, "ms": 1, "text": ANSWERS.get(u, "")},
+                            ctl, threading.Event(), **kw)
+    return result, sent
+
+
+def test_the_rules_are_readable_from_the_package_layout():
+    assert RULES is not None and RULES["default_click"] == "write"
+    assert read_rules.load(read_rules.RULES_PATH.parent / "nope.json") is None
+
+
+def test_an_unknown_button_asks_once_then_remembers_and_the_next_run_sends_without_asking():
+    wf, api = unknown_click()
+    kept, ctl = {}, Asking(True)
+    result, sent = run_it(wf, api, ctl, read_rules=RULES, confirmed=kept, remember=lambda sid: kept.update({sid: {"at": "t"}}))
+    assert result["status"] == "finished" and sent[-2:] == ["/tp/detail", "/tp/detail2"]
+    assert ctl.asked == [("s4_open", ["POST /tp/detail", "POST /tp/detail2"])] and kept == {"s4_open": {"at": "t"}}
+    again = Asking(False)
+    result, sent = run_it(wf, api, again, read_rules=RULES, confirmed=kept)
+    assert result["status"] == "finished" and again.asked == [] and len(sent) == 4
+
+
+def test_has_changes_refuses_with_nothing_sent_and_nothing_remembered():
+    wf, api = unknown_click()
+    kept, ctl = {}, Asking(False)
+    result, sent = run_it(wf, api, ctl, read_rules=RULES, confirmed=kept, remember=lambda sid: kept.update({sid: {}}))
+    assert result["status"] == "refused" and sent == ["/tp/init", "/tp/find"] and kept == {} and len(ctl.asked) == 1
+
+
+def test_an_explicit_write_label_money_and_a_missing_rule_table_are_never_asked():
+    for label, risk, rules in (("Lưu", "write", RULES), ("Khách hàng X", "money", RULES), ("Khách hàng X", "write", None)):
+        wf, api = unknown_click(label, risk)
+        ctl = Asking(True)
+        result, sent = run_it(wf, api, ctl, read_rules=rules, confirmed={})
+        assert result["status"] == "refused" and ctl.asked == [] and sent == ["/tp/init", "/tp/find"], (label, risk)
+    wf, api = unknown_click()
+    assert replay.run_api(wf, api, {"cif": "1"}, lambda n, u, h, b: {"ok": True, "status": 200, "ms": 1, "text": ANSWERS.get(u, "")}, Shown(),
+                          threading.Event(), read_rules=RULES)["status"] == "refused"          # a controller that cannot ask
+
+
+def test_twin_is_unchanged_it_still_waits_for_duyet_and_never_asks_read_only():
+    wf, api = unknown_click()
+
+    class Twin(Asking):
+        def approve(self, step, index, total):
+            self.asked.append("approve")
+            return True
+
+    ctl = Twin(True)
+    replay.run_api(wf, api, {"cif": "1"}, lambda n, u, h, b: {"ok": True, "status": 200, "ms": 1, "text": ANSWERS.get(u, "")}, ctl, threading.Event(),
+                   twin=True, read_rules=RULES)
+    assert ctl.asked == ["approve"]
+
+
+def test_the_flows_page_shows_the_confirmation_and_withdrawing_brings_the_question_back(tmp_path):
+    from test_webui import make_core, wait_for
+
+    wf, api = unknown_click()
+    bridge = CountingBridge()
+    core, _ = make_core(tmp_path, ie_bridge=lambda: bridge)
+    core.store.put("flows", [{"title": "Tra CIF", "steps": [], "inputs": ["Số CIF"], "learned_at": "x",
+                              "workflow": {**wf, "engine": "ie", "status": "approved"}, "api": api}])
+    node = core.dispatch("GET", "/api/flows", {})[1]["flows"][0]["api_nodes"][2]
+    assert node["asks_read"] is True and node["read_confirmed"] is None
+    start = {"title": "Tra CIF", "mode": "simulate", "window": "ie-tab:1", "inputs": {"cif": "1"}}
+    assert core.dispatch("POST", "/api/run/start", start)[0] == 200
+    asked = wait_for(core, "waiting_review")["ask"]
+    assert asked["kind"] == "confirm_read" and "chỉ xem dữ liệu" in asked["question"] and [c["name"] for c in asked["calls"]] == ["POST /tp/detail", "POST /tp/detail2"]
+    assert core.dispatch("POST", "/api/run/decide", {"ask_id": asked["id"], "approve": True})[0] == 200
+    wait_for(core, "finished")
+    core._run["thread"].join(5)
+    listed = core.dispatch("GET", "/api/flows", {})[1]["flows"][0]
+    assert listed["api_nodes"][2]["read_confirmed"] and "read_confirmed" not in listed and len(bridge.sent) == 4
+    assert core.dispatch("POST", "/api/run/start", {**start, "refresh": True})[0] == 200
+    wait_for(core, "finished")                                               # remembered: no question
+    core._run["thread"].join(5)
+    assert core.dispatch("POST", "/api/flow/read-withdraw", {"title": "Tra CIF", "step_id": "s4_open"})[0] == 200
+    assert core.dispatch("GET", "/api/flows", {})[1]["flows"][0]["api_nodes"][2]["read_confirmed"] is None
+    assert core.dispatch("POST", "/api/run/start", {**start, "refresh": True})[0] == 200
+    assert wait_for(core, "waiting_review")["ask"]["kind"] == "confirm_read"
+    core.dispatch("POST", "/api/run/stop", {})
+    core._run["thread"].join(5)
+    assert "s4_open" not in json.dumps(core.store.get("flows")[0].get("read_confirmed") or {})
+    assert "TRAN THI B" not in (core.store.home / "audit.jsonl").read_text(encoding="utf-8")

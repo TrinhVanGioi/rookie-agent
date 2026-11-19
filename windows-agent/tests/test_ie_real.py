@@ -1471,3 +1471,41 @@ def test_a_service_call_with_a_bearer_token_from_a_token_service_is_recorded_lea
     assert [s["id"] for s in run["steps"]].count(batch[0]["id"]) == 1 and len(run["steps"]) == len(listed), (run["steps"], listed)
     sent = run["details"][batch[0]["id"]]["requests"]
     assert len(sent) == 2 and [r["status"] for r in sent] == [200, 200] and "state" not in sent[0], sent
+
+
+def test_a_click_no_rule_names_asks_once_sends_after_chi_xem_and_the_next_run_does_not_ask(tmp_path):
+    """The step is write only by default: the question is answered by the person, the calls are then really sent from the page (200),
+    the confirmation is kept on the flow, and the next run sends them without a question."""
+    import time as _time
+    from tests.test_webui import make_core
+
+    node = {"id": "a0", "step_id": "s1", "kind": "xhr", "group": "g1", "group_label": "Khách hàng lạ", "label": "x", "frame": "top", "method": "POST",
+            "url": "/api/cif", "headers": "X-Test:1\nContent-Type:application/x-www-form-urlencoded\n", "body": "cif=4455667788", "links": {},
+            "risk": "write", "complete": True, "answer": "", "ms": 1, "shape": None, "unresolved": []}
+    workflow = {"engine": "ie", "status": "approved", "inputs": [], "steps": [
+        {"id": "s1", "action": "click", "risk": "write", "mode": "approve", "target": {"selectors": ["x"], "label": "Khách hàng lạ", "tag": "button"}}]}
+    with real_ie("/form") as bridge:
+        core, _ = make_core(tmp_path, ie_bridge=lambda: bridge)
+        core.store.put("flows", [{"title": "Khach", "steps": [], "inputs": [], "learned_at": "x", "workflow": workflow, "api": [node]}])
+        tab = next(t for t in bridge.tabs() if "RookieE2E" in t["title"])
+        start = {"title": "Khach", "mode": "simulate", "window": f"ie-tab:{tab['id']}", "inputs": {}}
+
+        def wait(pred):
+            for _ in range(150):
+                run = core.dispatch("GET", "/api/run/status", {})[1]
+                if pred(run):
+                    return run
+                _time.sleep(0.2)
+            raise AssertionError(run)
+
+        assert core.dispatch("POST", "/api/run/start", start)[0] == 200
+        run = wait(lambda r: r.get("ask") or r.get("result"))
+        assert run["ask"]["kind"] == "confirm_read", run
+        assert core.dispatch("POST", "/api/run/decide", {"ask_id": run["ask"]["id"], "approve": True})[0] == 200
+        run = wait(lambda r: r.get("result"))
+        assert run["result"]["status"] == "finished" and run["details"]["g1"]["requests"][0]["status"] == 200, run
+        core._run["thread"].join(5)
+        assert core.store.get("flows")[0]["read_confirmed"]["s1"]["at"]
+        assert core.dispatch("POST", "/api/run/start", {**start, "refresh": True})[0] == 200
+        run = wait(lambda r: r.get("ask") or r.get("result"))
+        assert run["ask"] is None and run["result"]["status"] == "finished" and run["details"]["g1"]["requests"][0]["status"] == 200, run
