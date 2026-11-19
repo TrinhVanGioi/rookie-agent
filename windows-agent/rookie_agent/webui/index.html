@@ -878,6 +878,15 @@ $("runApprove").onclick = async () => {
   catch (e) { $("runMsg").textContent = ""; $("runMsg").append(el("div", e.message, "msg bad")); }
 };
 let runTimer = null;
+// The question is redrawn on every poll (500 ms): the lock counts from when this question was first seen, not from each redraw,
+// or a lock longer than the poll would never open.
+const askSeen = {};
+function lockButton(b, a) {
+  const key = a.id != null ? String(a.id) : (a.step_id + "@" + a.asked_at), now = Date.now();
+  if (!(key in askSeen)) askSeen[key] = now;
+  const left = askSeen[key] + (a.lock_seconds || 0.8) * 1000 - now;
+  if (left > 0) { b.disabled = true; setTimeout(() => { b.disabled = false; }, left); }
+}
 const RUN_IDS = { steps: "runSteps", ask: "runAsk", msg: "runMsg" };
 async function pollRun(ids = RUN_IDS) {
   if (runTimer) return;
@@ -898,7 +907,7 @@ async function pollRun(ids = RUN_IDS) {
       const pick = (choice) => async () => { try { await api("POST", "/api/run/decide", { approve: choice !== null, choice, ask_id: a.id }); } catch (e) { $(ids.msg).append(el("div", e.message, "msg bad")); } };
       a.candidates.forEach((c, i) => {
         const b = el("button", "Ô tô " + c.color + (c.label ? ": " + c.label : ""), i === 0 ? "primary" : "");
-        b.disabled = true; setTimeout(() => { b.disabled = false; }, (a.lock_seconds || 0.8) * 1000); b.onclick = pick(i); row.append(b);
+        lockButton(b, a); b.onclick = pick(i); row.append(b);
       });
       const none = el("button", "Không có ô nào đúng (dừng)"); none.onclick = pick(null); row.append(none);
       card.append(row);
@@ -911,7 +920,7 @@ async function pollRun(ids = RUN_IDS) {
       a.calls.forEach((c, j) => card.append(el("div", (j + 1) + ". " + c.name, "detail")));
       card.append(el("div", "Chọn «Chỉ xem — gửi» thì agent nhớ bước này trên máy này, lần sau gửi luôn không hỏi lại (rút lại được ở trang luồng). Chọn «Có thay đổi — không gửi» thì không gửi gì và không nhớ gì.", "detail"));
       const yes = el("button", "Chỉ xem — gửi", "primary"), no = el("button", "Có thay đổi — không gửi");
-      yes.tabIndex = -1; yes.disabled = true; setTimeout(() => { yes.disabled = false; }, (a.lock_seconds || 0.8) * 1000);
+      yes.tabIndex = -1; lockButton(yes, a);
       const answer = (approve) => async () => { try { await api("POST", "/api/run/decide", { approve, ask_id: a.id }); } catch (e) { $(ids.msg).append(el("div", e.message, "msg bad")); } };
       yes.onclick = answer(true); no.onclick = answer(false);
       const row = el("div", undefined, "row"); row.append(yes, no); card.append(row); ask.append(card);
@@ -922,7 +931,7 @@ async function pollRun(ids = RUN_IDS) {
       if (a.manual) card.append(el("div", "Đây là bước đăng nhập của bạn: gõ mật khẩu và nhấn Enter trên màn hình Internet Explorer, rồi bấm «Đi tiếp». Agent không bao giờ gõ mật khẩu."));
       card.append(el("div", "Đang thấy trên màn hình: " + a.seen, "detail"));
       const yes = el("button", a.kind === "approve" ? "Duyệt" : "Đi tiếp", "primary"), no = el("button", a.kind === "approve" ? "Không duyệt" : "Dừng ở đây");
-      yes.tabIndex = -1; yes.disabled = true; setTimeout(() => { yes.disabled = false; }, (a.lock_seconds || 0.8) * 1000);   // not answered by an old double click
+      yes.tabIndex = -1; lockButton(yes, a);   // not answered by an old double click
       const answer = (approve) => async () => { try { await api("POST", "/api/run/decide", { approve, ask_id: a.id }); } catch (e) { $(ids.msg).append(el("div", e.message, "msg bad")); } };
       yes.onclick = answer(true); no.onclick = answer(false);
       const row = el("div", undefined, "row"); row.append(yes, no); card.append(row); ask.append(card);
@@ -1381,7 +1390,7 @@ async function pollTwin() {
       card.append(el("strong", (a.role === "checker" ? "Kiểm soát viên Duyệt: " : "GDV Duyệt: ") + (a.label || a.step_id) + " (" + (a.risk === "money" ? "tiền" : a.risk === "write" ? "ghi dữ liệu" : "chỉ xem") + ")"));
       card.append(el("div", "Đây là bản sao: bấm Duyệt chỉ để chạy tiếp, không có gì được gửi đi. Người bấm Duyệt phải là bạn.", "detail"));
       const yes = el("button", "Duyệt", "primary"), no = el("button", "Không duyệt");
-      yes.tabIndex = -1; yes.disabled = true; setTimeout(() => { yes.disabled = false; }, (a.lock_seconds || 0.8) * 1000);
+      yes.tabIndex = -1; lockButton(yes, a);
       const answer = (approve) => async () => { try { await api("POST", "/api/twin/decide", { approve, ask_id: a.id }); } catch (e) { $("twRunMsg").append(el("div", e.message, "msg bad")); } };
       yes.onclick = answer(true); no.onclick = answer(false);
       const r = el("div", undefined, "row"); r.append(yes, no); card.append(r); ask.append(card);
