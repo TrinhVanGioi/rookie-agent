@@ -77,6 +77,16 @@ CREATE TABLE IF NOT EXISTS workflow_layout (
     layout TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS runs (
+    run_id TEXT PRIMARY KEY,
+    workflow_id TEXT NOT NULL,
+    version INTEGER,
+    by_user TEXT NOT NULL,
+    status TEXT NOT NULL,
+    time TEXT NOT NULL,
+    document TEXT NOT NULL,
+    received_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS auth_tokens (
     hash TEXT PRIMARY KEY,
     user TEXT NOT NULL,
@@ -235,6 +245,31 @@ class Storage:
         with self._lock:
             row = self._db.execute("SELECT layout FROM workflow_layout WHERE id = ?", (workflow_id,)).fetchone()
         return json.loads(row["layout"]) if row else {}
+
+    # ---- runs sent up by the PCs (task 10.5): names and states only ------------------------------------------------------
+
+    def add_run(self, run: dict[str, Any], by: dict[str, Any]) -> bool:
+        """False when this run was already kept (the PC sends again after a lost answer)."""
+        with self._lock, self._db:
+            try:
+                self._db.execute("INSERT INTO runs VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                                 (run["run_id"], run["workflow_id"], run.get("version"), _dump(by), run["status"], run["time"],
+                                  _dump(run), _now()))
+            except sqlite3.IntegrityError:
+                return False
+        return True
+
+    def runs_of(self, workflow_id: str, limit: int = 200) -> list[dict[str, Any]]:
+        with self._lock:
+            rows = self._db.execute("SELECT document, by_user FROM runs WHERE workflow_id = ? ORDER BY time DESC, rowid DESC LIMIT ?",
+                                    (workflow_id, limit)).fetchall()
+        return [{**json.loads(r["document"]), "by": json.loads(r["by_user"])} for r in rows]
+
+    def run_summary(self) -> dict[str, dict[str, Any]]:
+        with self._lock:
+            rows = self._db.execute("SELECT workflow_id, COUNT(*) AS n, SUM(status = 'failed') AS failed, MAX(time) AS last "
+                                    "FROM runs GROUP BY workflow_id").fetchall()
+        return {r["workflow_id"]: {"runs": r["n"], "failed": r["failed"] or 0, "last": r["last"]} for r in rows}
 
     # ---- whose flow it is and who sees it (task 10.2) ----------------------------------------------------------------
 

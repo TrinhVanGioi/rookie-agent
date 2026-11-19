@@ -63,6 +63,47 @@ class StatusIn(BaseModel):
     status: Literal["draft", "tested", "approved"]
 
 
+_WORD = r"^[a-z][a-z0-9_]{0,31}$"
+
+
+class StepRunIn(BaseModel):
+    """A step of a run: its id and how it ended. No detail text (it could hold a value)."""
+
+    model_config = ConfigDict(extra="forbid")
+    id: str = Field(min_length=1, max_length=80)
+    status: str = Field(pattern=_WORD)
+
+
+class DecisionIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    step_id: str = Field(min_length=1, max_length=80)
+    kind: str = Field(pattern=_WORD)
+    risk: Literal["read", "write", "money"]
+    approved: bool | None = None
+
+
+class RunIn(BaseModel):
+    """A run as the PC's audit.jsonl has it, task 10.5: names and states only. Who ran it is the login, not a field."""
+
+    model_config = ConfigDict(extra="forbid")
+    run_id: str = Field(pattern=r"^[A-Za-z0-9_-]{1,64}$")
+    time: str = Field(pattern=r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$")
+    workflow_id: str = Field(pattern=_ID)
+    version: int | None = Field(default=None, ge=1)
+    title: str = Field(default="", max_length=80)
+    mode: str = Field(pattern=_WORD)
+    status: str = Field(pattern=_WORD)
+    seconds: float = Field(default=0, ge=0)
+    steps: list[StepRunIn] = Field(default=[], max_length=500)
+    decisions: list[DecisionIn] = Field(default=[], max_length=200)
+    via: str | None = Field(default=None, pattern=r"^[a-z_]{0,24}$")
+    input_names: list[str] = Field(default=[], max_length=50)
+
+
+class RunsIn(BaseModel):
+    runs: list[RunIn] = Field(min_length=1, max_length=200)
+
+
 class EditIn(BaseModel):
     ops: list[dict[str, Any]] = Field(min_length=1, max_length=200)
 
@@ -361,6 +402,35 @@ def create_app(db_path: str | Path | None = None, auth_mode: str | None = None, 
         changeable(request, workflow_id)
         storage.set_layout(workflow_id, body.layout)
         return {"layout": body.layout}
+
+    # ---- runs (task 10.5) ---------------------------------------------------------------------------------------------
+
+    @app.post("/runs")
+    def post_runs(body: RunsIn, request: Request) -> dict[str, int]:
+        """Runs sent up by a PC. A run of a flow the caller does not see is skipped; one already kept is not kept twice."""
+        who = caller(request)
+        kept = known = skipped = 0
+        for run in body.runs:
+            if any(not re.fullmatch(r"[a-z][a-z0-9_]*", name) for name in run.input_names):
+                raise HTTPException(422, "input_names chỉ chứa tên ô nhập.")
+            if storage.get_workflow(run.workflow_id) is None or not can_see(who, storage.meta(run.workflow_id)):
+                skipped += 1
+                continue
+            if storage.add_run(run.model_dump(), {"name": who.name, "display": who.display, "unit": who.unit}):
+                kept += 1
+            else:
+                known += 1
+        return {"kept": kept, "known": known, "skipped": skipped}
+
+    @app.get("/workflows/{workflow_id}/runs")
+    def workflow_runs(workflow_id: str, request: Request) -> dict[str, Any]:
+        visible(request, workflow_id)
+        return {"runs": storage.runs_of(workflow_id)}
+
+    @app.get("/runs/summary")
+    def run_summary(request: Request) -> dict[str, Any]:
+        who = caller(request)
+        return {"flows": {wid: row for wid, row in storage.run_summary().items() if can_see(who, storage.meta(wid))}}
 
     # ---- sharing, cloning, owners (task 10.2) ---------------------------------------------------------------------
 

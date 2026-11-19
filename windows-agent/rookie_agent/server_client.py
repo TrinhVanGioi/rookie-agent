@@ -170,6 +170,10 @@ class ServerClient:
         """Task 10.3: the API nodes of a version, already masked by `ie.api_share.for_server`."""
         return self._call("PUT", f"/workflows/{workflow_id}/versions/{version}/api", {"api": api})
 
+    def post_runs(self, runs: list[dict[str, Any]]) -> dict[str, Any]:
+        """Task 10.5: runs of this PC, names and states only (built by `Core._send_runs`)."""
+        return self._call("POST", "/runs", {"runs": runs})
+
     def post_test_run(self, workflow_id: str, version: int, result: dict[str, Any]) -> dict[str, Any]:
         return self._call("POST", f"/workflows/{workflow_id}/versions/{version}/test-runs", result)
 

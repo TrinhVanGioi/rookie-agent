@@ -992,11 +992,60 @@ class Core:
                 "steps": [{"id": s["id"], "status": s["status"], "detail": s["detail"]} for s in controller.steps]}
         if state.get("via"):
             line["via"], line["input_names"] = state["via"], state.get("input_names", [])
+        flow = next((f for f in self.store.get("flows", []) if f.get("title") == state["title"]), None)
+        workflow = (flow or {}).get("workflow") or {}
+        if workflow.get("id"):           # task 10.5: which flow and version ran, so the server can show the run under it
+            line["run_id"], line["workflow_id"], line["version"] = uuid.uuid4().hex, workflow["id"], workflow.get("version")
         try:
             with (self.store.home / "audit.jsonl").open("a", encoding="utf-8") as handle:
                 handle.write(json.dumps(line, ensure_ascii=False) + chr(10))
         except OSError:
             pass  # a log that cannot be written must not hide the result from the person
+        self._send_runs()
+
+    _SENT = "runs_sent"          # how many lines of audit.jsonl were already sent up (or were not runs of a flow on the server)
+
+    def _send_runs(self) -> None:
+        """Task 10.5: send up the runs not sent yet: names and states only (never the detail text of a step, it could hold a value).
+        A failure keeps them for the next time; nothing here may stop or hide a run."""
+        try:
+            lines = (self.store.home / "audit.jsonl").read_text(encoding="utf-8").splitlines()
+        except OSError:
+            return
+        done = int(self.store.get(self._SENT, 0) or 0)
+        if done > len(lines):
+            done = 0                     # the log was cleared
+        word = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
+        runs = []
+        for raw in lines[done:done + 200]:
+            try:
+                line = json.loads(raw)
+            except ValueError:
+                continue
+            if not line.get("run_id") or not line.get("workflow_id"):
+                continue
+            runs.append({
+                "run_id": line["run_id"], "time": line["time"], "workflow_id": line["workflow_id"], "version": line.get("version"),
+                "title": str(line.get("title") or "")[:80], "mode": str(line.get("mode") or "run"),
+                "status": str(line.get("status") or "unknown"), "seconds": float(line.get("seconds") or 0),
+                "steps": [{"id": str(s.get("id"))[:80], "status": s["status"] if word.match(str(s.get("status"))) else "other"}
+                          for s in line.get("steps") or []],
+                "decisions": [{k: d.get(k) for k in ("step_id", "kind", "risk", "approved")} for d in line.get("decisions") or []],
+                **({"via": line["via"]} if line.get("via") else {}), "input_names": list(line.get("input_names") or []),
+            })
+        consumed = min(len(lines), done + 200)
+        if not runs:
+            self.store.put(self._SENT, consumed)
+            return
+        try:
+            client = self._server()
+            post = getattr(client, "post_runs", None)
+            if post is None:
+                return
+            post(runs)
+        except Exception:  # noqa: BLE001  the server is away: they go with the next run
+            return
+        self.store.put(self._SENT, consumed)
 
     # ---- the Assistant (Gate 5): a sentence in, a card out, a click to run ---------------------
 
