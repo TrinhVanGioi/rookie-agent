@@ -830,8 +830,9 @@ def test_assistant_run_is_audited_without_sentence_or_values(tmp_path):
 
 def test_index_has_assistant_tab():
     page = (Path(__file__).resolve().parents[1] / "rookie_agent" / "webui" / "index.html").read_text(encoding="utf-8")
-    for needle in ('id="tabAssist"', 'id="asText"', 'id="asAsk"', 'id="asGo"', 'id="asStop"', "Dừng khẩn", "/api/assistant/plan", "/api/assistant/answer",
-                   "/api/assistant/run", "/api/assistant/habits", "pollRun({ steps"):
+    for needle in ('id="tabAssist"', 'id="asText"', 'id="asAsk"', 'id="chatLog"', 'id="asStop"', "Dừng khẩn", "/api/assistant/plan", "/api/assistant/answer",
+                   "/api/assistant/run", "/api/assistant/habits", "chatPoll", "lockButton(yes, a)", "sessionStorage", 'id="tabLib"', "/api/library", "/api/library/n8n",
+                   "drawNodes(", "viewTables(", "e.shiftKey"):
         assert needle in page, needle
 
 

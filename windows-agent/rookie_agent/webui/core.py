@@ -499,8 +499,28 @@ class Core:
         api = self._api_for(workflow, ids)
         shown["api_count"] = len(api)
         flows = [flow for flow in self.store.get("flows", []) if flow.get("title") != shown["title"]]
-        self.store.put("flows", flows + [{**shown, "workflow": workflow, "api": api, "learned_at": time.strftime("%Y-%m-%d %H:%M:%S")}])
+        self.store.put("flows", flows + [{**shown, "workflow": workflow, "api": api, "input_formats": self._input_formats(workflow, ids),
+                                          "learned_at": time.strftime("%Y-%m-%d %H:%M:%S")}])
         return shown
+
+    def _input_formats(self, workflow: dict[str, Any], ids: list[str]) -> dict[str, str]:
+        """How the teller typed each date input while recording (only the shape, like dd/mm/yyyy; never the value), kept on this PC so the
+        Assistant writes a date the way the page expects it."""
+        from rookie_agent.assistant import slots
+
+        names = {str(i.get("label") or i["name"]): i["name"] for i in workflow.get("inputs", [])}
+        found: dict[str, str] = {}
+        for session_id in ids:
+            try:
+                events = self.store.load(session_id).get("events") or []
+            except (OSError, ValueError):
+                continue
+            for event in events:
+                name = names.get(str((event.get("target") or {}).get("label") or ""))
+                tag = slots.detect_format(str(event["value"])) if event.get("type") == "input" and event.get("value") is not None else None
+                if name and tag and name not in found:
+                    found[name] = tag
+        return found
 
     def _api_for(self, workflow: dict[str, Any], ids: list[str]) -> list[dict[str, Any]]:
         """Task 8.4: the API calls of the first chosen recording that has them, as the nodes of the flow (kept on this PC only)."""
@@ -956,7 +976,7 @@ class Core:
         return self._assistant().plan(str(body.get("text") or ""))
 
     def assistant_answer(self, body: dict[str, Any]) -> dict[str, Any]:
-        return self._assistant().answer(str(body.get("plan_id") or ""), body.get("choice"), body.get("inputs") or {})
+        return self._assistant().answer(str(body.get("plan_id") or ""), body.get("choice"), body.get("inputs") or {}, body.get("text"))
 
     def assistant_run(self, body: dict[str, Any]) -> dict[str, Any]:
         """The person clicked Chạy on a ready card. The run goes through the same door as the flows tab: approval of the agent,
@@ -966,14 +986,44 @@ class Core:
             raise UserError("Thẻ này không còn dùng được (đã hết hạn, đã chạy hoặc còn thiếu thông tin). Hãy hỏi lại.")
         title, inputs = taken
         flow = self._flow(title)
-        api = flow.get("api") or []
-        # a look-up the agent learned as API calls only (every node read-only) runs by its calls, with the session cache (task 8.7);
-        # anything that writes or moves money goes on the screen, with its approvals
-        mode = "simulate" if api and all(n.get("risk") == "read" for n in api) else "run"
+        # a look-up the agent learned as API calls only (every step read-only, or confirmed by the teller as «chỉ xem») runs by its calls,
+        # with the session cache (task 8.7); anything that writes or moves money goes on the screen, with its approvals
+        mode = "simulate" if self._runs_by_request(flow) else "run"
         start = {"title": title, "inputs": inputs, "window": body.get("window"), "mode": mode}
         if body.get("refresh"):
             start["refresh"] = True
         return self.run_start(start, via="assistant")
+
+    def _runs_by_request(self, flow: dict[str, Any]) -> bool:
+        """True when every step of the learned calls is a read, or a write only because no rule named it that the teller confirmed as
+        «chỉ xem» (kept in `read_confirmed`). A step that writes or moves money for real is never among them."""
+        from rookie_agent.ie import read_rules, replay
+
+        api = flow.get("api") or []
+        if not api:
+            return False
+        steps = {s["id"]: s for s in (flow.get("workflow") or {}).get("steps", []) if "id" in s}
+        rules, confirmed = read_rules.load(), flow.get("read_confirmed") or {}
+        return all(g["risk"] == "read" or (g["step_id"] in confirmed and replay._by_default(g, steps, rules)) for g in replay.groups_of(api))
+
+    # ---- Kho luồng: the agents that are approved and have finished a real run, as cards (local to this PC) ----
+
+    def library(self, _: dict[str, Any]) -> dict[str, Any]:
+        from rookie_agent.assistant import library
+
+        finished = library.finished_runs(self.store.home / "audit.jsonl")
+        raw = {f.get("title"): f for f in self.store.get("flows", [])}
+        cards = []
+        for flow in self.flows({})["flows"]:
+            if flow["title"] in finished and library.eligible(raw[flow["title"]]):
+                cards.append({**flow, **library.card(raw[flow["title"]], flow, finished[flow["title"]])})
+        cards.sort(key=lambda c: c["last_run"], reverse=True)
+        return {"flows": cards}
+
+    def library_n8n(self, body: dict[str, Any]) -> dict[str, Any]:
+        """The n8n file of one card: its single stage, templates only (docs/design.md 6.4); the page saves it on this PC."""
+        title = str(body.get("title") or "")
+        return self.twin_export({"name": title, "stages": [{"flow_id": title, "role": "maker", "label": title}]})
 
     def assistant_habits(self, _: dict[str, Any]) -> dict[str, Any]:
         from rookie_agent.assistant import habits
@@ -1393,7 +1443,7 @@ class Core:
         "POST /api/record/stop": "record_stop", "GET /api/recordings": "recordings", "POST /api/recordings/delete": "delete_recording",
         "POST /api/server/check": "server_check", "POST /api/server/start": "server_start", "POST /api/learn": "learn",
         "POST /api/diagnostics": "diagnostics", "GET /api/flows": "flows",
-        "GET /api/codie": "codie_status", "POST /api/codie/test": "codie_test", "GET /api/calls": "calls", "GET /api/seen": "seen", "GET /api/requests": "requests", "GET /api/live": "live", "GET /api/screen": "screen", "POST /api/ie/inspect": "ie_inspect", "POST /api/flow/approve": "flow_approve", "POST /api/flow/read-withdraw": "flow_read_withdraw","POST /api/run/start": "run_start", "GET /api/run/status": "run_status", "POST /api/run/decide": "run_decide", "POST /api/run/stop": "run_stop", "POST /api/assistant/plan": "assistant_plan", "POST /api/assistant/answer": "assistant_answer", "POST /api/assistant/run": "assistant_run", "GET /api/assistant/habits": "assistant_habits", "GET /api/trace/last": "last_trace",
+        "GET /api/codie": "codie_status", "POST /api/codie/test": "codie_test", "GET /api/calls": "calls", "GET /api/seen": "seen", "GET /api/requests": "requests", "GET /api/live": "live", "GET /api/screen": "screen", "POST /api/ie/inspect": "ie_inspect", "POST /api/flow/approve": "flow_approve", "POST /api/flow/read-withdraw": "flow_read_withdraw","POST /api/run/start": "run_start", "GET /api/run/status": "run_status", "POST /api/run/decide": "run_decide", "POST /api/run/stop": "run_stop", "POST /api/assistant/plan": "assistant_plan", "POST /api/assistant/answer": "assistant_answer", "POST /api/assistant/run": "assistant_run", "GET /api/assistant/habits": "assistant_habits", "GET /api/library": "library", "POST /api/library/n8n": "library_n8n", "GET /api/trace/last": "last_trace",
         "POST /api/voucher/read": "voucher_read", "POST /api/voucher/confirm": "voucher_confirm", "POST /api/voucher/run": "voucher_run",
         "GET /api/twin/settings": "twin_settings", "POST /api/twin/settings": "twin_settings_save",
         "GET /api/twin/processes": "twin_processes", "POST /api/twin/processes": "twin_process_save",

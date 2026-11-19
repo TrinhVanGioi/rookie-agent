@@ -55,6 +55,9 @@ def build_catalog(flows: list[dict[str, Any]], habit_runs: dict[str, int] | None
                         "required": i.get("default") is None, "has_default": i.get("default") is not None} for i in workflow.get("inputs", [])],
             "step_labels": [x for x in labels if x][:MAX_LABELS], "keywords": [],
             "habit_runs": int((habit_runs or {}).get(flow.get("title") or "", 0)), "_flow_title": flow.get("title"),
+            # what only this PC uses to fill inputs from the sentence: the type, and the format of the example the teller recorded (never sent)
+            "_local_inputs": [{"name": i["name"], "label": str(i.get("label") or i["name"]), "type": i.get("type"),
+                               "format": (flow.get("input_formats") or {}).get(i["name"])} for i in workflow.get("inputs", [])],
         })
     return entries
 

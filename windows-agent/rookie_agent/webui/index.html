@@ -128,13 +128,55 @@
   .twin-tag { font-size: 10px; color: var(--muted); margin-top: 4px; }
   .variant { margin: 6px 0; } .vbar { height: 6px; border-radius: 3px; background: var(--accent); opacity: .7; }
   .badge.hot { background: var(--bad-bg); color: var(--bad); }
+  /* Trợ lý: a chat window. The log scrolls, the input stays at the bottom of the window. */
+  .chat { padding: 0; display: flex; flex-direction: column; height: clamp(460px, calc(100vh - 190px), 760px); overflow: hidden; }
+  .chat-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 12px 16px; border-bottom: 1px solid var(--line); }
+  .chat-head h2 { margin: 0; flex: none; }
+  .chat-head .grow { min-width: 160px; }
+  .chat-head select { padding: 5px 8px; font-size: 14px; }
+  .chat-head button { padding: 5px 12px; font-size: 14px; }
+  .chat-log { flex: 1; min-height: 0; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 10px; background: color-mix(in srgb, var(--bg) 55%, var(--card)); }
+  .bubble { max-width: min(86%, 640px); padding: 9px 13px; border-radius: 14px; overflow-wrap: anywhere; white-space: pre-wrap; }
+  .bubble.user { align-self: flex-end; background: var(--accent); color: var(--accent-text); border-bottom-right-radius: 4px; }
+  .bubble.bot { align-self: flex-start; background: var(--card); border: 1px solid var(--line); border-bottom-left-radius: 4px; white-space: normal; }
+  .bubble.bot.bad { border-color: var(--bad); background: var(--bad-bg); }
+  .bubble.bot.ok { border-color: var(--ok); background: var(--ok-bg); }
+  .bubble.wide { width: min(100%, 640px); }
+  .bubble .line { margin: 2px 0; }
+  .chat-chips { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 8px; }
+  .chat-chips button { padding: 4px 12px; font-size: 14px; border-radius: 999px; }
+  .chat-chips.top { padding: 8px 16px 0; margin: 0; }
+  .chat-input { display: flex; gap: 10px; align-items: flex-end; padding: 12px 16px; border-top: 1px solid var(--line); background: var(--card); }
+  .chat-input textarea { flex: 1; font: inherit; resize: none; max-height: 130px; min-height: 42px; padding: 9px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); color: var(--text); }
+  .chat-input textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .plan-card { margin-top: 8px; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; background: color-mix(in srgb, var(--bg) 60%, var(--card)); }
+  .plan-card .ttl { font-weight: 600; }
+  .plan-card .fld { display: grid; grid-template-columns: minmax(90px, 36%) 1fr; gap: 8px; align-items: center; margin: 6px 0; font-size: 14px; }
+  .plan-card .fld input { padding: 5px 8px; font-size: 14px; }
+  .plan-card .fld .src { grid-column: 2; font-size: 12px; color: var(--muted); margin-top: -4px; }
+  .plan-card .acts { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+  .plan-card.used { opacity: .7; }
+  .chat-table { overflow: auto; max-height: 240px; margin-top: 8px; border: 1px solid var(--line); border-radius: 8px; }
+  .chat-table table { margin: 0; font-size: 13px; }
+  .chat-table td, .chat-table th { padding: 4px 8px; white-space: nowrap; }
+  .chat-table th { background: var(--bg); color: var(--muted); }
+  .runbar { height: 4px; border-radius: 2px; background: var(--line); overflow: hidden; margin-top: 6px; }
+  .runbar > i { display: block; height: 100%; background: var(--accent); transition: width .3s; }
+  /* Kho luồng */
+  .lib-card { border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; margin: 12px 0; background: var(--card); }
+  .lib-card h3 { margin: 0 0 2px; font-size: 16px; }
+  .lib-meta { display: flex; gap: 6px; flex-wrap: wrap; margin: 8px 0; align-items: center; }
+  .lib-meta .badge { margin: 0; }
+  .lib-card .canvas { padding: 14px 12px; margin-top: 8px; }
+  .lib-card .acts { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+  .lib-search { max-width: 420px; }
   [hidden] { display: none !important; }
 </style>
 </head>
 <body>
 <main>
   <header><h1>Rookie Agent</h1><span class="chip" id="bits"></span></header>
-  <div class="tabs"><button id="tabWork" class="on">Ghi và Học</button><button id="tabFlow">Luồng</button><button id="tabTwin">Bản sao quy trình</button><button id="tabAssist">Trợ lý</button><button id="tabLink">Kỹ thuật</button></div>
+  <div class="tabs"><button id="tabWork" class="on">Ghi và Học</button><button id="tabFlow">Luồng</button><button id="tabLib">Kho luồng</button><button id="tabTwin">Bản sao quy trình</button><button id="tabAssist">Trợ lý</button><button id="tabLink">Kỹ thuật</button></div>
 
   <div id="paneWork">
 
@@ -197,18 +239,32 @@
 
   </div>
 
-  <div id="paneAssist" hidden>
+  <div id="paneLibrary" hidden>
     <section>
-      <h2>Bạn cần làm gì?</h2>
-      <div class="row"><input id="asText" class="grow" placeholder="Ví dụ: tra số dư tài khoản 0123456789" maxlength="300"><button class="primary" id="asAsk">Hỏi</button></div>
-      <div id="asFrequent" class="row"></div>
-      <div id="asCard"></div>
-      <div class="row"><select id="asWindow" class="grow"></select><button id="asWindowsRefresh">Tải lại</button></div>
-      <div class="row"><button class="primary" id="asGo" hidden>Chạy</button><button class="stop" id="asStop">Dừng khẩn</button></div>
-      <div id="asAsk2"></div>
-      <div id="asSteps" class="detail"></div>
-      <div id="asMsg"></div>
-      <div class="detail" id="asNote"></div>
+      <div class="head">
+        <div><h2>Kho luồng</h2><p class="sub">Các agent đã được Duyệt và chạy xong ít nhất một lần trên máy này. Agent nào đủ điều kiện tự hiện ra ở đây. Chỉ nằm trên máy này; muốn chia sẻ cho người khác thì chờ người có quyền duyệt.</p></div>
+      </div>
+      <div class="row"><input type="text" id="libSearch" class="lib-search grow" placeholder="Tìm theo tên, việc làm hoặc thông tin cần nhập"><button id="libRefresh">Làm mới</button></div>
+      <div id="libEmpty" class="msg bad" hidden></div>
+      <div id="libList"></div>
+    </section>
+  </div>
+
+  <div id="paneAssist" hidden>
+    <section class="chat">
+      <div class="chat-head">
+        <h2>Trợ lý</h2>
+        <select id="asWindow" class="grow" title="Trang Internet Explorer đã đăng nhập mà Trợ lý sẽ dùng"></select>
+        <button id="asWindowsRefresh">Tải lại</button>
+        <button id="asClear" title="Xoá cuộc trò chuyện trên máy này">Làm mới</button>
+        <button class="stop" id="asStop">Dừng khẩn</button>
+      </div>
+      <div class="chat-log" id="chatLog" role="log" aria-live="polite"></div>
+      <div class="chat-chips top" id="asFrequent"></div>
+      <div class="chat-input">
+        <textarea id="asText" rows="1" maxlength="300" placeholder="Gõ việc cần làm, ví dụ: tra số dư tài khoản 0123456789 (Enter để gửi, Shift+Enter xuống dòng)"></textarea>
+        <button class="primary" id="asAsk">Gửi</button>
+      </div>
     </section>
     <section>
       <h2>Đưa chứng từ vào (giấy uỷ nhiệm chi)</h2>
@@ -686,14 +742,15 @@ $("check").onclick = runCheck;
 })();
 
 function showTab(name) {
-  $("paneWork").hidden = name !== "work"; $("paneFlow").hidden = name !== "flow"; $("paneLink").hidden = name !== "link"; $("paneAssist").hidden = name !== "assist"; $("paneTwin").hidden = name !== "twin";
-  $("tabWork").className = name === "work" ? "on" : ""; $("tabFlow").className = name === "flow" ? "on" : ""; $("tabLink").className = name === "link" ? "on" : ""; $("tabAssist").className = name === "assist" ? "on" : ""; $("tabTwin").className = name === "twin" ? "on" : "";
+  $("paneWork").hidden = name !== "work"; $("paneFlow").hidden = name !== "flow"; $("paneLibrary").hidden = name !== "lib"; $("paneLink").hidden = name !== "link"; $("paneAssist").hidden = name !== "assist"; $("paneTwin").hidden = name !== "twin";
+  $("tabWork").className = name === "work" ? "on" : ""; $("tabFlow").className = name === "flow" ? "on" : ""; $("tabLib").className = name === "lib" ? "on" : ""; $("tabLink").className = name === "link" ? "on" : ""; $("tabAssist").className = name === "assist" ? "on" : ""; $("tabTwin").className = name === "twin" ? "on" : "";
   if (name === "flow") loadFlows();
+  if (name === "lib") loadLibrary();
   if (name === "link") loadLink();
   if (name === "assist") loadAssist();
   if (name === "twin") loadTwin();
 }
-$("tabWork").onclick = () => showTab("work"); $("tabFlow").onclick = () => showTab("flow"); $("tabLink").onclick = () => showTab("link"); $("tabAssist").onclick = () => showTab("assist"); $("tabTwin").onclick = () => showTab("twin");
+$("tabWork").onclick = () => showTab("work"); $("tabFlow").onclick = () => showTab("flow"); $("tabLib").onclick = () => showTab("lib"); $("tabLink").onclick = () => showTab("link"); $("tabAssist").onclick = () => showTab("assist"); $("tabTwin").onclick = () => showTab("twin");
 
 async function loadLink() {
   const s = await api("GET", "/api/codie");
@@ -971,6 +1028,27 @@ function renderDetail(stepId) {
   box.textContent = ""; box.append(card);
   return true;
 }
+// a call that answered a file: where it was saved (on this PC only) and the two buttons that open it from here
+function fileRow(r, onError) {
+  const row = el("div", undefined, "detail");
+  if (r.file.saved) {
+    row.append(el("strong", "Đã lưu file: " + r.file.name + " (" + r.file.size_text + ") "));
+    const openIt = (folder) => async () => { try { await api("POST", "/api/file/open", { path: r.file.path, folder }); } catch (e) { onError(e.message); } };
+    const file = el("button", "Mở file"), dir = el("button", "Mở thư mục");
+    file.onclick = openIt(false); dir.onclick = openIt(true);
+    row.append(file, dir);
+  } else row.append(el("span", r.file.name + " (" + r.file.size_text + ")"));
+  return row;
+}
+// what a call answered, as the server's response_view gave it: pairs, a table, or lines (`max` caps the rows shown)
+function viewTables(v, body, max) {
+  const cut = (rows) => max ? rows.slice(0, max) : rows;
+  if (v.pairs.length) { const t = el("table", undefined, "seen-table"); cut(v.pairs).forEach((p) => { const tr = el("tr"); tr.append(el("th", p[0]), el("td", p[1])); t.append(tr); }); body.append(t); }
+  if (v.rows.length) { const t = el("table", undefined, "seen-table"); cut(v.rows).forEach((row, j) => { const tr = el("tr"); row.forEach((c) => tr.append(el(j === 0 && v.kind === "json" ? "th" : "td", c))); t.append(tr); }); body.append(t); }
+  if (v.lines.length) { const ul = el("ul"); v.lines.slice(0, max || 30).forEach((l) => ul.append(el("li", l.length > 160 ? l.slice(0, 160) + "…" : l))); body.append(ul);
+    if (v.lines.length > (max || 30)) body.append(el("div", "… còn " + (v.lines.length - (max || 30)) + " dòng", "detail")); }
+  if (!v.pairs.length && !v.rows.length && !v.lines.length) body.append(el("div", "(trả về trống)", "detail"));
+}
 function detailCard(run, stepId) {
   const d = run && run.details && run.details[stepId];
   if (!d) return null;
@@ -987,17 +1065,7 @@ function detailCard(run, stepId) {
   const okCount = d.requests.filter((r) => !r.state && !r.error && r.status && r.status < 400).length;
   card.append(el("div", d.requests.length + " lời gọi · " + okCount + " trả về tốt. Bấm một dòng để xem chi tiết.", "detail"));
   // a call that answered a file: where it was saved (on this PC only) and the two buttons that open it from here
-  d.requests.filter((r) => r.file).forEach((r) => {
-    const row = el("div", undefined, "detail");
-    if (r.file.saved) {
-      row.append(el("strong", "Đã lưu file: " + r.file.name + " (" + r.file.size_text + ") "));
-      const openIt = (folder) => async () => { try { await api("POST", "/api/file/open", { path: r.file.path, folder }); } catch (e) { $("runMsg").append(el("div", e.message, "msg bad")); } };
-      const file = el("button", "Mở file"), dir = el("button", "Mở thư mục");
-      file.onclick = openIt(false); dir.onclick = openIt(true);
-      row.append(file, dir);
-    } else row.append(el("span", r.file.name + " (" + r.file.size_text + ")"));
-    card.append(row);
-  });
+  d.requests.filter((r) => r.file).forEach((r) => card.append(fileRow(r, (m) => $("runMsg").append(el("div", m, "msg bad")))));
   const list = el("div", undefined, "calls simreq");
   d.requests.forEach((r, i) => {
     const key = stepId + "#" + i, det = el("details");
@@ -1016,11 +1084,7 @@ function detailCard(run, stepId) {
     const v = r.view;
     if (v) {
       body.append(el("div", "Dữ liệu trả về (" + v.kind + ", " + v.size + " ký tự):", "detail"));
-      if (v.pairs.length) { const t = el("table", undefined, "seen-table"); v.pairs.forEach((p) => { const tr = el("tr"); tr.append(el("th", p[0]), el("td", p[1])); t.append(tr); }); body.append(t); }
-      if (v.rows.length) { const t = el("table", undefined, "seen-table"); v.rows.forEach((row, j) => { const tr = el("tr"); row.forEach((c) => tr.append(el(j === 0 && v.kind === "json" ? "th" : "td", c))); t.append(tr); }); body.append(t); }
-      if (v.lines.length) { const ul = el("ul"); v.lines.slice(0, 30).forEach((l) => ul.append(el("li", l.length > 160 ? l.slice(0, 160) + "…" : l))); body.append(ul);
-        if (v.lines.length > 30) body.append(el("div", "… còn " + (v.lines.length - 30) + " dòng", "detail")); }
-      if (!v.pairs.length && !v.rows.length && !v.lines.length) body.append(el("div", "(trả về trống)", "detail"));
+      viewTables(v, body);
     }
     det.append(body); list.append(det);
   });
@@ -1063,9 +1127,7 @@ function paintCanvas(status) {
     if (pinnedStep) renderDetail(pinnedStep); else if (ids.length) renderDetail(status.steps.filter((s) => status.details[s.id]).map((s) => s.id).pop() || ids[ids.length - 1]);
   }
 }
-function drawFlow(flow) {
-  renderRunInputs(flow); loadRunWindows();
-  const row = $("flowrow"); row.textContent = ""; $("flowDetail").textContent = "";
+function flowNodes(flow) {
   const api = flow.api_nodes || [], RISK_VN = { read: "chỉ xem", write: "ghi dữ liệu", money: "tiền" };
   const labelOfApi = Object.fromEntries(api.map((a, i) => [a.id, "Bước " + (i + 1)]));
   // Gate 8: a flow with API calls is drawn as its steps, one node per step that fires its batch of calls (what goes in, where each value comes from), like an n8n workflow
@@ -1083,6 +1145,29 @@ function drawFlow(flow) {
   const nodes = [{ cls: "start", n: "Bắt đầu", t: flow.title, lines: flow.inputs.length ? ["Nhập mỗi lần: " + flow.inputs.join(", ")] : ["Không có thông tin thay đổi"], badges: [] }]
     .concat(middle);
   nodes.push({ cls: "start", n: "Kết thúc", t: "Xong", lines: ["Bước ghi và bước tiền luôn dừng chờ người duyệt."], badges: [], key: "__end" });
+  return nodes;
+}
+// the diagram of a flow as nodes joined by arrows (the Luồng tab and the cards of Kho luồng both draw it here); `onPick(button, node)` shows a node's detail
+function drawNodes(row, nodes, onPick) {
+  row.textContent = "";
+  nodes.forEach((node, i) => {
+    if (i) row.append(el("div", undefined, "link"));
+    const b = el("button", undefined, "node " + node.cls);
+    if (node.key) b.dataset.step = node.key;
+    b.append(el("div", node.n, "n"), el("div", node.t, "t"), el("div", "", "live"));
+    const badges = el("div"); node.badges.forEach((x) => badges.append(el("span", x, "badge"))); b.append(badges);
+    b.onclick = () => { row.querySelectorAll(".node").forEach((x) => x.classList.remove("sel")); b.classList.add("sel"); onPick(b, node); };
+    row.append(b);
+  });
+}
+function showNodeLines(box, node) {
+  box.textContent = ""; const d = el("div", undefined, "msg ok");
+  d.append(el("strong", node.n + ": " + node.t)); node.lines.forEach((l) => d.append(el("div", l, "detail"))); box.append(d);
+}
+function drawFlow(flow) {
+  renderRunInputs(flow); loadRunWindows();
+  const row = $("flowrow"); $("flowDetail").textContent = "";
+  const api = flow.api_nodes || [];
   // steps the teller confirmed as read-only: shown here, always, with a way back to «hỏi lại»
   const confirms = $("flowConfirms"); confirms.textContent = "";
   api.forEach((a, i) => {
@@ -1096,32 +1181,292 @@ function drawFlow(flow) {
     };
     line.append(back); confirms.append(line);
   });
-  nodes.forEach((node, i) => {
-    if (i) row.append(el("div", undefined, "link"));
-    const b = el("button", undefined, "node " + node.cls);
-    if (node.key) b.dataset.step = node.key;
-    b.append(el("div", node.n, "n"), el("div", node.t, "t"), el("div", "", "live"));
-    const badges = el("div"); node.badges.forEach((x) => badges.append(el("span", x, "badge"))); b.append(badges);
-    b.onclick = () => {
-      row.querySelectorAll(".node").forEach((x) => x.classList.remove("sel")); b.classList.add("sel");
-      if (b.dataset.step && renderDetail(b.dataset.step)) { pinnedStep = b.dataset.step; return; }
-      const box = $("flowDetail"); box.textContent = ""; const d = el("div", undefined, "msg ok");
-      d.append(el("strong", node.n + ": " + node.t)); node.lines.forEach((l) => d.append(el("div", l, "detail"))); box.append(d);
-    };
-    row.append(b);
+  drawNodes(row, flowNodes(flow), (b, node) => {
+    if (b.dataset.step && renderDetail(b.dataset.step)) { pinnedStep = b.dataset.step; return; }
+    showNodeLines($("flowDetail"), node);
   });
 }
 $("flowPick").onchange = () => drawFlow(flows[$("flowPick").value]);
 $("flowRefresh").onclick = loadFlows;
 
-// ---- Trợ lý: gõ một câu, xem thẻ «Sẽ chạy», bấm Chạy. Việc ghi và tiền vẫn dừng chờ Duyệt. ----
-let assistPlan = null;
+// ---- Kho luồng: the agents that are approved and have finished a run, as cards (local to this PC; docs/design.md 6.4) ----
+function saveJson(doc, fileName) {
+  const url = URL.createObjectURL(new Blob([JSON.stringify(doc, null, 2)], { type: "application/json" }));
+  const a = el("a"); a.href = url; a.download = fileName; document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+let libCards = [];
+const plain = (t) => String(t || "").normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/đ/g, "d").replace(/Đ/g, "D").toLowerCase();
+async function loadLibrary() {
+  try { libCards = (await api("GET", "/api/library")).flows; }
+  catch (e) { libCards = []; $("libList").textContent = ""; $("libEmpty").hidden = false; $("libEmpty").textContent = e.message; return; }
+  drawLibrary();
+}
+function drawLibrary() {
+  const q = plain($("libSearch").value).trim(), list = $("libList"); list.textContent = "";
+  const shown = libCards.filter((c) => !q || plain([c.title, c.summary].concat(c.input_labels).join(" ")).includes(q));
+  $("libEmpty").hidden = shown.length > 0;
+  $("libEmpty").textContent = libCards.length ? "Không thấy agent nào khớp «" + $("libSearch").value.trim() + "»."
+    : "Kho còn trống. Một agent vào kho khi đã được Duyệt và chạy xong ít nhất một lần: Ghi, Học, Duyệt rồi Chạy ở tab «Luồng».";
+  shown.forEach((c) => list.append(libCard(c)));
+}
+function libCard(c) {
+  const card = el("div", undefined, "lib-card"), RISK = { read: "chỉ xem", write: "có bước ghi", money: "có bước tiền" };
+  card.append(el("h3", c.title), el("div", c.summary, "detail"));
+  const meta = el("div", undefined, "lib-meta");
+  meta.append(el("span", c.input_labels.length ? "Nhập:" : "Không cần nhập gì", "detail"));
+  c.input_labels.forEach((x) => meta.append(el("span", x, "badge")));
+  meta.append(el("span", c.steps_n + " bước", "badge"), el("span", c.calls_n + " lời gọi", "badge"), el("span", RISK[c.risk_max] || c.risk_max, "badge"),
+    el("span", "Chạy gần nhất: " + c.last_run, "detail"));
+  card.append(meta);
+  const canvas = el("div", undefined, "canvas"), row = el("div", undefined, "flowrow"), detail = el("div");
+  canvas.append(row); card.append(canvas, detail);
+  drawNodes(row, flowNodes(c), (b, node) => showNodeLines(detail, node));
+  const acts = el("div", undefined, "acts"), msg = el("div");
+  const n8n = el("button", "Tải n8n JSON"), ask = el("button", "Hỏi trợ lý", "primary");
+  n8n.onclick = async () => {
+    msg.textContent = "";
+    try { saveJson(await api("POST", "/api/library/n8n", { title: c.title }), plain(c.title).replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") + "-n8n.json");
+      msg.append(el("div", "Đã tải file về máy. Chỉ để xem/lưu; chạy thật phải trong phiên IE của GDV.", "msg ok")); }
+    catch (e) { msg.append(el("div", e.message, "msg bad")); }
+  };
+  ask.onclick = () => { showTab("assist"); $("asText").value = c.example; autosize(); $("asText").focus(); };
+  acts.append(ask, n8n); card.append(acts, msg);
+  return card;
+}
+$("libSearch").oninput = drawLibrary;
+$("libRefresh").onclick = loadLibrary;
+
+// ---- Trợ lý: a chat. The assistant answers on the left, the teller on the right; a step that writes or moves money still waits for Duyệt. ----
+// The conversation lives in this page's memory (and in sessionStorage of this browser tab, without the data a run answered): never on the server.
+const CHAT_KEY = "rookie_chat_v1";
+const chat = { messages: [], plan: null, nextId: 1 };
+const chatEls = new Map();
+let chatTimer = null;
+function chatSave() {
+  try {
+    const keep = chat.messages.map((m) => (m.result && m.result.view) ? { ...m, result: { ...m.result, view: null, viewDropped: true } } : m);
+    sessionStorage.setItem(CHAT_KEY, JSON.stringify({ nextId: chat.nextId, plan: chat.plan, messages: keep }));
+  } catch (e) { /* the page works without it */ }
+}
+function chatBox() { return $("chatLog"); }
+function chatScroll() { const log = chatBox(); log.scrollTop = log.scrollHeight; }
+function chatChipsRow(m, items, onPick) {
+  const row = el("div", undefined, "chat-chips");
+  items.forEach((it) => { const b = el("button", it.label); b.disabled = !!m.chipsUsed; b.onclick = () => { m.chipsUsed = true; chatSave(); row.querySelectorAll("button").forEach((x) => { x.disabled = true; }); onPick(it); }; row.append(b); });
+  return row;
+}
+function bubbleOf(m) {
+  const b = el("div", undefined, "bubble " + m.role + (m.tone ? " " + m.tone : "") + (m.kind === "card" || m.kind === "run" ? " wide" : ""));
+  if (m.role === "user") { b.textContent = m.text; return b; }
+  (m.text || "").split("\n").forEach((line) => { if (line) b.append(el("div", line, "line")); });
+  if (m.kind === "choose") b.append(chatChipsRow(m, m.candidates.map((c) => ({ label: c.title + " (" + Math.round(c.confidence * 100) + "%)", ref: c.ref, title: c.title })), (it) => chatChoose(it)));
+  if (m.kind === "text" && m.chips && m.chips.length) b.append(chatChipsRow(m, m.chips.map((x) => ({ label: x })), (it) => chatSend(it.label)));
+  if (m.kind === "card") b.append(planCard(m));
+  if (m.kind === "run") { runParts(b, m); paintRun(m, b); }
+  return b;
+}
+function chatAdd(m) {
+  m.id = chat.nextId++; chat.messages.push(m);
+  const node = bubbleOf(m); chatEls.set(m.id, node); chatBox().append(node); chatScroll(); chatSave();
+  return m;
+}
+function chatRedraw(m) {
+  const old = chatEls.get(m.id), node = bubbleOf(m);
+  if (old) old.replaceWith(node);
+  chatEls.set(m.id, node); chatSave();
+}
+function chatRemove(m) {
+  const node = chatEls.get(m.id); if (node) node.remove();
+  chatEls.delete(m.id); chat.messages = chat.messages.filter((x) => x !== m); chatSave();
+}
+function say2(text, tone) { return chatAdd({ role: "bot", kind: "text", text, tone: tone || "" }); }
+
+// the compact card: the agent, the inputs filled from the sentence (editable) and Chạy
+function planCard(m) {
+  const plan = m.plan, ready = plan.state === "ready" && !m.used, card = el("div", undefined, "plan-card" + (m.used ? " used" : ""));
+  const RISK = { read: "chỉ xem", write: "có bước ghi", money: "có bước tiền" };
+  card.append(el("div", (plan.workflow ? plan.workflow.title : "") + (plan.workflow ? " · " + (RISK[plan.workflow.risk_max] || "") : ""), "ttl"));
+  for (const input of plan.inputs || []) {
+    const row = el("label", undefined, "fld"), field = el("input"); field.type = "text"; field.value = input.value; field.dataset.name = input.name; field.disabled = !!m.used;
+    field.placeholder = input.hint || input.label;
+    field.onchange = async () => {
+      try { m.plan = await api("POST", "/api/assistant/answer", { plan_id: plan.plan_id, inputs: { [input.name]: field.value } }); chat.plan = m.plan; chatRedraw(m); }
+      catch (e) { say2(e.message, "bad"); }
+    };
+    row.append(el("span", input.label), field);
+    if (input.source) row.append(el("span", input.source, "src"));
+    card.append(row);
+  }
+  if (plan.workflow && plan.workflow.risk_max !== "read") card.append(el("div", "Có bước ghi hoặc tiền: sẽ dừng chờ bạn Duyệt.", "detail"));
+  if (plan.state !== "ready") (plan.questions || []).forEach((q) => card.append(el("div", q, "detail")));
+  const acts = el("div", undefined, "acts"), go = el("button", m.used ? "Đã chạy" : "Chạy", "primary");
+  go.disabled = !ready; go.onclick = () => chatRun(m);
+  acts.append(go); card.append(acts);
+  return card;
+}
+
+// the run: progress, a question to the teller (Duyệt), then the result, all as one message
+function runParts(b, m) {
+  b.append(el("div", undefined, "rp"), el("div", undefined, "ra"), el("div", undefined, "rr"));
+}
+function paintRun(m, b) {
+  b = b || chatEls.get(m.id); if (!b) return;
+  const rp = b.querySelector(".rp"), ra = b.querySelector(".ra"), rr = b.querySelector(".rr");
+  rp.textContent = ""; rp.append(el("strong", "Đang chạy «" + m.title + "»"));
+  if (!m.result) {
+    rp.append(el("div", m.progress || "Đang bắt đầu…", "detail"));
+    const bar = el("div", undefined, "runbar"), fill = el("i"); fill.style.width = Math.round((m.pct || 0) * 100) + "%"; bar.append(fill); rp.append(bar);
+  } else rp.firstChild.textContent = "«" + m.title + "»";
+  const sig = m.result ? "" : JSON.stringify(m.ask ? [m.ask.id, m.ask.kind] : null);
+  if (ra.dataset.sig !== sig) { ra.dataset.sig = sig; ra.textContent = ""; if (m.ask && !m.result) ra.append(askCard(m.ask)); }
+  rr.textContent = ""; if (m.result) rr.append(resultView(m.result, b));
+}
+function askCard(a) {
+  const card = el("div", undefined, "plan-card");
+  const row = el("div", undefined, "acts");
+  const decide = (body) => async () => { try { await api("POST", "/api/run/decide", { ask_id: a.id, ...body }); } catch (e) { say2(e.message, "bad"); } };
+  if (a.kind === "pick") {
+    card.append(el("strong", "Màn hình có vẻ đã đổi ở bước «" + (a.label || a.step_id) + "». Có phải ô được tô màu trên trang Internet Explorer không?"));
+    a.candidates.forEach((c, i) => { const b = el("button", "Ô tô " + c.color + (c.label ? ": " + c.label : ""), i === 0 ? "primary" : ""); lockButton(b, a); b.onclick = decide({ approve: true, choice: i }); row.append(b); });
+    const none = el("button", "Không có ô nào đúng (dừng)"); none.onclick = decide({ approve: false, choice: null }); row.append(none);
+  } else if (a.kind === "confirm_read") {
+    card.append(el("strong", a.question));
+    const list = el("details"), box = el("div", undefined, "calls");
+    list.append(el("summary", "Sẽ gửi " + a.calls.length + " lời gọi (bấm để xem)"));
+    a.calls.forEach((c, j) => { const line = el("div", (j + 1) + ". " + c.name, "cname"); line.title = c.name; line.style.padding = "2px 8px"; line.style.fontSize = "12px"; box.append(line); });
+    list.append(box); card.append(list);
+    card.append(el("div", "«Chỉ xem — gửi» thì agent nhớ bước này trên máy này, lần sau gửi luôn không hỏi lại. «Có thay đổi — không gửi» thì không gửi gì.", "detail"));
+    const yes = el("button", "Chỉ xem — gửi", "primary"), no = el("button", "Có thay đổi — không gửi");
+    yes.tabIndex = -1; lockButton(yes, a); yes.onclick = decide({ approve: true }); no.onclick = decide({ approve: false }); row.append(yes, no);
+  } else {
+    card.append(el("strong", "Bước " + (a.index + 1) + "/" + a.total + ": " + (a.label || a.step_id) + " (rủi ro: " + (a.risk === "money" ? "tiền" : a.risk === "write" ? "ghi dữ liệu" : "chỉ xem") + ")"));
+    if (a.will_send !== null && a.will_send !== undefined) card.append(el("div", "Sẽ gửi: " + a.will_send));
+    if (a.manual) card.append(el("div", "Đây là bước đăng nhập của bạn: gõ mật khẩu và nhấn Enter trên màn hình Internet Explorer, rồi bấm «Đi tiếp». Agent không bao giờ gõ mật khẩu."));
+    card.append(el("div", "Đang thấy trên màn hình: " + a.seen, "detail"));
+    const yes = el("button", a.kind === "approve" ? "Duyệt" : "Đi tiếp", "primary"), no = el("button", a.kind === "approve" ? "Không duyệt" : "Dừng ở đây");
+    yes.tabIndex = -1; lockButton(yes, a); yes.onclick = decide({ approve: true }); no.onclick = decide({ approve: false }); row.append(yes, no);
+  }
+  card.append(row);
+  return card;
+}
+// the answer of a finished run: a file saved on this PC (open it from here), or the data in a small table
+function resultView(r, bubble) {
+  const box = el("div");
+  bubble.classList.toggle("ok", r.status === "finished"); bubble.classList.toggle("bad", r.status !== "finished");
+  if (r.status !== "finished") { box.append(el("div", r.message || "Lần chạy đã dừng.", "line")); return box; }
+  box.append(el("div", r.files.length ? "Xong. Đã lấy được file." : "Xong.", "line"));
+  r.files.forEach((f) => box.append(fileRow({ file: f }, (msg) => say2(msg, "bad"))));
+  if (r.view) { box.append(el("div", "Dữ liệu trả về:", "detail")); const t = el("div", undefined, "chat-table"); viewTables(r.view, t, 8); box.append(t); }
+  else if (r.viewDropped) box.append(el("div", "(Dữ liệu của lần chạy này không được giữ lại khi tải lại trang.)", "detail"));
+  if (!r.files.length && !r.view && !r.viewDropped && r.message) box.append(el("div", r.message, "detail"));
+  return box;
+}
+function resultOf(st) {
+  const files = [], rows = [];
+  (st.steps || []).forEach((s) => ((st.details || {})[s.id] || { requests: [] }).requests.forEach((r) => {
+    if (r.file) files.push(r.file);
+    if (r.view && (r.view.rows.length || r.view.pairs.length || r.view.lines.length)) rows.push(r.view);
+  }));
+  return { status: st.result.status, message: st.result.message, files, view: files.length ? null : (rows[rows.length - 1] || null) };
+}
+function progressOf(st, total) {
+  const seen = []; (st.steps || []).forEach((s) => { if (!seen.includes(s.id)) seen.push(s.id); });
+  const calls = seen.reduce((t, id) => t + (((st.details || {})[id] || {}).calls || 0), 0);
+  const last = seen.length ? (((st.details || {})[seen[seen.length - 1]] || {}).action || "") : "";
+  return { text: seen.length ? "Bước " + seen.length + (total ? "/" + total : "") + (last ? " · «" + last + "»" : "") + (calls ? " · " + calls + " lời gọi" : "") + "…" : "Đang bắt đầu…",
+           pct: total ? Math.min(0.95, Math.max(0, (seen.length - 1) / total)) + 0.02 : 0.1 };
+}
+async function chatPoll(m) {
+  if (chatTimer) clearInterval(chatTimer);
+  let total = 0;
+  try { const f = (await api("GET", "/api/flows")).flows.find((x) => x.title === m.title); total = f ? (f.api_nodes || []).length || f.step_count || 0 : 0; } catch (e) { /* the count is a convenience */ }
+  const stop = () => { clearInterval(chatTimer); chatTimer = null; };
+  const tick = async () => {
+    let st;
+    try { st = await api("GET", "/api/run/status"); } catch (e) { stop(); m.result = { status: "failed", message: "Không đọc được tiến trình: " + e.message, files: [], view: null }; paintRun(m); chatSave(); return; }
+    if (st.state === "idle" || (st.title && st.title !== m.title)) return;
+    const p = progressOf(st, total); m.progress = p.text; m.pct = p.pct;
+    m.ask = st.ask && !st.result ? st.ask : null;
+    if (st.result) { stop(); m.ask = null; m.result = resultOf(st); chatSave(); }
+    paintRun(m);
+    if (st.result) chatScroll();
+  };
+  chatTimer = setInterval(tick, 500); tick();
+}
+async function chatRun(m) {
+  if (chatTimer) { say2("Đang có một lần chạy. Đợi xong hoặc bấm Dừng khẩn.", "bad"); return; }
+  try { await api("POST", "/api/assistant/run", { plan_id: m.plan.plan_id, window: $("asWindow").value }); }
+  catch (e) { say2(e.message, "bad"); return; }
+  m.used = true; chatRedraw(m);
+  const run = chatAdd({ role: "bot", kind: "run", title: m.plan.workflow.title, progress: "Đang bắt đầu…", pct: 0.02, ask: null, result: null });
+  chatPoll(run);
+}
+
+// a teller's line: an answer to the last question, or a new request
+async function chatSend(text) {
+  text = String(text || "").trim(); if (!text) return;
+  chatAdd({ role: "user", text }); $("asText").value = ""; autosize();
+  const wait = say2("…");
+  try {
+    let reply;
+    if (chat.plan && chat.plan.state === "need_inputs" && chat.plan.plan_id) {
+      reply = await api("POST", "/api/assistant/answer", { plan_id: chat.plan.plan_id, text });
+      if (reply.understood === false || (reply.state === "blocked" && !reply.plan_id)) reply = await api("POST", "/api/assistant/plan", { text });   // not an answer: a new request
+    } else reply = await api("POST", "/api/assistant/plan", { text });
+    chatRemove(wait); chatHandle(reply);
+  } catch (e) { chatRemove(wait); say2(e.message, "bad"); }
+}
+async function chatChoose(it) {
+  chatAdd({ role: "user", text: it.title });
+  try { chatHandle(await api("POST", "/api/assistant/answer", { plan_id: chat.plan.plan_id, choice: it.ref })); } catch (e) { say2(e.message, "bad"); }
+}
+function chatHandle(plan) {
+  chat.plan = plan; chatSave();
+  if (plan.state === "blocked") return say2(plan.message, "bad");
+  if (plan.state === "none") return say2(plan.message + "\nMở tab «Ghi và Học» để Ghi rồi Học một agent mới.");
+  if (plan.state === "choose") return chatAdd({ role: "bot", kind: "choose", text: plan.message, candidates: plan.candidates });
+  const title = plan.workflow.title;
+  if (plan.state === "need_inputs") {
+    const missing = (plan.inputs || []).filter((i) => i.value === "" && i.required && String(i.kind || "").startsWith("date"));
+    const chips = missing.length >= 2 ? ["Tháng này", "Tháng trước"] : missing.length === 1 ? ["Hôm nay", "Hôm qua"] : [];
+    const asked = (plan.questions || []).filter((q) => !q.startsWith("Có giá trị trong câu chưa biết"));
+    if (asked.length < (plan.questions || []).length) return chatAdd({ role: "bot", kind: "card", text: "Mình dùng «" + title + "». " + plan.questions.join(" "), plan });   // a value with no place: fill it in the card
+    return chatAdd({ role: "bot", kind: "text", text: "Mình dùng «" + title + "».\n" + asked.join("\n"), chips });
+  }
+  chatAdd({ role: "bot", kind: "card", text: "Mình sẽ chạy «" + title + "» với thông tin dưới đây. Bạn xem lại (sửa được) rồi bấm Chạy.", plan });
+}
+function autosize() { const t = $("asText"); t.style.height = "auto"; t.style.height = Math.min(130, t.scrollHeight) + "px"; }
+$("asText").oninput = autosize;
+$("asText").onkeydown = (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing && e.keyCode !== 229) { e.preventDefault(); chatSend($("asText").value); } };
+$("asAsk").onclick = () => chatSend($("asText").value);
+$("asStop").onclick = async () => { try { await api("POST", "/api/run/stop"); } catch (e) { /* the run may have ended */ } };
+$("asClear").onclick = () => {
+  if (chatTimer) { say2("Đang có một lần chạy: bấm Dừng khẩn trước khi làm mới.", "bad"); return; }
+  chat.messages = []; chat.plan = null; chatEls.clear(); chatBox().textContent = ""; chatSave(); chatWelcome();
+};
+function chatWelcome() {
+  say2("Chào bạn! Bạn cần làm việc gì? Gõ như nói chuyện, ví dụ: tra số dư tài khoản 0123456789, hoặc xuất báo cáo giao dịch của stk 0123456789 từ ngày 01/11/2026 đến ngày 15/11/2026.\nViệc ghi dữ liệu hoặc chuyển tiền luôn dừng chờ bạn Duyệt.");
+}
+let chatReady = false;
+async function chatStart() {
+  chatReady = true;
+  let saved = null;
+  try { saved = JSON.parse(sessionStorage.getItem(CHAT_KEY) || "null"); } catch (e) { saved = null; }
+  if (saved && saved.messages && saved.messages.length) {
+    chat.nextId = saved.nextId || 1; chat.plan = saved.plan || null;
+    saved.messages.forEach((m) => { chat.messages.push(m); const node = bubbleOf(m); chatEls.set(m.id, node); chatBox().append(node); });
+    chatScroll();
+    const last = chat.messages.filter((m) => m.kind === "run" && !m.result).pop();      // a run the page was reloaded in the middle of
+    if (last) { try { const st = await api("GET", "/api/run/status"); if (st.state !== "idle" && st.title === last.title && !st.result) chatPoll(last); else { last.result = { status: "failed", message: "Không còn theo dõi được lần chạy này. Xem tab «Luồng».", files: [], view: null }; chatRedraw(last); } } catch (e) { /* the agent is not answering */ } }
+  } else chatWelcome();
+}
 async function loadAssist() {
   loadAssistWindows();
+  if (!chatReady) chatStart();
   try {
     const data = await api("GET", "/api/assistant/habits"), box = $("asFrequent"); box.textContent = "";
     if (data.frequent.length) box.append(el("span", "Việc hay làm:", "detail"));
-    for (const item of data.frequent) { const b = el("button", item.title); b.onclick = () => { $("asText").value = item.title; askAssistant(); }; box.append(b); }
+    for (const item of data.frequent) { const b = el("button", item.title); b.onclick = () => chatSend(item.title); box.append(b); }
   } catch (e) { /* the shortcuts are a convenience */ }
 }
 async function loadAssistWindows() {
@@ -1135,40 +1480,6 @@ async function loadAssistWindows() {
   } catch (e) { select.textContent = ""; select.append(new Option("(không đọc được)", "")); }
 }
 $("asWindowsRefresh").onclick = loadAssistWindows;
-function drawAssist(plan) {
-  assistPlan = plan; const card = $("asCard"); card.textContent = ""; $("asGo").hidden = plan.state !== "ready";
-  $("asNote").textContent = plan.method ? (plan.method === "llm" ? "Chọn bằng trợ lý AI." : "Chọn bằng luật (không cần mạng).") : "";
-  const box = el("div", undefined, plan.state === "ready" ? "msg ok" : "msg bad"); box.append(el("strong", plan.message));
-  if (plan.state === "choose") for (const c of plan.candidates) {
-    const b = el("button", c.title + " (" + Math.round(c.confidence * 100) + "%)"); b.onclick = () => answerAssistant({ choice: c.ref }); box.append(el("div"), b);
-  }
-  if (plan.state === "none") box.append(el("div", "Mở tab «Ghi và Học» để Ghi rồi Học một agent mới.", "detail"));
-  if (plan.workflow && plan.workflow.steps.length) box.append(el("div", "Các bước: " + plan.workflow.steps.join(" → "), "detail"));
-  for (const q of plan.questions || []) box.append(el("div", q));
-  for (const input of plan.inputs || []) {
-    const row = el("div", undefined, "row"), field = el("input"); field.dataset.name = input.name; field.value = input.value; field.placeholder = input.label;
-    field.className = "grow"; field.onchange = () => answerAssistant({ inputs: { [input.name]: field.value } });
-    row.append(el("span", input.label + (input.source ? " (" + input.source + ")" : "") + ": "), field); box.append(row);
-  }
-  card.append(box);
-}
-async function askAssistant() {
-  $("asMsg").textContent = "";
-  try { drawAssist(await api("POST", "/api/assistant/plan", { text: $("asText").value })); } catch (e) { $("asMsg").append(el("div", e.message, "msg bad")); }
-}
-async function answerAssistant(more) {
-  try { drawAssist(await api("POST", "/api/assistant/answer", { plan_id: assistPlan.plan_id, ...more })); } catch (e) { $("asMsg").append(el("div", e.message, "msg bad")); }
-}
-$("asAsk").onclick = askAssistant;
-$("asText").onkeydown = (e) => { if (e.key === "Enter") askAssistant(); };
-$("asGo").onclick = async () => {
-  $("asMsg").textContent = "";
-  try {
-    await api("POST", "/api/assistant/run", { plan_id: assistPlan.plan_id, window: $("asWindow").value });
-    $("asGo").hidden = true; pollRun({ steps: "asSteps", ask: "asAsk2", msg: "asMsg" });
-  } catch (e) { $("asMsg").append(el("div", e.message, "msg bad")); }
-};
-$("asStop").onclick = async () => { try { await api("POST", "/api/run/stop"); } catch (e) { /* the run may have ended */ } };
 
 // ---- Bản sao quy trình (Gate 9): one canvas for the real process (with its numbers), the run on the twin and the "what if" ----
 const ROLE_VN = { maker: "GDV", checker: "KSV" };
@@ -1262,8 +1573,7 @@ $("twExport").onclick = async () => {
   $("twMsg").textContent = "";
   try {
     const doc = await api("POST", "/api/twin/export", { name: $("twName").value.trim() || "Quy trình", stages: twStagesBody() });
-    const url = URL.createObjectURL(new Blob([JSON.stringify(doc, null, 2)], { type: "application/json" }));
-    const a = el("a"); a.href = url; a.download = "quy-trinh-n8n.json"; document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 2000);
+    saveJson(doc, "quy-trinh-n8n.json");
     $("twMsg").append(el("div", "Đã tải file về máy. Chỉ để xem/lưu; chạy thật phải trong phiên IE của GDV.", "msg ok"));
   } catch (e) { twErr("twMsg", e); }
 };
