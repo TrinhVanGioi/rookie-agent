@@ -202,7 +202,13 @@ window.alert = function () {
 };
 function waitCall() { alert('x'); }
 </script></body></html>"""
-PAGES = {"/waiting": WAITING, "/export": EXPORT, "/tokapp": TOKAPP, "/sessapp": SESSAPP, "/cifapp": CIFAPP, "/jslink": JSLINK, "/slowpage": SLOW, "/opener": OPENER, "/ajaxtab": AJAXTAB, "/ajaxnav": AJAXNAV, "/ajax2": AJAX2, "/form": FORM, "/ajax": AJAX, "/search": SEARCH_TOP, "/clock": CLOCK, "/searchform": SEARCH_FORM, "/desktop": DESKTOP, "/rhidden": RHIDDEN, "/rhidden2": RHIDDEN2, "/blank": BLANK}
+# The page a dialog shows (here a modeless dialog opened by a host program: IE would not open one from a hidden window): it asks for a file a moment after it is loaded.
+DLGVIEWER = b"""<html><head><title>RookieE2E Dialog</title></head><body>viewing<script>
+window.setTimeout(function () {
+  var x = window.XMLHttpRequest ? new XMLHttpRequest() : new ActiveXObject('Msxml2.XMLHTTP'); x.open('GET', '/api/exportpdf?from=dlg&fmt=pdf', true); x.send('');
+}, 3000);
+window.setTimeout(function () { window.close(); }, 9000);</script></body></html>"""
+PAGES = {"/dlgviewer": DLGVIEWER, "/waiting": WAITING, "/export": EXPORT, "/tokapp": TOKAPP, "/sessapp": SESSAPP, "/cifapp": CIFAPP, "/jslink": JSLINK, "/slowpage": SLOW, "/opener": OPENER, "/ajaxtab": AJAXTAB, "/ajaxnav": AJAXNAV, "/ajax2": AJAX2, "/form": FORM, "/ajax": AJAX, "/search": SEARCH_TOP, "/clock": CLOCK, "/searchform": SEARCH_FORM, "/desktop": DESKTOP, "/rhidden": RHIDDEN, "/rhidden2": RHIDDEN2, "/blank": BLANK}
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -1659,3 +1665,20 @@ def test_a_press_is_in_the_recorders_queue_before_the_page_script_that_it_starte
     assert press is not None and asked is not None and press < asked, kinds      # the press comes before the request its own script made
     ids = [line.get("id") for line in session.raw if line.get("kind") == "click"]
     assert ids.count("chkRow") == 1 and ids.count("btnWait") == 1, ids
+
+
+def test_a_page_shown_in_a_dialog_that_opens_while_recording_is_recorded_with_its_requests(tmp_path):
+    """The dialog of IE is a window Shell.Application does not list: the recorder finds it by its class and puts itself in its document."""
+    Handler.seen.clear()
+    with real_ie("/waiting") as bridge:
+        session = start_session(bridge, requests=True)
+        host = tmp_path / "dlg.hta"
+        host.write_text('<html><head><HTA:APPLICATION ID="x" /></head><body><script>window.setTimeout(function () { window.showModelessDialog("http://127.0.0.1:%d/dlgviewer", null, "dialogWidth:300px;dialogHeight:200px"); }, 500);'
+                        'window.setTimeout(function () { window.close(); }, 12000);</script></body></html>' % bridge.test_port, encoding="utf-8")
+        process = subprocess.Popen(["mshta.exe", str(host)])
+        try:
+            time.sleep(8.0)
+            session.stop()
+        finally:
+            process.kill()
+    assert any("/api/exportpdf?from=dlg" in str(r.get("url")) for r in session.requests), (session.requests, session.notes)

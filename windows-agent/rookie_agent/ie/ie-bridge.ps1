@@ -10,6 +10,60 @@ $ErrorActionPreference = "Stop"
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 $recorderJs = [string][IO.File]::ReadAllText((Join-Path $here "page_recorder.js"))
 $shell = New-Object -ComObject Shell.Application
+# The dialogs of IE (showModalDialog, showModelessDialog) are windows of their own that Shell.Application does not list. They are found by their
+# window class, and their document is taken from the window with the message IE answers for the accessibility API (WM_HTML_GETOBJECT).
+# Any failure here leaves the recording as it was (no dialogs): $dialogsOk stays false.
+$script:dialogsOk = $false
+try {
+    Add-Type -TypeDefinition @"
+using System;
+using System.Collections.Generic;
+using System.Runtime.InteropServices;
+using System.Text;
+public static class RkDialogs {
+    delegate bool EnumProc(IntPtr h, IntPtr l);
+    [DllImport("user32.dll")] static extern bool EnumWindows(EnumProc p, IntPtr l);
+    [DllImport("user32.dll")] static extern bool EnumChildWindows(IntPtr parent, EnumProc p, IntPtr l);
+    [DllImport("user32.dll", CharSet = CharSet.Auto)] static extern int GetClassName(IntPtr h, StringBuilder s, int n);
+    [DllImport("user32.dll")] public static extern bool IsWindow(IntPtr h);
+    [DllImport("user32.dll", CharSet = CharSet.Auto)] static extern uint RegisterWindowMessage(string s);
+    [DllImport("user32.dll")] static extern IntPtr SendMessageTimeout(IntPtr h, uint msg, IntPtr w, IntPtr l, uint flags, uint timeout, out IntPtr result);
+    [DllImport("oleacc.dll")] static extern int ObjectFromLresult(IntPtr lres, ref Guid riid, IntPtr wParam, [MarshalAs(UnmanagedType.IDispatch)] out object obj);
+    static string ClassOf(IntPtr h) { var b = new StringBuilder(256); GetClassName(h, b, 256); return b.ToString(); }
+    // the "Internet Explorer_Server" window inside each dialog frame that is open now
+    public static List<long> Servers() {
+        var found = new List<long>();
+        EnumWindows(delegate(IntPtr top, IntPtr l1) {
+            if (ClassOf(top) == "Internet Explorer_TridentDlgFrame") {
+                EnumChildWindows(top, delegate(IntPtr child, IntPtr l2) {
+                    if (ClassOf(child) == "Internet Explorer_Server") { found.Add(child.ToInt64()); return false; }
+                    return true;
+                }, IntPtr.Zero);
+            }
+            return true;
+        }, IntPtr.Zero);
+        return found;
+    }
+    public static object DocumentOf(long server) {
+        IntPtr result;
+        uint message = RegisterWindowMessage("WM_HTML_GETOBJECT");
+        if (SendMessageTimeout(new IntPtr(server), message, IntPtr.Zero, IntPtr.Zero, 2, 1500, out result) == IntPtr.Zero) { return null; }
+        Guid iid = new Guid("626FC520-A41E-11CF-A731-00A0C9082637");   // IHTMLDocument2
+        object doc;
+        if (ObjectFromLresult(result, ref iid, IntPtr.Zero, out doc) != 0) { return null; }
+        return doc;
+    }
+    public static bool Alive(long server) { return IsWindow(new IntPtr(server)); }
+}
+"@
+    $script:dialogsOk = $true
+} catch { $script:dialogsOk = $false }
+function New-DialogTarget([long]$server) {
+    $o = New-Object psobject -Property @{ Hwnd = $server; Dlg = $true }
+    # the document is taken again at each use: a dialog that goes to another page has a new document
+    $o | Add-Member -MemberType ScriptProperty -Name Document -Value { try { [RkDialogs]::DocumentOf([long]$this.Hwnd) } catch { $null } }
+    return $o
+}
 $bound = $null          # the window (tab) being recorded
 $skipped = New-Object System.Collections.ArrayList   # frames that could not be read in this look (for the log)
 $diagText = ""
@@ -135,6 +189,16 @@ function Update-Targets {
             [void]$targets.Add($w)
         } catch { }
     }
+    if ($script:dialogsOk) {
+        try {
+            foreach ($server in [RkDialogs]::Servers()) {
+                $key = "dlg:" + $server
+                if ($baseline.ContainsKey($key) -or $known.ContainsKey($key)) { continue }
+                $known[$key] = $true
+                [void]$targets.Add((New-DialogTarget $server))
+            }
+        } catch { }
+    }
 }
 
 # Whether a window with all its frames has finished loading: "ready" (all complete), "wait" (not yet), "late" (waited over 6 s: take what has been read).
@@ -161,6 +225,10 @@ function Collect {
         if ($null -eq $top) {
             # A page that is changing (the sign in leads to the next screen) has no document for a moment: that is not a closed
             # window. Only a window that is no longer among the open ones is dropped; a dropped one would never be taken again.
+            if ($t.PSObject.Properties['Dlg']) {
+                if ([RkDialogs]::Alive([long]$t.Hwnd)) { [void]$diag.Add("window $n (dialog) changing page"); continue }
+                $targets.Remove($t); [void]$diag.Add("window $n (dialog) closed"); continue
+            }
             $tkey = Get-Key $t; $still = $false
             if ($tkey) { foreach ($open in $shell.Windows()) { try { if ((Get-Key $open) -eq $tkey) { $still = $true; break } } catch { } } }
             if ($still) { [void]$diag.Add("window $n changing page"); continue }
@@ -254,6 +322,7 @@ while ($true) {
                     } catch { }
                 }
                 if ($boundKey) { $known[$boundKey] = $true }
+                if ($script:dialogsOk) { try { foreach ($server in [RkDialogs]::Servers()) { $baseline["dlg:" + $server] = $true } } catch { } }
                 [void]$targets.Add($bound)
                 $frames = 0; $attached = 0; $injectFailed = ''
                 foreach ($w in (Get-Windows $bound.Document.parentWindow)) {
