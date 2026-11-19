@@ -1,4 +1,4 @@
-"""The IE recorder on a REAL Internet Explorer window (a change to the IE path only counts as done when this passes).
+﻿"""The IE recorder on a REAL Internet Explorer window (a change to the IE path only counts as done when this passes).
 
 It opens its own IE window (title "RookieE2E ...") on a small local site shaped like TouchPoint (a login page, then a page with
 nested iframes and a frameset whose frame `rhidden` holds the role form), drives it through COM like a teller, and checks what the
@@ -130,7 +130,49 @@ function find() {
   x.send('cif=' + document.getElementById('txtCif').value + '&xsrf=' + tok);
 }
 </script></body></html>"""
-PAGES = {"/cifapp": CIFAPP, "/jslink": JSLINK, "/slowpage": SLOW, "/opener": OPENER, "/ajaxtab": AJAXTAB, "/ajaxnav": AJAXNAV, "/ajax2": AJAX2, "/form": FORM, "/ajax": AJAX, "/search": SEARCH_TOP, "/clock": CLOCK, "/searchform": SEARCH_FORM, "/desktop": DESKTOP, "/rhidden": RHIDDEN, "/rhidden2": RHIDDEN2, "/blank": BLANK}
+SESSAPP = b"""<html><head><title>RookieE2E Sess</title></head><body>
+<form id="fLogin" onsubmit="login(null); return false;"><input type="text" id="txtUser" name="txtUser"><input type="password" id="txtPw" name="txtPw"><input type="submit" id="btnLogin" value="Login"></form>
+<input type="button" id="btnRole" value="Role" onclick="document.getElementById('res').innerHTML = 'role'">
+<input type="button" id="btnOpen" value="Xem" onclick="openScreen()">
+<input type="text" id="txtCif" name="txtCif">
+<input type="button" id="btnFind" value="Search" onclick="find()">
+<div id="res"></div>
+<script>
+var sid = "", tok = "";
+function xhr() { return window.XMLHttpRequest ? new XMLHttpRequest() : new ActiveXObject('Msxml2.XMLHTTP'); }
+function login(then) { var x = xhr(); x.open('POST', '/api/login', true); x.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+  x.onreadystatechange = function () { if (x.readyState == 4) { sid = x.responseText.split('"sid":"')[1].split('"')[0]; if (then) { then(); } } }; x.send('user=teller01'); }
+function openScreen() { var x = xhr(); x.open('POST', '/api/open', true); x.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+  x.onreadystatechange = function () { if (x.readyState == 4 && x.status == 200) { tok = x.responseText.split('"tok":"')[1].split('"')[0]; } }; x.send('sid=' + sid + '&screen=1'); }
+function again() { login(openScreen); }   // the session ended and the page signed in again by itself, then opened its screen
+function find() { var x = xhr(); x.open('POST', '/api/s2', true); x.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+  x.onreadystatechange = function () { if (x.readyState == 4) { document.getElementById('res').innerHTML = x.responseText; } };
+  x.send('cif=' + document.getElementById('txtCif').value + '&tok=' + tok); }
+</script></body></html>"""
+TOKAPP = b"""<html><head><title>RookieE2E Tok</title></head><body>
+<input type="text" id="txtCif" name="txtCif">
+<input type="button" id="btnFind" value="Search" onclick="find()">
+<div id="res"></div>
+<script>
+function xhr() { return window.XMLHttpRequest ? new XMLHttpRequest() : new ActiveXObject('Msxml2.XMLHTTP'); }
+// two calls for one service, as TouchPoint does: a token service first (a fresh bearer token each time), then the service with it
+function find() {
+  var cif = document.getElementById('txtCif').value;
+  var t = xhr(); t.open('POST', '/api/gettoken?method=getToken&claims=QWJjfHxkZWZ8fA==', true);
+  t.onreadystatechange = function () {
+    if (t.readyState != 4) { return; }
+    var jwt = t.responseText.replace(/^\\s+|\\s+$/g, '');
+    var x = xhr(); x.open('POST', '/api/svc', true);
+    x.setRequestHeader('Authorization', 'Bearer ' + jwt);
+    x.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded;text/xml;charset=utf-8');
+    x.setRequestHeader('MACHINE_NAME', 'PC7');
+    x.onreadystatechange = function () { if (x.readyState == 4) { document.getElementById('res').innerHTML = x.status + ' ' + x.responseText; } };
+    x.send('methodName=find&xml=' + cif);
+  };
+  t.send('');
+}
+</script></body></html>"""
+PAGES = {"/tokapp": TOKAPP, "/sessapp": SESSAPP, "/cifapp": CIFAPP, "/jslink": JSLINK, "/slowpage": SLOW, "/opener": OPENER, "/ajaxtab": AJAXTAB, "/ajaxnav": AJAXNAV, "/ajax2": AJAX2, "/form": FORM, "/ajax": AJAX, "/search": SEARCH_TOP, "/clock": CLOCK, "/searchform": SEARCH_FORM, "/desktop": DESKTOP, "/rhidden": RHIDDEN, "/rhidden2": RHIDDEN2, "/blank": BLANK}
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -140,6 +182,8 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers(); self.wfile.write(body)
 
     token, seen = "", []
+    sid = ""
+    jwt, jwts = "", 0
 
     def do_GET(self):
         if self.path.startswith("/api/init"):     # Gate 8: the screen opening gives a new anti-forgery token each time
@@ -164,6 +208,39 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(200); self.send_header("Content-Type", "application/json"); self.end_headers(); self.wfile.write(body)
 
     def do_POST(self):
+        if self.path.startswith("/api/gettoken"):   # a bare token, fresh each time; only the newest one is accepted by the service
+            self.rfile.read(int(self.headers.get("Content-Length") or 0))
+            Handler.jwts += 1
+            Handler.jwt = "eyJhbGciOiJIUzI1NiJ9.eyJleHAiOiI%d.c2ln%d" % (int(time.time() * 1000), Handler.jwts)
+            self.send_response(200); self.send_header("Content-Type", "text/plain"); self.end_headers(); self.wfile.write(("\n" + Handler.jwt + "\n").encode("utf-8"))
+            return
+        if self.path.startswith("/api/svc"):
+            body = self.rfile.read(int(self.headers.get("Content-Length") or 0)).decode("utf-8")
+            if self.headers.get("Authorization") != "Bearer " + Handler.jwt or self.headers.get("MACHINE_NAME") != "PC7":
+                self.send_response(401); self.end_headers(); return
+            Handler.seen.append(body.split("xml=", 1)[-1])
+            self._json(('{"ok":true,"cif":"%s"}' % body.split("xml=", 1)[-1]).encode("utf-8"))
+            return
+        if self.path.startswith("/api/login"):    # a session id for the page; the next calls must carry the newest one
+            self.rfile.read(int(self.headers.get("Content-Length") or 0))
+            Handler.sid = "SID%d" % int(time.time() * 1000)
+            self._json(('{"sid":"%s"}' % Handler.sid).encode("utf-8"))
+            return
+        if self.path.startswith("/api/open"):
+            body = self.rfile.read(int(self.headers.get("Content-Length") or 0)).decode("utf-8")
+            Handler.seen.append("open:" + body.split("&")[0].split("=", 1)[-1])
+            if body.split("&")[0] != "sid=" + Handler.sid:
+                self.send_response(403); self.end_headers(); return
+            Handler.token = "T%d" % int(time.time() * 1000)
+            self._json(('{"tok":"%s"}' % Handler.token).encode("utf-8"))
+            return
+        if self.path.startswith("/api/s2"):
+            body = dict(x.split("=", 1) for x in self.rfile.read(int(self.headers.get("Content-Length") or 0)).decode("utf-8").split("&") if "=" in x)
+            if body.get("tok") != Handler.token:
+                self.send_response(403); self.end_headers(); return
+            Handler.seen.append(body.get("cif", ""))
+            self._json(('{"kh":"KX%s"}' % body.get("cif", "")).encode("utf-8"))
+            return
         if self.path.startswith("/api/cif2"):     # Gate 8: needs the token the screen opening gave; answers a customer number of its own
             body = dict(x.split("=", 1) for x in self.rfile.read(int(self.headers.get("Content-Length") or 0)).decode("utf-8").split("&") if "=" in x)
             if body.get("xsrf") != Handler.token:
@@ -1255,3 +1332,135 @@ def test_record_the_api_calls_learn_them_and_run_them_from_the_page_with_a_new_c
     expected = "kh=KX%d" % (sum(int(c) for c in "5566778899") * 137 + 7)
     assert Handler.seen == ["5566778899", expected], Handler.seen          # the new id, then the customer number its answer gave
     assert shown_page == "|0123456789"                                      # the screen was not touched by the run
+
+
+def _sess_tab(bridge):
+    import time as _time
+    for _ in range(75):
+        tab = next((t for t in bridge.tabs() if "RookieE2E Sess" in t["title"]), None)
+        if tab:
+            return tab
+        _time.sleep(0.2)
+    raise AssertionError(bridge.tabs())
+
+
+def test_a_run_takes_the_session_the_page_uses_now_from_the_live_page_when_the_sign_in_gave_a_new_one(tmp_path):
+    """The sign-in answer gave the session id the screen opening sends. A real run never signs in again: the id comes from what the open
+    page sent last (the page signed in again by itself since the recording), and the old one would be refused."""
+    import sys
+    import time as _time
+    from pathlib import Path
+
+    repo = Path(__file__).resolve().parents[2]
+    from tests.test_webui import make_core
+    sys.path.append(str(repo / "server"))
+    from app.main import create_app
+    from fastapi.testclient import TestClient
+
+    app = create_app(tmp_path / "server.db")
+    app.state.flow_builder = None
+    Handler.seen.clear()
+    with TestClient(app) as server, real_ie("/sessapp") as bridge:
+        core, _ = make_core(tmp_path, ie_bridge=lambda: bridge, server_client=lambda url: _InProcessServer(server))
+        tab = _sess_tab(bridge)
+        assert core.dispatch("POST", "/api/record/start", {"window": f"ie-tab:{tab['id']}", "requests": True})[0] == 200
+        _time.sleep(1.0)
+        os.environ["RK_VALUE"] = "0123456789"
+        for action, wait in (("enter-pw", 2.0), ("q-role", 0.8), ("c-open", 1.5), ("c-cif", 0.5), ("c-find", 1.5)):
+            drive(action, "RookieE2E Sess")
+            _time.sleep(wait)
+        status, saved = core.dispatch("POST", "/api/record/stop", {"name": "tra cif phien"})
+        assert status == 200 and saved["requests_kept"] >= 3, saved
+        status, shown = core.dispatch("POST", "/api/learn", {"ids": [saved["id"]], "title": "Tra CIF phien"})
+        assert status == 200 and shown["api_count"] >= 3, shown
+        flow = core.store.get("flows")[0]
+        old_sid = Handler.sid
+        assert old_sid and old_sid not in json.dumps(flow) and Handler.token not in json.dumps(flow)
+        opening = next(n for n in flow["api"] if n["url"].endswith("/api/open"))
+        assert opening["body"] == "sid=⟦l1⟧&screen=1" and opening["links"]["l1"]["from"] in [n["id"] for n in flow["api"] if n["url"].endswith("/api/login")], [(n["id"], n["label"], n["body"], n["links"]) for n in flow["api"]]
+        name = flow["workflow"]["inputs"][0]["name"]
+        Handler.seen.clear()
+        os.environ["RK_JS"] = "again(); window.__res = 1;"          # a new session: the page signed in and opened its screen by itself
+        drive("js", "RookieE2E Sess")
+        _time.sleep(2.0)
+        new_sid = Handler.sid
+        assert new_sid != old_sid and Handler.seen == ["open:" + new_sid], (old_sid, new_sid, Handler.seen)
+        Handler.seen.clear()
+        status, reply = core.dispatch("POST", "/api/run/start", {"title": "Tra CIF phien", "mode": "simulate", "window": f"ie-tab:{tab['id']}", "inputs": {name: "5566778899"}})
+        assert status == 200, reply
+        for _ in range(150):
+            run = core.dispatch("GET", "/api/run/status", {})[1]
+            if run.get("result"):
+                break
+            _time.sleep(0.2)
+    assert run["result"]["status"] == "finished", run
+    assert Handler.seen == ["open:" + new_sid, "5566778899"], Handler.seen      # the live session, then the search with the token it gave
+    assert new_sid not in json.dumps(core.store.get("flows")) and new_sid not in json.dumps(run["result"])
+
+
+def test_binding_a_run_watches_the_pages_requests_in_memory_only_even_when_nothing_was_recorded():
+    import time as _time
+    with real_ie("/sessapp") as bridge:
+        tab = _sess_tab(bridge)
+        bridge.bind(tab["id"], peek=True)
+        os.environ["RK_JS"] = "again(); window.__res = 1;"
+        drive("js", "RookieE2E Sess")
+        _time.sleep(2.0)
+        bodies = bridge.last_requests("*", "/api/open")
+        os.environ["RK_JS"] = "window.__res = String(window.__rkRec) + '|' + String(window.__rkq)"
+        state = drive("js", "RookieE2E Sess")
+        bridge.unbind()
+    assert len(bodies) == 1 and bodies[0] == "sid=" + Handler.sid + "&screen=1", (bodies, Handler.sid)
+    assert state == "false|", state                                           # nothing was recorded
+
+
+def test_a_service_call_with_a_bearer_token_from_a_token_service_is_recorded_learned_and_run_with_a_fresh_token(tmp_path):
+    """TouchPoint: each service is two calls, a token service then the service with `Authorization: Bearer <token>`. The recording keeps no token;
+    the run asks the token service again and sends the service with the new one."""
+    import sys
+    import time as _time
+    from pathlib import Path
+
+    repo = Path(__file__).resolve().parents[2]
+    from tests.test_webui import make_core
+    sys.path.append(str(repo / "server"))
+    from app.main import create_app
+    from fastapi.testclient import TestClient
+
+    app = create_app(tmp_path / "server.db")
+    app.state.flow_builder = None
+    Handler.seen.clear()
+    with TestClient(app) as server, real_ie("/tokapp") as bridge:
+        core, _ = make_core(tmp_path, ie_bridge=lambda: bridge, server_client=lambda url: _InProcessServer(server))
+        for _ in range(75):
+            tab = next((t for t in bridge.tabs() if "RookieE2E Tok" in t["title"]), None)
+            if tab:
+                break
+            _time.sleep(0.2)
+        assert tab, bridge.tabs()
+        assert core.dispatch("POST", "/api/record/start", {"window": f"ie-tab:{tab['id']}", "requests": True})[0] == 200
+        _time.sleep(1.0)
+        os.environ["RK_VALUE"] = "0123456789"
+        for action, wait in (("c-cif", 0.5), ("c-find", 2.5)):
+            drive(action, "RookieE2E Tok")
+            _time.sleep(wait)
+        assert Handler.seen == ["0123456789"], Handler.seen
+        old_jwt = Handler.jwt
+        status, saved = core.dispatch("POST", "/api/record/stop", {"name": "tra cif token"})
+        assert status == 200 and saved["requests_kept"] >= 2, saved
+        status, shown = core.dispatch("POST", "/api/learn", {"ids": [saved["id"]], "title": "Tra CIF token"})
+        assert status == 200 and shown["api_count"] >= 2, shown
+        flow = core.store.get("flows")[0]
+        on_disk = "\n".join(p.read_text(encoding="utf-8", errors="ignore") for p in core.store.home.rglob("*") if p.is_file() and p.suffix in (".json", ".txt", ".jsonl"))
+        assert old_jwt and old_jwt not in json.dumps(flow) and old_jwt not in on_disk and "Bearer ⟦l1⟧" in json.dumps(flow, ensure_ascii=False)
+        name = flow["workflow"]["inputs"][0]["name"]
+        Handler.seen.clear()
+        status, reply = core.dispatch("POST", "/api/run/start", {"title": "Tra CIF token", "mode": "simulate", "window": f"ie-tab:{tab['id']}", "inputs": {name: "5566778899"}})
+        assert status == 200, reply
+        for _ in range(150):
+            run = core.dispatch("GET", "/api/run/status", {})[1]
+            if run.get("result"):
+                break
+            _time.sleep(0.2)
+    assert run["result"]["status"] == "finished", run
+    assert Handler.seen == ["5566778899"] and Handler.jwt != old_jwt, (Handler.seen, Handler.jwt, old_jwt)   # accepted: the token of this run, not the old one

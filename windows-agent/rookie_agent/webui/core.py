@@ -716,7 +716,12 @@ class Core:
 
         def work() -> None:
             try:
-                bridge.bind(tab["id"])
+                bridge.bind(tab["id"], peek=True)   # the page's requests are remembered in its memory, to find the session it uses now
+
+                def peek(node: dict[str, Any]) -> list[str]:
+                    path = node["url"].split("?", 1)[0]
+                    path = re.sub(r"^[A-Za-z][A-Za-z0-9+.\-]*://[^/]*", "", path)
+                    return bridge.last_requests(node.get("frame") or "*", path) or bridge.last_requests("*", path)
 
                 def send(node: dict[str, Any], url: str, headers: str, body_text: str) -> dict[str, Any]:
                     answer = bridge.send(node["frame"], node["method"], url, headers, body_text)
@@ -725,7 +730,7 @@ class Core:
                         answer = bridge.send("top", node["method"], url, headers, body_text)
                     return answer
 
-                result = replay.run_api(workflow, api, inputs, send, controller, stop)
+                result = replay.run_api(workflow, api, inputs, send, controller, stop, peek=peek)
             except Exception as error:  # noqa: BLE001
                 result = {"status": "failed", "message": f"Chạy mô phỏng bị lỗi: {error}", "steps": []}
             finally:

@@ -1,4 +1,4 @@
-"""Gate 9 (windows agent): the shape of an answer without a value, the fake made from it, the run on the twin (nothing leaves the PC,
+﻿"""Gate 9 (windows agent): the shape of an answer without a value, the fake made from it, the run on the twin (nothing leaves the PC,
 write and money wait for a person's Duyệt), the process fields sent with a session, the proxies to the server's twin, the n8n file."""
 
 import json
@@ -409,3 +409,59 @@ def test_a_real_run_that_needs_the_sign_in_answer_stops_and_says_to_record_after
     result = replay.run_api(flow(), _login_first(nodes()[:3]), {"cif": "9988776655"}, send, controller, stop)
     assert result["status"] == "needs_help" and sent == []
     assert "lúc đăng nhập" in result["message"] and "bấm Ghi" in result["message"] and "bản sao" in result["message"]
+
+
+# ---- the sign-in value taken from the live page (Gate 8, 6.4) ----------------------------------------------------------------------
+
+def _session_node(body, name="l1"):
+    return {"id": "a1", "step_id": "s3_find", "kind": "xhr", "label": "Mở màn hình → POST /touchpoint/TPClassLoader", "frame": "top",
+            "method": "POST", "url": "http://h/touchpoint/TPClassLoader", "headers": "", "body": body, "risk": "read", "complete": True,
+            "unresolved": [], "links": {name: {"from": "a0", "json": ["sid"]}}}
+
+
+def _real_run(body, live, monkeypatch, name="l1", values=None):
+    from rookie_agent.webui.run import WebController
+    monkeypatch.setattr(replay, "_sign_in_steps", lambda workflow: {"s2_password"})
+    login = {"id": "a0", "step_id": "s2_password", "kind": "xhr", "label": "Nhấn Enter ở «Password» → POST /touchpoint/TPClassLoader",
+             "frame": "top", "method": "POST", "url": "http://h/touchpoint/TPClassLoader", "headers": "", "body": "x", "risk": "read",
+             "complete": True, "unresolved": [], "links": {}}
+    stop, sent, asked = threading.Event(), [], []
+    controller = WebController(stop, {}, lambda: "")
+    send = lambda node, url, headers, text: sent.append((url, headers, text)) or {"ok": True, "status": 200, "ms": 1, "text": "{}"}   # noqa: E731
+
+    def peek(node):
+        asked.append(node["id"])
+        return live
+
+    result = replay.run_api(flow(), [login, _session_node(body, name)], values or {}, send, controller, stop, peek=peek)
+    return result, controller, sent, asked
+
+
+def test_a_gwt_body_takes_the_session_from_the_page_s_newest_matching_body(monkeypatch):
+    template = "7|0|5|http://h/touchpoint/|ABC123|⟦l1⟧|com.tp.Svc|run|1|2|3|4|"
+    live = ["7|0|5|http://h/touchpoint/|ABC123|OLDSESSION|com.tp.Svc|run|1|2|3|4|",
+            "unrelated body", "7|0|5|http://h/touchpoint/|ABC123|NEWSESSION9|com.tp.Svc|run|1|2|3|4|"]
+    result, controller, sent, asked = _real_run(template, live, monkeypatch)
+    assert result["status"] == "finished" and "NEWSESSION9" in sent[0][2] and "OLDSESSION" not in sent[0][2]
+    assert controller.details["a1"]["inputs"] == [{"name": "l1", "from": "phiên đang mở của trang IE"}]
+
+
+def test_a_form_body_and_a_template_with_two_marks_take_the_right_group(monkeypatch):
+    result, _, sent, _ = _real_run("sid=⟦l1⟧&cif=⟦cif⟧&tab=1", ["sid=S%2B1x&cif=0123456789&tab=1"], monkeypatch, values={"cif": "99887766"})
+    assert result["status"] == "finished" and sent[0][2] == "sid=S%2B1x&cif=99887766&tab=1"
+
+
+def test_a_body_that_does_not_fit_the_template_stops_with_the_way_out_and_sends_nothing(monkeypatch):
+    result, controller, sent, _ = _real_run("sid=⟦l1⟧&tab=1", ["other=1"], monkeypatch)
+    assert result["status"] == "needs_help" and sent == []
+    assert "Ghi rồi Dừng ngay một lần" in result["message"] and "lúc đăng nhập" in result["message"]
+    result, _, sent, _ = _real_run("sid=⟦l1⟧&tab=1", [], monkeypatch)
+    assert result["status"] == "needs_help" and sent == []
+
+
+def test_the_value_taken_from_the_live_page_is_not_kept_in_the_audit_or_the_flow(monkeypatch):
+    template = "sid=⟦l1⟧&tab=1"
+    api = [_session_node(template)]
+    result, controller, sent, _ = _real_run(template, ["sid=SECRETSESSION42&tab=1"], monkeypatch)
+    assert "SECRETSESSION42" not in json.dumps(api) and "SECRETSESSION42" not in json.dumps(result)
+    assert "SECRETSESSION42" not in json.dumps(controller.steps)   # the canvas detail (memory only) shows the sent body as it always did

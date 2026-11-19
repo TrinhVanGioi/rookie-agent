@@ -372,7 +372,7 @@
     } catch (e9) {}
   }
   var AJAX_REQ = 16000, AJAX_RES = 100000, AJAX_QUEUE_MAX = 2000000;   // a whole answer: a later request may take a value from it (Gate 8)
-  var SECRET_HEADER = /cookie|authori|token|pass|secret/i;
+  var SECRET_HEADER = /cookie|pass|secret/i;   // an Authorization or token header stays in memory like a token in a body (6.4): its value is never written, only where it comes from
   function emitAjax(rec) {
     if (window.__rkAjaxOff || !window.__rkRec || String(window.__rkq).length > AJAX_QUEUE_MAX) { return; }
     var line;
@@ -393,6 +393,38 @@
   var SECRET_KEY = /((?:pass(?:word|wd|code)?|pwd|otp|pin|matkhau)[a-z_]*["']?\s*[:=]\s*)("(?:[^"\\]|\\.)*"|'[^']*'|[^&,}\s]*)/gi;
   function hideSecrets(text) {
     try { return String(text).replace(SECRET_KEY, '$1"***"'); } catch (e) { return ""; }
+  }
+  // The last bodies the page sent, per path, in the page's memory only (never written, never sent): a run that does not sign in takes from
+  // them the session value the page is using now (Gate 8). Passwords are already hidden. Remembered whether or not the teller records.
+  var LAST_PATHS = 30, LAST_BODIES = 3;
+  function pathOf(url) {
+    var u = String(url), at = u.search(/[?#]/), dir;
+    if (at >= 0) { u = u.slice(0, at); }
+    u = u.replace(/^[A-Za-z][A-Za-z0-9+.\-]*:\/\/[^\/]*/, "");
+    if (u.charAt(0) !== "/") { dir = String(window.location.pathname); u = dir.slice(0, dir.lastIndexOf("/") + 1) + u; }
+    return u;
+  }
+  function rememberReq(rec) {
+    var map, key, list, n = 0, k;
+    if (!rec.req) { return; }
+    map = window.__rkLastReq;
+    if (!map) { map = window.__rkLastReq = {}; window.__rkLastReqN = 0; }
+    key = pathOf(rec.url);
+    list = map[key];
+    if (!list) {
+      if (window.__rkLastReqN >= LAST_PATHS) { return; }
+      window.__rkLastReqN++; list = map[key] = [];
+    }
+    list.push(rec.req);
+    if (list.length > LAST_BODIES) { list.shift(); }
+  }
+  function lastReq(value) {
+    var map = window.__rkLastReq, list, out = [], i;
+    if (!map) { return ""; }
+    list = map[String(value)];
+    if (!list) { return ""; }
+    for (i = 0; i < list.length; i++) { out.push(str(list[i])); }
+    return '{"frame":' + str(framePath(window)) + ',"bodies":[' + out.join(",") + "]}";
   }
   function makeStandIn(real) {
     var p = { readyState: 0, status: 0, statusText: "", responseText: "", responseXML: null, onreadystatechange: null, onload: null, onerror: null, ontimeout: null, onabort: null, timeout: 0, withCredentials: false, response: "", responseType: "" }, rec = { async: true, done: false };
@@ -422,6 +454,7 @@
         rec.status = p.status;
         rec.ms = new Date().getTime() - rec.t0;
         rec.res = typeof p.responseText === "string" ? p.responseText.slice(0, AJAX_RES) : "";
+        rememberReq(rec);
         emitAjax(rec);
       } catch (e5) { ajaxFailed("finish", e5); }
     }
@@ -783,6 +816,7 @@
     var sels = String(selText).split("\n"), own = framePath(window), i, s, cut, hits, found = null, rank = -1;
     if (op === "send") { return sendNow(own, value); }
     if (op === "sendres") { return sendResult(value); }
+    if (op === "lastreq") { return lastReq(value); }
     if (op === "probe") { return probeAll(sels, own); }
     if (op === "suggest") { return suggest(sels, own, String(value || "any")); }
     if (op === "fingerprint") { return fingerprint(own); }

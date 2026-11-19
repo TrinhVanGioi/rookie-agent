@@ -30,6 +30,7 @@ _MARK = re.compile(OPEN + r"([a-z0-9_]+)" + CLOSE)
 _HIDDEN = '"***"'
 _TOKEN_CANDIDATE = re.compile(r"[A-Za-z0-9_\-.~%+/]{4,}={0,2}")
 _TOKEN_KEY = re.compile(r"((?:token|secret|csrf|xsrf|nonce)[a-z_]*[\"']?\s*[:=]\s*)(\"(?:[^\"\\]|\\.)*\"|'[^']*'|[^&,}\s|]*)", re.IGNORECASE)
+_JWT = re.compile(r"^eyJ[\w-]+\.[\w-]+\.[\w-]*$")   # looks like a dotted Java name, but is a bearer token
 _CLASS_LIKE = re.compile(r"^[a-z][\w$]*(\.[\w$]+){2,}(/\d+)?$")
 POLLING = 3             # the same request this many times or more is the page polling: not part of the flow unless a later one needs it
 
@@ -94,6 +95,8 @@ def locate_value(answer: str, value: str) -> dict[str, Any] | None:
         strings = _gwt_strings(answer)
         if value in strings:
             return {"gwt": strings.index(value)}
+    if answer.strip() == value:                       # the answer is the bare value (a token service answers just the token)
+        return {"whole": True}
     found = re.search(r"(?<![A-Za-z0-9])" + re.escape(value) + r"(?![A-Za-z0-9])", answer)
     if not found:
         return None
@@ -120,6 +123,8 @@ def take_value(answer: str, rule: dict[str, Any]) -> str | None:
     if "gwt" in rule:
         strings = _gwt_strings(answer)
         return strings[rule["gwt"]] if 0 <= rule["gwt"] < len(strings) else None
+    if "whole" in rule:
+        return answer.strip() or None
     start = answer.find(rule["before"])
     if start < 0:
         return None
@@ -129,6 +134,9 @@ def take_value(answer: str, rule: dict[str, Any]) -> str | None:
 
 
 # ---- 7.1 and 8.1 to 8.3: the requests of one recording as templates -------------------------------------------------
+
+_AUTH_HEADER = re.compile(r"^((?:proxy-)?authorization:)(.*)$", re.IGNORECASE | re.MULTILINE)
+
 
 def templates(raw: list[dict[str, Any]], events: list[dict[str, Any]], requests: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Only lines that became events count as typed (a password never does). Answers are read here, in memory, and never kept."""
@@ -161,7 +169,7 @@ def templates(raw: list[dict[str, Any]], events: list[dict[str, Any]], requests:
             scan = text.split("?", 1)[1] if text_name == "url" and "?" in text else ("" if text_name == "url" else text)
             for candidate in dict.fromkeys(_TOKEN_CANDIDATE.findall(scan)):
                 value = urllib.parse.unquote_plus(candidate)
-                if (len(value) < MIN_LINKED or value in typed_values or OPEN in value or _CLASS_LIKE.match(value)
+                if (len(value) < MIN_LINKED or value in typed_values or OPEN in value or (_CLASS_LIKE.match(value) and not _JWT.match(value))
                         or not (any(c.isdigit() for c in value) or len(value) >= 16)):
                     continue
                 for source in range(index - 1, -1, -1):
@@ -183,6 +191,16 @@ def templates(raw: list[dict[str, Any]], events: list[dict[str, Any]], requests:
             return match.group(1) + _HIDDEN
 
         body, url, headers = _TOKEN_KEY.sub(hide, body), _TOKEN_KEY.sub(hide, url), _TOKEN_KEY.sub(hide, headers)
+        # a bearer token (Authorization) that no earlier answer explains is not kept either (a token service's answer gives it, or the request cannot be sent again)
+
+        def hide_auth(match: re.Match[str]) -> str:
+            nonlocal hidden
+            if OPEN in match.group(2) or match.group(2).strip() in ("", "***"):
+                return match.group(0)
+            hidden = True
+            return match.group(1) + "***"
+
+        headers = _AUTH_HEADER.sub(hide_auth, headers)
         after = item.get("after") or {}
         out.append({
             "index": index, "after_seq": _seq_at(events, after.get("t")), "kind": str(item.get("kind") or "xhr"),
@@ -302,14 +320,58 @@ def _sign_in_steps(workflow: dict[str, Any]) -> set[str]:
     return ids
 
 
+def align_template(template: str, live: str, name: str) -> str | None:
+    """The value of mark `name` in `live`, a body the page really sent, by laying the template over it: the literal text must be equal, every
+    mark stands for any text (lazy), both ends anchored. None when the body is not the one this template made."""
+    names: list[str] = []
+    parts: list[str] = []
+    last = 0
+    for match in _MARK.finditer(template):
+        parts.append(re.escape(template[last:match.start()]))
+        parts.append("(.*?)")
+        names.append(match.group(1))
+        last = match.end()
+    parts.append(re.escape(template[last:]))
+    if name not in names:
+        return None
+    found = re.fullmatch("".join(parts), live, re.DOTALL)
+    if not found:
+        return None
+    value = found.group(names.index(name) + 1)
+    return value if value else None
+
+
+def _live_value(node: dict[str, Any], name: str, peek: Callable[[dict[str, Any]], list[str]] | None) -> str | None:
+    """The value of link `name` as the live page sends it now: the newest of its last bodies for this node's path that fits the template."""
+    if peek is None or OPEN + name + CLOSE not in node.get("body", ""):
+        return None
+    try:
+        bodies = peek(node)
+    except Exception:  # noqa: BLE001
+        return None
+    for live in reversed(list(bodies or [])):
+        value = align_template(node["body"], str(live), name)
+        if value is not None:
+            return value
+    return None
+
+
+LIVE_SESSION = "phiên đang mở của trang IE"
+NEED_LIVE = ("Hãy bấm Ghi rồi Dừng ngay một lần trên màn hình này (bật «Ghi yêu cầu»), hoặc thao tác mở màn hình một lần, "
+             "để agent thấy mã phiên đang dùng; rồi Chạy lại.")
+
+
 def run_api(workflow: dict[str, Any], nodes: list[dict[str, Any]], values: dict[str, str],
             send: Callable[[dict[str, Any], str, str, str], dict[str, Any]], controller: Any, stop: threading.Event,
-            twin: bool = False, role: str = "maker") -> dict[str, Any]:
+            twin: bool = False, role: str = "maker",
+            peek: Callable[[dict[str, Any]], list[str]] | None = None) -> dict[str, Any]:
     """The nodes in order. Each node: its inputs (what the teller typed, values linked from the answers before), the request sent
     from the teller's page, the answer. A node of the sign-in is passed over (the open page's session is used); a node that writes
     or moves money stops the run; anything missing or refused stops it and asks. `send(node, url, headers, body)` sends one.
     `twin=True` (Gate 9): `send` answers from a fake, nothing leaves the PC; a node that writes or moves money then waits for the
-    person's Duyệt (never automatic) and goes on after it. In a `role` "checker" stage a stage with no such node still waits at its last one."""
+    person's Duyệt (never automatic) and goes on after it. In a `role` "checker" stage a stage with no such node still waits at its last one.
+    `peek(node)` (real run only): the last bodies the live page sent to the node's path; a value that came from the sign-in answer is taken
+    from the one that fits the node's template (the session the page uses now), never stored."""
     done: list[dict[str, Any]] = []
     answers: dict[str, str] = {}                       # this run's answers, in memory only, for the links of the next nodes
     started = time.monotonic()
@@ -364,10 +426,16 @@ def run_api(workflow: dict[str, Any], nodes: list[dict[str, Any]], values: dict[
             value = take_value(answers.get(rule["from"], ""), rule)
             where = next((n["label"] for n in nodes if n["id"] == rule["from"]), rule["from"])
             source = next((n for n in nodes if n["id"] == rule["from"]), None)
-            if value is None and source is not None and source.get("step_id") in sign_in and not twin:
+            from_sign_in = value is None and source is not None and source.get("step_id") in sign_in and not twin
+            live = _live_value(node, name, peek) if from_sign_in else None
+            if live is not None:
+                here[name] = live
+                shown["inputs"].append({"name": name, "from": LIVE_SESSION})
+                continue
+            if from_sign_in:
                 why = (f"giá trị «{name}» lấy từ trả lời lúc đăng nhập («{where}»), mà lần chạy thật không đăng nhập lại "
                        "(dùng phiên đang mở, không gửi mật khẩu). Hãy Ghi lại khi đã đăng nhập sẵn: đăng nhập trước, mở màn hình cần làm, "
-                       "rồi mới bấm Ghi; sau đó Học lại. Hoặc dùng «Chạy thử trên bản sao»")
+                       "rồi mới bấm Ghi; sau đó Học lại. Hoặc dùng «Chạy thử trên bản sao». " + NEED_LIVE.rstrip("."))
                 note(node, "needs_help", why, shown)
                 return end("needs_help", f"«{node['label']}»: {why}.")
             if value is None:

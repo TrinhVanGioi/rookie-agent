@@ -576,7 +576,10 @@ class RunBridge(FakeIeBridge):
         super().__init__(tabs=({"id": 1, "title": "Mock TPSS - Chuyen tien", "host": "localhost"},))
         self.done, self.screen = [], []
 
-    def bind(self, tab_id):
+    def last_requests(self, frame, path, timeout=30.0):
+        return []
+
+    def bind(self, tab_id, peek=False):
         return {"ok": True}
 
     def act(self, op, selectors, value=""):

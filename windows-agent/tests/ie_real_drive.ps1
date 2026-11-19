@@ -56,6 +56,7 @@ document.cookie = '__rkkeep=' + encodeURIComponent(line) + '; path=/';
   'f-logoff'    { $fd = Get-Frame $d 'desktopFrame/rhidden'; $e = $fd.getElementById('btnLogoff'); $e.focus(); $e.click() }
   'f-ok'        { $fd = Get-Frame $d 'desktopFrame/rhidden'; $e = $fd.getElementById('btnSelect'); $e.focus(); $e.click() }
   'click-label' { $d.getElementById('lblUser').click() }
+  'q-role'    { $e = $d.getElementById('btnRole'); Send-MouseDown $d 'btnRole'; $e.focus(); $e.click() }
   'c-open'    { $e = $d.getElementById('btnOpen'); Send-MouseDown $d 'btnOpen'; $e.focus(); $e.click() }
   'c-cif'     { $e = $d.getElementById('txtCif'); Do-Focus $d $e; $e.value = $env:RK_VALUE; Do-Blur $d $e }
   'c-find'    { $e = $d.getElementById('btnFind'); Send-MouseDown $d 'btnFind'; $e.focus(); $e.click() }

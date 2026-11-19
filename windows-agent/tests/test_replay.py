@@ -3,6 +3,8 @@ flow is a chain of API nodes, and a run sends them again with this run's values 
 test_ie_real.py)."""
 
 import json
+
+import pytest
 import threading
 
 from rookie_agent.ie import replay, response_view
@@ -152,7 +154,10 @@ def test_the_flow_tab_draws_the_api_nodes_and_runs_them(tmp_path):
         def tabs(self):
             return [{"id": 1, "title": "TouchPoint"}]
 
-        def bind(self, tab_id):
+        def last_requests(self, frame, path, timeout=30.0):
+            return []
+
+        def bind(self, tab_id, peek=False):
             return {"ok": True}
 
         def unbind(self):
@@ -189,7 +194,10 @@ class CountingBridge:
     def tabs(self):
         return list(self.open_tabs)
 
-    def bind(self, tab_id):
+    def last_requests(self, frame, path, timeout=30.0):
+        return []
+
+    def bind(self, tab_id, peek=False):
         return {"ok": True}
 
     def unbind(self):
@@ -289,3 +297,45 @@ def test_the_assistant_runs_a_read_only_look_up_by_its_api_calls_and_anything_el
     core.store.put("flows", flows)
     core.assistant_run({"plan_id": "p2", "window": "ie-tab:1"})
     assert started == [("simulate", "assistant"), ("run", "assistant")]
+
+
+# ---- TouchPoint: a token service answers a bearer token, the service call carries it in its Authorization header ----------------
+
+JWT1 = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ1MSIsImV4cCI6MTc5OTk5OTk5OX0.c2lnbmF0dXJlMQ"
+JWT2 = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ1MSIsImV4cCI6MTc5OTk5OTk5OX0.c2lnbmF0dXJlMg"
+
+
+def _two_step(answer1, header_value=None):
+    token_call = {"t": 1, "frame": "top", "method": "POST", "url": "http://h/touchpoint/postAuthentication.fisglobal?method=getToken&claims=QWJj", "status": 200, "ms": 5,
+                  "req": "", "res": answer1, "hdr": "", "kind": "xhr", "after": None}
+    service = {"t": 2, "frame": "top", "method": "POST", "url": "http://h/touchpoint/TPClassLoader", "status": 200, "ms": 5,
+               "req": "methodName=a&className=b", "res": "<r/>", "kind": "xhr", "after": None,
+               "hdr": "Authorization:Bearer " + (header_value or JWT1) + "\nContent-Type:application/x-www-form-urlencoded;text/xml;charset=utf-8\nMACHINE_NAME:PC7\n"}
+    return [token_call, service]
+
+
+@pytest.mark.parametrize("answer", ["\n  " + JWT1 + "  \n", json.dumps({"token": JWT1})])
+def test_a_bearer_token_in_a_header_is_linked_to_the_token_answer_and_never_kept(answer):
+    found = replay.templates([], [], _two_step(answer))
+    assert "Authorization:Bearer ⟦l1⟧" in found[1]["headers"] and JWT1 not in json.dumps(found) and found[1]["complete"]
+    assert "MACHINE_NAME:PC7" in found[1]["headers"] and "Cookie" not in found[1]["headers"]
+    value = replay.take_value(answer, found[1]["links"]["l1"])
+    assert value == JWT1
+    # the next run: a fresh token goes into the header
+    fresh = "  " + JWT2 + "\n" if not answer.startswith("{") else json.dumps({"token": JWT2})
+    headers, missing = replay.fill_in(found[1]["headers"], {"l1": replay.take_value(fresh, found[1]["links"]["l1"])})
+    assert "Bearer " + JWT2 in headers and not missing
+
+
+def test_a_bearer_token_no_answer_explains_is_hidden_and_the_call_is_not_complete():
+    found = replay.templates([], [], _two_step("something else entirely 12345"))
+    assert JWT1 not in json.dumps(found) and "Authorization:***" in found[1]["headers"] and found[1]["complete"] is False
+
+
+def test_identical_token_calls_repeated_are_kept_when_a_later_call_links_to_them():
+    request = _two_step(JWT1)
+    calls = [dict(request[0], t=i, res=JWT1 if i == 3 else "x" + str(i) * 20) for i in range(1, 4)]    # the same URL three times: the page polling
+    service = dict(request[1], t=4)
+    found = replay.templates([], [], calls + [service])
+    api = replay.build_api({"steps": [], "inputs": []}, [], found)
+    assert [n["id"] for n in api] == ["a2", "a3"] and api[1]["links"]["l1"]["from"] == "a2"

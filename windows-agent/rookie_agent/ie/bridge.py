@@ -116,9 +116,13 @@ class IeBridge:
         """Put the recorder into the page. Answers how many frames were reached (`frames`) and how many now listen (`attached`)."""
         return self.request({"cmd": "start", "id": tab_id, "requests": bool(requests), "diag": diag}, timeout=30)
 
-    def bind(self, tab_id: int) -> dict[str, Any]:
-        """The tab the agent drives while it runs a flow."""
-        return self.request({"cmd": "bind", "id": tab_id}, timeout=30)
+    def bind(self, tab_id: int, peek: bool = False) -> dict[str, Any]:
+        """The tab the agent drives while it runs a flow. `peek`: the page's requests are remembered in its memory from now on (the last
+        bodies per path, nothing recorded, nothing written), so a run of API calls can take the session value the page uses now."""
+        message: dict[str, Any] = {"cmd": "bind", "id": tab_id}
+        if peek:
+            message["peek"] = True
+        return self.request(message, timeout=30)
 
     def unbind(self) -> None:
         self.request({"cmd": "unbind"})
@@ -162,6 +166,15 @@ class IeBridge:
             if _time.monotonic() >= deadline:
                 return {"ok": False, "error": "timeout"}
             pause(0.2)
+
+    def last_requests(self, frame: str, path: str, timeout: float = 30.0) -> list[str]:
+        """The last bodies (at most 3 per frame, oldest first) the live page sent to `path`, with passwords hidden. `frame` "" or "*":
+        every frame; else the frame of that name. Nothing is stored by the agent; [] when the page was not watching."""
+        bodies: list[str] = []
+        for answer in self.frame_op("lastreq", [], path):
+            if isinstance(answer, dict) and (frame in ("", "*") or answer.get("frame") == frame):
+                bodies += [b for b in (answer.get("bodies") or []) if isinstance(b, str)]
+        return bodies
 
     def read(self) -> list[str]:
         """What every frame being recorded shows now (tables, label-value pairs, messages), one JSON text per frame."""

@@ -59,8 +59,11 @@ function Get-IeTabs {
     return $tabs
 }
 
+$script:peek = $false   # a run of the API flow: the page's requests are only remembered in its memory (last bodies per path), never recorded
 $script:hookRequests = $false   # recording hooks the page's requests only when the person asked for it: the hook is what can upset a page
 $script:diagMode = ""   # "none": nothing is run in the page; "nolisten": the recorder is put in but listens to nothing (to find what upsets a page)
+function RunFlags() { if ($script:peek) { return 'window.__rkRunMode = true;' } return 'window.__rkRunMode = true; window.__rkNoXhr = true;' }
+
 function Inject($win, [bool]$late = $true, [bool]$force = $false) {
     if ($script:diagMode -eq 'none') { return $null }
     # Once the recorder is in a document, nothing is run there again at each look (it was: the whole recorder, in every frame, every
@@ -75,7 +78,7 @@ function Inject($win, [bool]$late = $true, [bool]$force = $false) {
         if ($state -ne 'complete' -and -not ($late -and ($state -eq 'interactive' -or $state -eq 'loaded'))) { return $null }
     } catch { }
     try {
-        if (-not $script:hookRequests) { $null = $win.execScript("window.__rkNoXhr = true;", 'javascript') }
+        if (-not $script:hookRequests -and -not $script:peek) { $null = $win.execScript("window.__rkNoXhr = true;", 'javascript') }
         $only = [string]$env:ROOKIE_IE_LISTEN -replace '[^a-z,]', ''   # to find which listener upsets a page: "none" or e.g. "click,keydown"
         if ($script:diagMode -eq 'nolisten') { $only = 'none' }
         $groups = @{ 'only-click' = 'click,dblclick'; 'only-key' = 'keydown'; 'only-field' = 'focusin,focusout,change'; 'only-page' = 'load,unload' }
@@ -269,9 +272,16 @@ while ($true) {
             'bind' {
                 $tab = Get-IeTabs | Where-Object { $_.id -eq [int]$request.id } | Select-Object -First 1
                 if ($null -eq $tab) { Reply @{ ok = $false; error = 'tab not found' } }
-                else { $script:runTab = $tab.window; Reply @{ ok = $true; title = $tab.title; host = $tab.host } }
+                else {
+                    $script:runTab = $tab.window
+                    $script:peek = [bool]$request.peek
+                    if ($script:peek) {   # the page's requests are remembered from now on (what the sign-in gave, for a run that does not sign in)
+                        try { foreach ($w in (Get-Windows $script:runTab.Document.parentWindow)) { $null = $w.execScript((RunFlags), 'javascript'); $null = Inject $w $true $true } } catch { }
+                    }
+                    Reply @{ ok = $true; title = $tab.title; host = $tab.host }
+                }
             }
-            'unbind' { $script:runTab = $null; Reply @{ ok = $true } }
+            'unbind' { $script:runTab = $null; $script:peek = $false; Reply @{ ok = $true } }
             'act' {
                 if ($null -eq $runTab) { Reply @{ ok = $false; error = 'not bound' }; continue }
                 $selectors = ([string[]]@($request.selectors)) -join "`n"
@@ -279,7 +289,7 @@ while ($true) {
                 $candidates = @()
                 try { $top = $runTab.Document.parentWindow } catch { Reply @{ ok = $false; error = 'the tab is gone' }; continue }
                 foreach ($w in (Get-Windows $top)) {
-                    $null = $w.execScript("window.__rkRunMode = true; window.__rkNoXhr = true;", 'javascript')
+                    $null = $w.execScript($(RunFlags), 'javascript')
                     $null = Inject $w $true $true
                     $found =Invoke-MethodArgs $w '__rkOp' @('find', $selectors, '')
                     if ($found) {
@@ -301,7 +311,7 @@ while ($true) {
                 $answers = New-Object System.Collections.ArrayList
                 try { $top = $runTab.Document.parentWindow } catch { Reply @{ ok = $false; error = 'the tab is gone' }; continue }
                 foreach ($w in (Get-Windows $top)) {
-                    $null = $w.execScript("window.__rkRunMode = true; window.__rkNoXhr = true;", 'javascript')
+                    $null = $w.execScript($(RunFlags), 'javascript')
                     $null = Inject $w $true $true
                     $answer = Invoke-MethodArgs $w '__rkOp' @([string]$request.op, $selectors, [string]$request.value)
                     if ($answer) { [void]$answers.Add((ConvertFrom-Json -InputObject ([string]$answer))) }
@@ -314,7 +324,7 @@ while ($true) {
                 $found = New-Object System.Collections.ArrayList
                 try { $top = $runTab.Document.parentWindow } catch { Reply @{ ok = $false; error = 'the tab is gone' }; continue }
                 foreach ($w in (Get-Windows $top)) {
-                    $null = $w.execScript("window.__rkRunMode = true; window.__rkNoXhr = true;", 'javascript')
+                    $null = $w.execScript($(RunFlags), 'javascript')
                     $null = Inject $w $true $true
                     $answer = Invoke-MethodArgs $w '__rkOp' @('probe', $selectors, '')
                     if ($answer) { $o = ConvertFrom-Json -InputObject ([string]$answer); if (@($o.probes).Count -gt 0) { [void]$found.Add($o) } }
@@ -332,7 +342,7 @@ while ($true) {
                         try { $top = $t.Document.parentWindow } catch { }
                         if ($null -eq $top) { continue }
                         foreach ($w in (Get-Windows $top)) {
-                            if ($null -eq $bound) { $null = $w.execScript("window.__rkRunMode = true; window.__rkNoXhr = true;", 'javascript') }
+                            if ($null -eq $bound) { $null = $w.execScript($(RunFlags), 'javascript') }
                             $err = Inject $w $true ($null -eq $bound)
                             $text = Invoke-Method $w '__rkRead'
                             if ($text) { [void]$reads.Add([string]$text) }
