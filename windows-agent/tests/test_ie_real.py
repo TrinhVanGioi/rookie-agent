@@ -1464,3 +1464,10 @@ def test_a_service_call_with_a_bearer_token_from_a_token_service_is_recorded_lea
             _time.sleep(0.2)
     assert run["result"]["status"] == "finished", run
     assert Handler.seen == ["5566778899"] and Handler.jwt != old_jwt, (Handler.seen, Handler.jwt, old_jwt)   # accepted: the token of this run, not the old one
+    # one click that fires two calls (the token service, then the service) is ONE node that fires its batch: one step in the run, two calls inside
+    listed = core.dispatch("GET", "/api/flows", {})[1]["flows"][0]["api_nodes"]
+    batch = [n for n in listed if n["call_count"] == 2]
+    assert len(batch) == 1 and all(c["ready"] for c in batch[0]["calls"]), listed
+    assert [s["id"] for s in run["steps"]].count(batch[0]["id"]) == 1 and len(run["steps"]) == len(listed), (run["steps"], listed)
+    sent = run["details"][batch[0]["id"]]["requests"]
+    assert len(sent) == 2 and [r["status"] for r in sent] == [200, 200] and "state" not in sent[0], sent

@@ -768,9 +768,9 @@ function renderRunInputs(flow) {
   $("runBox").hidden = !flow || flow.engine !== "ie";
   const note = $("simNote"); note.textContent = "";   // what «Chạy» will use: the requests learned with this flow
   if (flow && flow.engine === "ie") {
-    const n = (flow.api_nodes || []).length, notReady = (flow.api_nodes || []).filter((a) => !a.ready).length;
-    note.append(n ? el("div", "Luồng có " + n + " lời gọi API (vẽ trên sơ đồ): «Chạy» gửi lại chúng từ trang IE đang đăng nhập, lấy giá trị nối từ trả lời trước, và hiện kết quả từng API."
-      + (notReady ? " " + notReady + " API chưa gửi lại được (xem ô ghi «thiếu»)." : ""), "detail")
+    const n = (flow.api_nodes || []).length, calls = (flow.api_nodes || []).reduce((t, a) => t + a.call_count, 0), notReady = (flow.api_nodes || []).filter((a) => !a.ready).length;
+    note.append(n ? el("div", "Luồng có " + n + " bước, gồm " + calls + " lời gọi API (mỗi bước là một ô trên sơ đồ, bấm vào để xem các lời gọi): «Chạy» gửi lại chúng từ trang IE đang đăng nhập, lấy giá trị nối từ trả lời trước, và hiện kết quả từng lời gọi."
+      + (notReady ? " " + notReady + " bước chưa gửi lại được (xem ô ghi «thiếu»)." : ""), "detail")
       : el("div", "Luồng này chưa có API nào (học trước khi agent ghi API, hoặc lúc ghi «Ghi yêu cầu» đang tắt). Ghi lại việc này rồi Học lại để «Chạy» được.", "msg bad"));
   }
 }
@@ -940,10 +940,12 @@ function detailCard(run, stepId) {
   if (d.twin) card.append(el("div", d.twin, "twin-head"));
   card.append(el("div", "Trạng thái: " + (LIVE_WORDS[s.status] || s.status || "") + (s.detail ? " — " + s.detail : ""), "detail"));
   (d.inputs || []).forEach((x) => card.append(el("div", "Đầu vào «" + x.name + "»: " + x.from, "detail")));
-  if (!d.requests.length) card.append(el("div", "Không có request: bước này chỉ là thao tác trên màn hình.", "detail"));
+  if (!d.requests.length) card.append(el("div", "Không có lời gọi: bước này chỉ là thao tác trên màn hình.", "detail"));
+  else if (d.requests.length > 1) card.append(el("div", "Bước này gửi " + d.requests.length + " lời gọi, lần lượt:", "detail"));
   d.requests.forEach((r, i) => {
     const part = el("div", undefined, "simreq");
-    part.append(el("div", "Request " + (i + 1) + ": " + r.method + " " + r.url, "simhead"));
+    part.append(el("div", "Lời gọi " + (i + 1) + "/" + d.requests.length + ": " + r.method + " " + r.url, "simhead"));
+    if (r.state) { part.append(el("div", "Trạng thái: " + r.state + (r.error ? " · " + r.error : ""), "detail")); card.append(part); return; }
     part.append(el("div", "Thời gian: " + (r.ms || 0) + " ms · Mã trả về: " + (r.status || "—") + (r.error ? " · " + r.error : ""), "detail"));
     if (r.body) { const det = el("details"); det.append(el("summary", "Gửi đi (" + r.body.length + " ký tự)"), el("pre", r.body)); part.append(det); }
     const v = r.view;
@@ -984,13 +986,15 @@ function drawFlow(flow) {
   renderRunInputs(flow); loadRunWindows();
   const row = $("flowrow"); row.textContent = ""; $("flowDetail").textContent = "";
   const api = flow.api_nodes || [], RISK_VN = { read: "chỉ xem", write: "ghi dữ liệu", money: "tiền" };
-  const labelOfApi = Object.fromEntries(api.map((a, i) => [a.id, "API " + (i + 1)]));
-  // Gate 8: a flow with API calls is drawn as them (what is called, what goes in, where each value comes from), like an n8n workflow
-  const middle = api.length ? api.map((a, i) => ({ key: a.id, cls: a.risk, n: "API " + (i + 1) + " · " + a.method, t: a.label,
-      lines: ["Mức rủi ro: " + (RISK_VN[a.risk] || a.risk), "Loại: " + ({ xhr: "gọi API (XHR)", form: "gửi biểu mẫu", page: "tải trang" }[a.kind] || a.kind)]
-        .concat(a.inputs.map((x) => "Đầu vào «" + x + "»: " + (a.links[x] ? "lấy từ trả lời của " + (labelOfApi[a.links[x]] || a.links[x]) : "GDV nhập")))
+  const labelOfApi = Object.fromEntries(api.map((a, i) => [a.id, "Bước " + (i + 1)]));
+  // Gate 8: a flow with API calls is drawn as its steps, one node per step that fires its batch of calls (what goes in, where each value comes from), like an n8n workflow
+  const middle = api.length ? api.map((a, i) => ({ key: a.id, cls: a.risk, n: "Bước " + (i + 1) + " · " + a.call_count + " lời gọi", t: a.label,
+      lines: ["Mức rủi ro: " + (RISK_VN[a.risk] || a.risk), "Gửi lần lượt " + a.call_count + " lời gọi:"]
+        .concat(a.calls.map((c, j) => "  " + (j + 1) + ". " + c.name + " (" + ({ xhr: "gọi API", form: "gửi biểu mẫu", page: "tải trang" }[c.kind] || c.kind) + ")" + (c.ready ? "" : " — chưa gửi lại được")))
+        .concat(a.inputs.map((x) => "Đầu vào «" + x + "»: GDV nhập"))
+        .concat(Object.entries(a.links).map(([x, from]) => "Giá trị «" + x + "»: lấy từ trả lời của " + (labelOfApi[from] || from)))
         .concat(a.ready ? [] : ["Chưa gửi lại được: có giá trị không rõ nguồn hoặc mật khẩu/mã đã che"]),
-      badges: [RISK_VN[a.risk] || a.risk].concat(Object.keys(a.links).length ? ["nối " + Object.values(a.links).map((x) => labelOfApi[x] || x).join(", ")] : []).concat(a.ready ? [] : ["thiếu"]) }))
+      badges: [RISK_VN[a.risk] || a.risk, a.call_count + " lời gọi"].concat(Object.keys(a.links).length ? ["nối " + [...new Set(Object.values(a.links))].map((x) => labelOfApi[x] || x).join(", ")] : []).concat(a.ready ? [] : ["thiếu"]) }))
     : flow.steps.map((s, i) => ({ key: (flow.step_ids || [])[i], cls: s.risk_key, n: "Bước " + (i + 1), t: s.text, lines: ["Mức rủi ro: " + s.risk, "Khi chạy: " + s.mode].concat(s.optional ? ["Tuỳ chọn: " + (s.optional === "if_present" ? "chỉ bấm nếu có trên màn hình" : "để trống thì giữ giá trị đang có")] : []), badges: [s.risk, s.mode].concat(s.optional ? ["tuỳ chọn"] : []) }));
   const nodes = [{ cls: "start", n: "Bắt đầu", t: flow.title, lines: flow.inputs.length ? ["Nhập mỗi lần: " + flow.inputs.join(", ")] : ["Không có thông tin thay đổi"], badges: [] }]
     .concat(middle);
@@ -1200,7 +1204,7 @@ function buildTwinGraph() {
     if (!f && !seen.length) { out.push({ key: "x" + i, cls: "read", n: "Chưa có luồng", t: s.title || s.flowId, lines: ["Học luồng này trên máy này."] }); return; }
     // A flow learned on another PC: draw the steps the process log saw (no API details here).
     const items = !f ? seen.map((d, j) => ({ id: d.step_id, stepId: d.step_id, risk: "read", n: "Bước " + (j + 1) + " · đã thấy " + d.count + " ca", t: d.label, lines: ["Luồng học ở máy khác"] }))
-      : (f.api_nodes || []).length ? f.api_nodes.map((a, j) => ({ id: a.id, stepId: a.step_id, risk: a.risk, n: "API " + (j + 1) + " · " + a.method, t: a.label, lines: ["Mức rủi ro: " + a.risk].concat(a.inputs.map((x) => "Đầu vào «" + x + "»")) }))
+      : (f.api_nodes || []).length ? f.api_nodes.map((a, j) => ({ id: a.id, stepId: a.step_id, risk: a.risk, n: "Bước " + (j + 1) + " · " + a.call_count + " lời gọi", t: a.label, lines: ["Mức rủi ro: " + a.risk].concat(a.calls.map((c, k) => (k + 1) + ". " + c.name)).concat(a.inputs.map((x) => "Đầu vào «" + x + "»")) }))
       : f.steps.map((st, j) => ({ id: (f.step_ids || [])[j], stepId: (f.step_ids || [])[j], risk: st.risk_key, n: "Màn hình · bước " + (j + 1), t: st.text, lines: ["Mức rủi ro: " + st.risk, "Khi chạy: " + st.mode] }));
     items.forEach((it) => {
       if (it.risk !== "read") out.push({ key: "duyet:" + pre + it.id, cls: it.risk, n: "Duyệt", t: "Chờ người bấm Duyệt", lines: ["Bước " + (it.risk === "money" ? "tiền" : "ghi dữ liệu") + " luôn dừng chờ người Duyệt."] });

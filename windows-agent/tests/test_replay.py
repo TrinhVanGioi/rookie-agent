@@ -75,6 +75,14 @@ def test_the_flow_is_the_api_calls_in_order_named_after_the_action_that_made_the
     assert api[2]["links"]["l1"] == {"from": "a1", "gwt": 1} and api[2]["kind"] == "form" and api[2]["unresolved"] == []
 
 
+def batch_nodes():
+    """The same recording, but the last click fires two calls in a row (the second takes a value from the search answer, as TouchPoint calls do)."""
+    raw, events, requests = recorded()
+    requests = requests[:3] + [{"kind": "form", "frame": "main", "method": "POST", "url": "/tp/detail2", "status": 200, "req": "kh=KH00042&tab=2",
+                                "res": "", "ms": 7, "after": {"t": T_OPEN}}]
+    return replay.build_api(flow(), events, replay.templates(raw, events, requests))
+
+
 class Shown:
     def __init__(self):
         self.steps, self.details = [], {}
@@ -100,8 +108,8 @@ def test_a_run_sends_the_new_value_and_carries_what_each_answer_gives_to_the_nex
     result = replay.run_api(flow(), nodes()[:3], {"cif": "9988776655"}, send, shown, threading.Event())
     assert result["status"] == "finished", result
     assert sent == [("/tp/init", ""), ("/tp/find", '7|0|5|find|CIF|9988776655|xsrf_token="NEWTOKEN77"|'), ("/tp/detail", "kh=KH00099&tab=1")]
-    assert shown.details["a2"]["inputs"] == [{"name": "l1", "from": nodes()[1]["label"]}]
-    assert shown.details["a2"]["requests"][0]["view"]["rows"] == [["Ten", "TRAN THI B"]]
+    assert shown.details["g3"]["inputs"] == [{"name": "l1", "from": nodes()[1]["label"]}]
+    assert shown.details["g3"]["requests"][0]["view"]["rows"] == [["Ten", "TRAN THI B"]]
 
 
 def test_a_value_missing_from_the_new_answer_stops_and_asks_never_guesses():
@@ -173,13 +181,13 @@ def test_the_flow_tab_draws_the_api_nodes_and_runs_them(tmp_path):
     core.store.put("flows", [{"title": "Tra CIF", "steps": [], "inputs": ["Số CIF"], "learned_at": "x",
                               "workflow": {**flow(), "engine": "ie", "status": "draft"}, "api": nodes()[:3]}])
     listed = core.dispatch("GET", "/api/flows", {})[1]["flows"][0]
-    assert [a["id"] for a in listed["api_nodes"]] == ["a0", "a1", "a2"] and listed["api_nodes"][2]["links"] == {"l1": "a1"}
+    assert [a["id"] for a in listed["api_nodes"]] == ["g1", "g2", "g3"] and listed["api_nodes"][2]["links"] == {"l1": "g2"}
     assert "xsrf_token" not in json.dumps(listed)                         # the page gets what is called, never a template's body
     status, reply = core.dispatch("POST", "/api/run/start", {"title": "Tra CIF", "mode": "simulate", "window": "ie-tab:1", "inputs": {"cif": "9988776655"}})
     assert status == 200, reply
     done = wait_for(core, "finished")
     assert Bridge.sent[1] == '7|0|5|find|CIF|9988776655|xsrf_token="NEWTOKEN77"|'
-    assert done["details"]["a2"]["requests"][0]["status"] == 200
+    assert done["details"]["g3"]["requests"][0]["status"] == 200
     core._run["thread"].join(5)
     audit = (core.store.home / "audit.jsonl").read_text(encoding="utf-8")
     assert "9988776655" not in audit and "TRAN THI B" not in audit and "NEWTOKEN77" not in audit
@@ -234,7 +242,7 @@ def test_the_same_customer_again_in_the_session_comes_from_memory_and_another_on
     assert len(bridge.sent) == 3
     reply, done = look_up(core, "9988776655")
     assert reply["cached"] and len(bridge.sent) == 3                          # nothing was asked of the server
-    assert "bộ nhớ phiên" in done["result"]["message"] and done["details"]["a2"]["requests"][0]["view"]["rows"] == [["Ten", "TRAN THI B"]]
+    assert "bộ nhớ phiên" in done["result"]["message"] and done["details"]["g3"]["requests"][0]["view"]["rows"] == [["Ten", "TRAN THI B"]]
     look_up(core, "9988776655", refresh=True)                                 # «Làm mới»: the server is asked again
     assert len(bridge.sent) == 6
     look_up(core, "1122334455")                                                # another customer
@@ -339,3 +347,83 @@ def test_identical_token_calls_repeated_are_kept_when_a_later_call_links_to_them
     found = replay.templates([], [], calls + [service])
     api = replay.build_api({"steps": [], "inputs": []}, [], found)
     assert [n["id"] for n in api] == ["a2", "a3"] and api[1]["links"]["l1"]["from"] == "a2"
+
+
+# ---- one step is one node that fires its batch of calls (docs/design.md 6.4) -------------------------------------------------------
+
+def test_consecutive_calls_of_one_step_form_one_group_and_the_screen_opening_is_its_own():
+    api = batch_nodes()
+    assert [(n["id"], n["group"]) for n in api] == [("a0", "g1"), ("a1", "g2"), ("a2", "g3"), ("a3", "g3")]
+    groups = replay.groups_of(api)
+    assert [g["id"] for g in groups] == ["g1", "g2", "g3"]
+    assert [g["label"] for g in groups] == ["Mở màn hình", "s3_find", "s4_open"]       # the name of the step: no "-> POST path"
+    assert groups[2]["calls"] == ["a2", "a3"] and groups[2]["step_id"] == "s4_open" and groups[2]["risk"] == "read"
+    assert groups[2]["ms"] == sum(n["ms"] for n in api[2:]) and "→" not in json.dumps(groups, ensure_ascii=False)
+
+
+def test_a_flow_saved_before_groups_existed_is_grouped_the_same_way_when_it_is_loaded():
+    api = batch_nodes()
+    expected = replay.groups_of(api)
+    for node in api:
+        node.pop("group"), node.pop("group_label")
+    assert replay.groups_of(api) == expected
+
+
+def test_a_run_fires_the_batch_of_a_step_in_order_and_links_still_reach_across_steps():
+    sent, shown = [], Shown()
+
+    def send(node, url, headers, body):
+        sent.append(url)
+        return {"ok": True, "status": 200, "ms": 4, "text": ANSWERS.get(url, "")}
+
+    result = replay.run_api(flow(), batch_nodes(), {"cif": "9988776655"}, send, shown, threading.Event())
+    assert result["status"] == "finished" and sent == ["/tp/init", "/tp/find", "/tp/detail", "/tp/detail2"]
+    assert [s["id"] for s in result["steps"]] == ["g1", "g2", "g3"]
+    assert [s for s in shown.steps if s[1] == "done"] == [("g1", "done"), ("g2", "done"), ("g3", "done")]
+    calls = shown.details["g3"]["requests"]
+    assert [(c["url"], c["status"], c["ms"]) for c in calls] == [("/tp/detail", 200, 4), ("/tp/detail2", 200, 4)]
+    assert calls[1]["body"] == "kh=KH00099&tab=2"                       # from the search answer, a step before
+    assert shown.details["g3"]["action"] == "s4_open" and result["steps"][2]["detail"] == "2 lời gọi · 8 ms"
+
+
+def test_a_step_that_writes_is_refused_once_with_its_planned_calls_listed():
+    api = batch_nodes()
+    for node in api:
+        if node["group"] == "g3":
+            node["risk"] = "write"
+    sent, shown = [], Shown()
+    result = replay.run_api(flow(), api, {"cif": "1"}, lambda n, u, h, b: sent.append(u) or {"ok": True, "status": 200, "ms": 1, "text": ANSWERS.get(u, "")},
+                            shown, threading.Event())
+    assert result["status"] == "refused" and sent == ["/tp/init", "/tp/find"] and "«s4_open»" in result["message"]
+    assert [s for s in result["steps"] if s["status"] == "refused"] == [{"id": "g3", "status": "refused", "detail": "ghi dữ liệu hoặc tiền: không gửi bằng request"}]
+    assert [(c["method"], c["url"], c["state"]) for c in shown.details["g3"]["requests"]] == [("POST", "/tp/detail", "chưa gửi"), ("POST", "/tp/detail2", "chưa gửi")]
+
+
+def test_a_failure_inside_a_step_names_the_step_and_the_call_and_the_rest_stays_unsent():
+    def send(node, url, headers, body):
+        if url == "/tp/detail":
+            return {"ok": True, "status": 200, "ms": 1, "text": "<html><input type=password></html>"}   # the sign-in page: the session ended
+        return {"ok": True, "status": 200, "ms": 1, "text": ANSWERS.get(url, "")}
+
+    shown = Shown()
+    result = replay.run_api(flow(), batch_nodes(), {"cif": "1"}, send, shown, threading.Event())
+    assert result["status"] == "needs_help" and "«s4_open»" in result["message"] and "POST /tp/detail:" in result["message"]
+    calls = shown.details["g3"]["requests"]
+    assert calls[0]["error"] and calls[1] == {"method": "POST", "url": "/tp/detail2", "state": "chưa gửi"}
+
+    def broken(node, url, headers, body):
+        return {"ok": False, "error": "timeout"} if url == "/tp/detail2" else {"ok": True, "status": 200, "ms": 1, "text": ANSWERS.get(url, "")}
+
+    result = replay.run_api(flow(), batch_nodes(), {"cif": "1"}, broken, Shown(), threading.Event())
+    assert result["status"] == "failed" and "«s4_open»" in result["message"] and "POST /tp/detail2" in result["message"]
+
+
+def test_the_flows_list_draws_one_node_per_step_with_its_calls(tmp_path):
+    from test_webui import make_core
+
+    core, _ = make_core(tmp_path)
+    core.store.put("flows", [{"title": "Tra CIF", "steps": [], "inputs": ["Số CIF"], "learned_at": "x",
+                              "workflow": {**flow(), "engine": "ie", "status": "draft"}, "api": batch_nodes()}])
+    nodes_ = core.dispatch("GET", "/api/flows", {})[1]["flows"][0]["api_nodes"]
+    assert [(n["id"], n["call_count"]) for n in nodes_] == [("g1", 1), ("g2", 1), ("g3", 2)]
+    assert [c["name"] for c in nodes_[2]["calls"]] == ["POST /tp/detail", "POST /tp/detail2"] and nodes_[2]["links"] == {"l1": "g2"}

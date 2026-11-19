@@ -528,14 +528,34 @@ class Core:
         return found
 
     def flows(self, _: dict[str, Any]) -> dict[str, Any]:
+        def api_nodes(api: list[dict[str, Any]]) -> list[dict[str, Any]]:
+            from rookie_agent.ie import replay
+
+            by_id = {n["id"]: n for n in api}
+            call_group = {c: g["id"] for g in replay.groups_of(api) for c in g["calls"]}
+            out = []
+            for g in replay.groups_of(api):
+                calls = [by_id[c] for c in g["calls"]]
+                links: dict[str, str] = {}
+                for n in calls:                 # where a value comes from: the step whose answer gave it (a link inside the step is not shown)
+                    for name, rule in n["links"].items():
+                        if call_group.get(rule["from"], g["id"]) != g["id"]:
+                            links[name] = call_group[rule["from"]]
+                out.append({"id": g["id"], "label": g["label"], "risk": g["risk"], "step_id": g["step_id"], "ms": g["ms"],
+                            "kind": calls[0]["kind"], "call_count": len(calls),
+                            "ready": all(n["complete"] and not n["unresolved"] for n in calls),
+                            "inputs": sorted({x for n in calls for x in re.findall("⟦([a-z0-9_]+)⟧", n["url"] + n["body"] + n["headers"])}
+                                             - {x for n in calls for x in n["links"]}),
+                            "links": links,
+                            "calls": [{"id": n["id"], "method": n["method"], "name": replay.call_name(n), "kind": n["kind"],
+                                       "ready": bool(n["complete"] and not n["unresolved"])} for n in calls]})
+            return out
+
         def listed(flow: dict[str, Any]) -> dict[str, Any]:
             workflow = flow.get("workflow") or {}
             return {k: v for k, v in flow.items() if k not in ("workflow", "requests", "api")} | {
-                # the API nodes the canvas draws (task 8.5): what each calls, never a template's body
-                "api_nodes": [{"id": n["id"], "label": n["label"], "risk": n["risk"], "method": n["method"], "kind": n["kind"],
-                               "step_id": n["step_id"], "ready": bool(n["complete"] and not n["unresolved"]),
-                               "inputs": sorted(set(re.findall("⟦([a-z0-9_]+)⟧", n["url"] + n["body"] + n["headers"]))),
-                               "links": {k: v["from"] for k, v in n["links"].items()}} for n in flow.get("api") or []],
+                # the nodes the canvas draws (task 8.5): one per step, with the calls it fires; never a template's body
+                "api_nodes": api_nodes(flow.get("api") or []),
                 "approved": workflow.get("status") == "approved", "engine": workflow.get("engine"),
                 "workflow_id": workflow.get("id"), "twin_ready": replay_has_twin(flow.get("api") or []), "has_api": bool(flow.get("api")),
                 "step_count": len(workflow.get("steps", [])),
@@ -1253,7 +1273,7 @@ class Core:
         title = str(body.get("name") or " → ".join(p["label"] for p in plan))
         state: dict[str, Any] = {"mode": "twin", "title": title, "controller": controller, "stop": stop, "result": None, "stops_before": None,
                                  "started": time.time(), "via": None, "input_names": sorted(inputs), "twin": True,
-                                 "stages": [{"label": p["label"], "role": p["role"], "nodes": [n["id"] for n in p["nodes"]]} for p in plan]}
+                                 "stages": [{"label": p["label"], "role": p["role"], "nodes": [g["id"] for g in replay.groups_of(p["nodes"])]} for p in plan]}
         send = twin.make_twin_send(inputs, str(body.get("seed") or ""))
 
         def work() -> None:
@@ -1291,7 +1311,12 @@ class Core:
         stages = []
         for stage in self._twin_stages(body):
             workflow = stage["flow"]["workflow"]
-            api = [{k: n[k] for k in ("label", "method", "url", "body", "risk")} for n in stage["flow"].get("api") or []]
+            from rookie_agent.ie import replay
+
+            nodes = stage["flow"].get("api") or []
+            group_of = {c: g for g in replay.groups_of(nodes) for c in g["calls"]}
+            api = [{**{k: n[k] for k in ("label", "method", "url", "body", "risk")}, "name": replay.call_name(n),
+                    "group": group_of[n["id"]]["id"], "group_label": group_of[n["id"]]["label"]} for n in nodes]
             steps = [{"label": friendly_step(s["action"], (s.get("target") or {}).get("label")), "risk": s.get("risk", "read")} for s in workflow.get("steps", [])]
             stages.append({"label": stage["label"], "role": stage["role"], "api": api, "steps": steps})
         return n8n.export(str(body.get("name") or "Quy trình"), stages)

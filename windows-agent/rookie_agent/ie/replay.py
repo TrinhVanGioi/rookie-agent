@@ -250,6 +250,7 @@ def build_api(workflow: dict[str, Any], events: list[dict[str, Any]], found: lis
     signature = [(t["method"], t["url"], t["body"]) for t in found]
     known = {i["name"] for i in workflow.get("inputs", [])}
     nodes: list[dict[str, Any]] = []
+    group_count, last_step = 0, object()
     for item in found:
         if item["status"] >= 400 or (item["status"] == 0 and item["kind"] == "xhr"):
             continue                                   # failed when recorded: not part of the flow
@@ -258,8 +259,13 @@ def build_api(workflow: dict[str, Any], events: list[dict[str, Any]], found: lis
         step = step_of.get(item["after_seq"]) if item.get("after_seq") is not None else None
         url, body, headers = (_MARK.sub(value_of, item[k]) for k in ("url", "body", "headers"))
         path = url.split("?", 1)[0]
+        step_id = step["id"] if step else None
+        if step_id != last_step:                       # one step (or one screen opening) is one group: the calls it fired in a row
+            group_count += 1
+            last_step = step_id
         node = {
-            "id": f"a{item['index']}", "step_id": step["id"] if step else None, "kind": item["kind"],
+            "id": f"a{item['index']}", "step_id": step_id, "kind": item["kind"],
+            "group": f"g{group_count}", "group_label": describe(step) if step else "Mở màn hình",
             "label": f"{describe(step) if step else 'Mở màn hình'} → {item['method']} {path[-60:]}",
             "frame": item["frame"], "method": item["method"], "url": url, "headers": headers, "body": body,
             "links": {name: {**rule, "from": f"a{rule['from']}"} for name, rule in item.get("links", {}).items()},
@@ -274,6 +280,54 @@ def build_api(workflow: dict[str, Any], events: list[dict[str, Any]], found: lis
     for node in nodes:                                 # a link to an answer that is not in the flow cannot be filled
         node["unresolved"] += sorted(name for name, rule in node["links"].items() if rule["from"] not in kept)
     return nodes
+
+
+_RISK_RANK = {"read": 0, "write": 1, "money": 2}
+
+
+def call_name(node: dict[str, Any]) -> str:
+    """`POST /touchpoint/TPClassLoader`: the call as a person names it (no host, no query)."""
+    path = re.sub(r"^[A-Za-z][A-Za-z0-9+.\-]*://[^/]*", "", str(node.get("url") or "").split("?", 1)[0])
+    return f"{node.get('method', '')} {path[-60:]}".strip()
+
+
+def _group_label(node: dict[str, Any]) -> str:
+    if node.get("group_label"):
+        return str(node["group_label"])
+    label = str(node.get("label") or "")          # a flow saved before groups: "Bấm «X» → POST /path", the step's name is before the arrow
+    return label.rsplit(" → ", 1)[0] if " → " in label else (label or "Mở màn hình")
+
+
+def groups_of(nodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The steps of the flow: one step is ONE node that fires its batch of calls (docs/design.md 6.4). Calls with the same `group` form a
+    step; a flow saved before groups existed has none, so consecutive calls of the same step (or of no step, the screen opening) are
+    grouped here. Each: {id, step_id, label, risk, calls (node ids, in order), ms}."""
+    groups: list[dict[str, Any]] = []
+    by_id: dict[str, dict[str, Any]] = {}
+    derived: set[str] = set()
+    for node in nodes:
+        explicit = node.get("group")
+        current = groups[-1] if groups else None
+        if explicit is not None:
+            group = by_id.get(str(explicit))
+            if group is not None and group["id"] in derived:     # an id made here for an older call is not the one a newer call names
+                group = None
+        else:
+            group = current if current is not None and current["id"] in derived and current["step_id"] == node.get("step_id") else None
+        if group is None:
+            gid = str(explicit) if explicit is not None else f"g{len(groups) + 1}"
+            while gid in by_id:
+                gid += "_"
+            group = {"id": gid, "step_id": node.get("step_id"), "label": _group_label(node), "risk": "read", "calls": [], "ms": 0}
+            groups.append(group)
+            by_id[gid] = group
+            if explicit is None:
+                derived.add(gid)
+        group["calls"].append(node["id"])
+        group["ms"] += int(node.get("ms") or 0)
+        if _RISK_RANK.get(str(node.get("risk")), 0) > _RISK_RANK[group["risk"]]:
+            group["risk"] = str(node["risk"])
+    return groups
 
 
 # ---- 8.5: the run ----------------------------------------------------------------------------------------------------
@@ -372,18 +426,20 @@ def run_api(workflow: dict[str, Any], nodes: list[dict[str, Any]], values: dict[
     person's Duyệt (never automatic) and goes on after it. In a `role` "checker" stage a stage with no such node still waits at its last one.
     `peek(node)` (real run only): the last bodies the live page sent to the node's path; a value that came from the sign-in answer is taken
     from the one that fits the node's template (the session the page uses now), never stored."""
+    groups = groups_of(nodes)
+    by_id = {n["id"]: n for n in nodes}
     done: list[dict[str, Any]] = []
-    answers: dict[str, str] = {}                       # this run's answers, in memory only, for the links of the next nodes
+    answers: dict[str, str] = {}                       # this run's answers, in memory only, for the links of the next calls
     started = time.monotonic()
     sign_in = _sign_in_steps(workflow)
     simulated_ms = 0
-    last_id = next((n["id"] for n in reversed(nodes) if n.get("step_id") not in sign_in), None)
-    asks = any(n["risk"] != "read" for n in nodes if n.get("step_id") not in sign_in)
+    last_id = next((g["id"] for g in reversed(groups) if g["step_id"] not in sign_in), None)
+    asks = any(g["risk"] != "read" for g in groups if g["step_id"] not in sign_in)
 
-    def note(node: dict[str, Any], status: str, detail: str, shown: dict[str, Any]) -> None:
-        done.append({"id": node["id"], "status": status, "detail": detail})
-        controller.progress(node["id"], status, detail)
-        controller.show(node["id"], shown)
+    def note(group: dict[str, Any], status: str, detail: str, shown: dict[str, Any]) -> None:
+        done.append({"id": group["id"], "status": status, "detail": detail})
+        controller.progress(group["id"], status, detail)
+        controller.show(group["id"], shown)
 
     def end(status: str, message: str) -> dict[str, Any]:
         result = {"status": status, "message": message, "steps": done, "seconds": round(time.monotonic() - started, 1)}
@@ -391,89 +447,118 @@ def run_api(workflow: dict[str, Any], nodes: list[dict[str, Any]], values: dict[
             result.update(twin=True, simulated_ms=simulated_ms)
         return result
 
-    for node in nodes:
+    for group in groups:
+        label = group["label"]
         if stop.is_set():
-            return end("stopped", f"Dừng khẩn trước «{node['label']}».")
-        shown: dict[str, Any] = {"action": node["label"], "risk": node["risk"], "requests": [], "inputs": []}
-        if node.get("step_id") in sign_in:
-            if twin and node.get("shape"):
-                # The twin answers the sign-in from its fake too (nothing is sent, the password is never used), so a value
-                # the next calls take from the sign-in answer (a session id) exists in the twin run.
-                answers[node["id"]] = str(send(node, node["url"], node["headers"], node["body"]).get("text") or "")
-                note(node, "skipped", "đăng nhập: bản sao tự trả lời giả để có giá trị cho bước sau, không gửi gì", shown)
-            else:
-                note(node, "skipped", "đăng nhập: dùng phiên đang mở của trang IE", shown)
+            return end("stopped", f"Dừng khẩn trước «{label}».")
+        calls = [by_id[c] for c in group["calls"]]
+        shown: dict[str, Any] = {"action": label, "risk": group["risk"], "requests": [], "inputs": [], "calls": len(calls)}
+        if group["step_id"] in sign_in:
+            twin_answered = False
+            for node in calls:
+                if twin and node.get("shape"):
+                    # The twin answers the sign-in from its fake too (nothing is sent, the password is never used), so a value
+                    # the next calls take from the sign-in answer (a session id) exists in the twin run.
+                    answers[node["id"]] = str(send(node, node["url"], node["headers"], node["body"]).get("text") or "")
+                    twin_answered = True
+            note(group, "skipped", "đăng nhập: bản sao tự trả lời giả để có giá trị cho bước sau, không gửi gì" if twin_answered
+                 else "đăng nhập: dùng phiên đang mở của trang IE", shown)
             continue
-        controller.progress(node["id"], "running", "")
+        controller.progress(group["id"], "running", "")
         if twin:
             shown["twin"] = TWIN_BANNER
-        if twin and (node["risk"] != "read" or (role == "checker" and not asks and node["id"] == last_id)):
-            step = {"id": node["id"], "risk": node["risk"] if node["risk"] != "read" else "write", "action": "approve", "target": {"label": node["label"]}}
-            if not controller.approve(step, nodes.index(node), len(nodes)):
-                note(node, "rejected" if not stop.is_set() else "stopped", "người duyệt không đồng ý" if not stop.is_set() else "Dừng khẩn", shown)
-                return end("stopped", f"«{node['label']}» không được Duyệt: dừng (bản sao, chưa có gì gửi đi).")
-        elif node["risk"] != "read":
-            note(node, "refused", "ghi dữ liệu hoặc tiền: không gửi bằng request", shown)
-            return end("refused", f"«{node['label']}» ghi dữ liệu hoặc chuyển tiền: không chạy bằng request. Dùng «Chạy trên màn hình», có bước Duyệt.")
-        if not node.get("complete") or node.get("unresolved"):
-            why = ("lúc ghi request bị cắt bớt, hoặc có mật khẩu/mã chống giả không rõ nguồn" if not node.get("complete")
-                   else "có giá trị chưa biết lấy từ đâu: " + ", ".join(node["unresolved"]))
-            shown["requests"].append({"method": node["method"], "url": node["url"], "error": why})
-            note(node, "needs_help", why, shown)
-            return end("needs_help", f"«{node['label']}»: không gửi lại được ({why}). Agent dừng để hỏi bạn.")
-        here = dict(values)
-        for name, rule in node.get("links", {}).items():
-            value = take_value(answers.get(rule["from"], ""), rule)
-            where = next((n["label"] for n in nodes if n["id"] == rule["from"]), rule["from"])
-            source = next((n for n in nodes if n["id"] == rule["from"]), None)
-            from_sign_in = value is None and source is not None and source.get("step_id") in sign_in and not twin
-            live = _live_value(node, name, peek) if from_sign_in else None
-            if live is not None:
-                here[name] = live
-                shown["inputs"].append({"name": name, "from": LIVE_SESSION})
+        # every call of the step is listed from the start: those sent get their status and time, the others stay «chưa gửi»
+        real_calls = [c for c in calls if c.get("kind") != "screen"]
+        shown["requests"] = [{"method": c["method"], "url": c["url"], "state": NOT_SENT} for c in real_calls]
+        slot = {c["id"]: i for i, c in enumerate(real_calls)}
+        if twin and (group["risk"] != "read" or (role == "checker" and not asks and group["id"] == last_id)):
+            step = {"id": group["id"], "risk": group["risk"] if group["risk"] != "read" else "write", "action": "approve", "target": {"label": label}}
+            if not controller.approve(step, groups.index(group), len(groups)):      # one Duyệt for the whole step
+                note(group, "rejected" if not stop.is_set() else "stopped", "người duyệt không đồng ý" if not stop.is_set() else "Dừng khẩn", shown)
+                return end("stopped", f"«{label}» không được Duyệt: dừng (bản sao, chưa có gì gửi đi).")
+        elif group["risk"] != "read":
+            note(group, "refused", "ghi dữ liệu hoặc tiền: không gửi bằng request", shown)
+            return end("refused", f"«{label}» ghi dữ liệu hoặc chuyển tiền: không chạy bằng request. Dùng «Chạy trên màn hình», có bước Duyệt.")
+        for node in calls:                              # nothing of the batch is sent while one of its calls cannot be
+            if not node.get("complete") or node.get("unresolved"):
+                why = ("lúc ghi request bị cắt bớt, hoặc có mật khẩu/mã chống giả không rõ nguồn" if not node.get("complete")
+                       else "có giá trị chưa biết lấy từ đâu: " + ", ".join(node["unresolved"]))
+                if node["id"] in slot:
+                    shown["requests"][slot[node["id"]]]["error"] = why
+                note(group, "needs_help", f"{call_name(node)}: {why}", shown)
+                return end("needs_help", f"«{label}», lời gọi {call_name(node)}: không gửi lại được ({why}). Agent dừng để hỏi bạn.")
+        group_ms = 0
+        for node in calls:
+            ref = call_name(node)
+            here = dict(values)
+            for name, rule in node.get("links", {}).items():
+                value = take_value(answers.get(rule["from"], ""), rule)
+                source = by_id.get(rule["from"])
+                where = source["label"] if source is not None else rule["from"]
+                from_sign_in = value is None and source is not None and source.get("step_id") in sign_in and not twin
+                live = _live_value(node, name, peek) if from_sign_in else None
+                if live is not None:
+                    here[name] = live
+                    _add_input(shown, name, LIVE_SESSION)
+                    continue
+                if from_sign_in:
+                    why = (f"giá trị «{name}» lấy từ trả lời lúc đăng nhập («{where}»), mà lần chạy thật không đăng nhập lại "
+                           "(dùng phiên đang mở, không gửi mật khẩu). Hãy Ghi lại khi đã đăng nhập sẵn: đăng nhập trước, mở màn hình cần làm, "
+                           "rồi mới bấm Ghi; sau đó Học lại. Hoặc dùng «Chạy thử trên bản sao». " + NEED_LIVE.rstrip("."))
+                    note(group, "needs_help", f"{ref}: {why}", shown)
+                    return end("needs_help", f"«{label}», lời gọi {ref}: {why}.")
+                if value is None:
+                    why = f"không lấy được giá trị từ trả lời của «{where}»"
+                    note(group, "needs_help", f"{ref}: {why}", shown)
+                    return end("needs_help", f"«{label}», lời gọi {ref}: {why}. Agent dừng, không thử đoán.")
+                here[name] = value
+                _add_input(shown, name, where)
+            for name in sorted(set(_MARK.findall(node["url"] + node["body"] + node["headers"])) - set(node.get("links", {}))):
+                _add_input(shown, name, "GDV nhập")
+            url, m1 = fill_in(node["url"], here)
+            body, m2 = fill_in(node["body"], here)
+            headers, m3 = fill_in(node["headers"], here)
+            if m1 or m2 or m3:
+                why = "còn thiếu: " + ", ".join(sorted(set(m1 + m2 + m3)))
+                note(group, "needs_help", f"{ref}: {why}", shown)
+                return end("needs_help", f"«{label}», lời gọi {ref}: {why}.")
+            if twin and node.get("kind") == "screen":
+                simulated_ms += int(node.get("ms") or 0)
+                group_ms += int(node.get("ms") or 0)
+                shown["screen"] = True
                 continue
-            if from_sign_in:
-                why = (f"giá trị «{name}» lấy từ trả lời lúc đăng nhập («{where}»), mà lần chạy thật không đăng nhập lại "
-                       "(dùng phiên đang mở, không gửi mật khẩu). Hãy Ghi lại khi đã đăng nhập sẵn: đăng nhập trước, mở màn hình cần làm, "
-                       "rồi mới bấm Ghi; sau đó Học lại. Hoặc dùng «Chạy thử trên bản sao». " + NEED_LIVE.rstrip("."))
-                note(node, "needs_help", why, shown)
-                return end("needs_help", f"«{node['label']}»: {why}.")
-            if value is None:
-                why = f"không lấy được giá trị từ trả lời của «{where}»"
-                note(node, "needs_help", why, shown)
-                return end("needs_help", f"«{node['label']}»: {why}. Agent dừng, không thử đoán.")
-            here[name] = value
-            shown["inputs"].append({"name": name, "from": where})
-        for name in sorted(set(_MARK.findall(node["url"] + node["body"] + node["headers"])) - set(node.get("links", {}))):
-            shown["inputs"].append({"name": name, "from": "GDV nhập"})
-        url, m1 = fill_in(node["url"], here)
-        body, m2 = fill_in(node["body"], here)
-        headers, m3 = fill_in(node["headers"], here)
-        if m1 or m2 or m3:
-            why = "còn thiếu: " + ", ".join(sorted(set(m1 + m2 + m3)))
-            note(node, "needs_help", why, shown)
-            return end("needs_help", f"«{node['label']}»: {why}.")
-        if twin and node.get("kind") == "screen":
-            simulated_ms += int(node.get("ms") or 0)
-            shown["screen"] = True
-            note(node, "done", f"màn hình · {node.get('ms') or 0} ms (mô phỏng)", shown)
-            continue
-        answer = send(node, url, headers, body)
-        simulated_ms += int(answer.get("ms") or 0)
-        sent: dict[str, Any] = {"method": node["method"], "url": url, "body": body[:4000], "status": answer.get("status", 0), "ms": answer.get("ms", 0)}
-        shown["requests"].append(sent)
-        if not answer.get("ok"):
-            sent["error"] = {"no_frame": "không thấy khung trang lúc ghi (trang đã đổi màn hình?)", "timeout": "quá 30 giây không có trả lời"}.get(
-                str(answer.get("error")), str(answer.get("error")))
-            note(node, "failed", sent["error"], shown)
-            return end("failed", f"«{node['label']}»: {sent['error']}.")
-        text = str(answer.get("text") or "")
-        answers[node["id"]] = text
-        sent["view"] = response_view.summarize(text)
-        why = "" if twin else refused(int(answer.get("status") or 0), text)
-        if why:
-            sent["error"] = why
-            note(node, "needs_help", why, shown)
-            return end("needs_help", f"«{node['label']}»: {why}. Agent dừng, không thử đoán.")
-        note(node, "done", f"{answer.get('status')} · {answer.get('ms', 0)} ms", shown)
+            answer = send(node, url, headers, body)
+            simulated_ms += int(answer.get("ms") or 0)
+            group_ms += int(answer.get("ms") or 0)
+            sent: dict[str, Any] = {"method": node["method"], "url": url, "body": body[:4000], "status": answer.get("status", 0), "ms": answer.get("ms", 0)}
+            shown["requests"][slot[node["id"]]] = sent
+            if not answer.get("ok"):
+                sent["error"] = {"no_frame": "không thấy khung trang lúc ghi (trang đã đổi màn hình?)", "timeout": "quá 30 giây không có trả lời"}.get(
+                    str(answer.get("error")), str(answer.get("error")))
+                note(group, "failed", f"{ref}: {sent['error']}", shown)
+                return end("failed", f"«{label}», lời gọi {ref}: {sent['error']}.")
+            text = str(answer.get("text") or "")
+            answers[node["id"]] = text
+            sent["view"] = response_view.summarize(text)
+            why = "" if twin else refused(int(answer.get("status") or 0), text)
+            if why:
+                sent["error"] = why
+                note(group, "needs_help", f"{ref}: {why}", shown)
+                return end("needs_help", f"«{label}», lời gọi {ref}: {why}. Agent dừng, không thử đoán.")
+        if twin and shown.get("screen"):
+            note(group, "done", f"màn hình · {group_ms} ms (mô phỏng)", shown)
+        elif len(real_calls) == 1:
+            only = shown["requests"][0]
+            note(group, "done", f"{only.get('status')} · {only.get('ms', 0)} ms", shown)
+        else:
+            note(group, "done", f"{len(real_calls)} lời gọi · {group_ms} ms", shown)
     return end("finished", "Chạy xong.")
+
+
+NOT_SENT = "chưa gửi"
+
+
+def _add_input(shown: dict[str, Any], name: str, source: str) -> None:
+    item = {"name": name, "from": source}
+    if item not in shown["inputs"]:
+        shown["inputs"].append(item)

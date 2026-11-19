@@ -124,9 +124,9 @@ def test_the_twin_goes_through_three_linked_nodes_and_the_real_send_is_never_use
     assert result["status"] == "finished" and result["twin"] is True and result["simulated_ms"] >= 0
     assert sent == [] and person.asked == []
     assert [s["status"] for s in controller.steps] == ["done"] * 3
-    sent_third = controller.details["a2"]["requests"][0]
+    sent_third = controller.details["g3"]["requests"][0]
     assert sent_third["status"] == 200 and re.fullmatch(r"kh=[A-Z]{2}\d{5}&tab=1", sent_third["body"])   # the link took the fake's value
-    assert controller.details["a2"]["twin"] == replay.TWIN_BANNER
+    assert controller.details["g3"]["twin"] == replay.TWIN_BANNER
 
 
 def test_a_write_node_waits_for_a_person_and_goes_on_after_the_duyet_and_money_never_goes_by_itself():
@@ -148,7 +148,7 @@ def test_a_no_stops_the_twin_run_and_a_stop_wins():
 
 def test_a_checker_stage_without_a_write_node_still_waits_for_the_checker_at_its_last_node():
     result, controller, person, _ = twin_run(nodes()[:3], answers=[True], role="checker")
-    assert result["status"] == "finished" and len(person.asked) == 1 and person.asked[0]["step_id"] == "a2"
+    assert result["status"] == "finished" and len(person.asked) == 1 and person.asked[0]["step_id"] == "g3"
 
 
 # ---- the whole process through the page's routes -------------------------------------------------------------------------------
@@ -203,8 +203,8 @@ def test_a_process_runs_maker_then_queue_then_checker_and_pauses_for_each_duyet(
     assert asks == [("maker", "write"), ("checker", "money")]
     assert done["result"]["twin"] is True and len(done["stages"]) == 2
     ids = [s["id"] for s in done["steps"]]
-    assert ids.index("q1") > ids.index("c1.a2") and ids.index("c2.k1") > ids.index("q1")        # maker, queue, checker
-    assert done["details"]["c2.k2"]["screen"] is True and done["details"]["c1.a1"]["twin"].startswith("BẢN SAO")
+    assert ids.index("q1") > ids.index("c1.g3") and ids.index("c2.k1") > ids.index("q1")        # maker, queue, checker
+    assert done["details"]["c2.k2"]["screen"] is True and done["details"]["c1.g2"]["twin"].startswith("BẢN SAO")
     lines = [json.loads(line) for line in (tmp_path / "audit.jsonl").read_text(encoding="utf-8").splitlines()]
     assert lines[-1]["mode"] == "twin" and "9988776655" not in json.dumps(lines[-1])
 
@@ -368,9 +368,13 @@ def test_the_n8n_export_has_every_node_and_connection_and_no_value_or_header(tmp
     assert any(n["name"] == "Bàn giao / Hàng chờ duyệt" for n in doc["nodes"]) and n8n.NOTE in text
     http_nodes = [n for n in doc["nodes"] if n["type"] == "n8n-nodes-base.httpRequest"]
     assert "⟦cif⟧" in http_nodes[1]["parameters"]["body"] and all("headers" not in n["parameters"] for n in http_nodes)
-    names = [n["name"] for n in doc["nodes"]]
+    names = [n["name"] for n in doc["nodes"] if n["type"] != "n8n-nodes-base.stickyNote"]
     assert len(names) == len(set(names)) and all(len(n["position"]) == 2 for n in doc["nodes"])
-    # a chain: every node but the last connects to the next
+    # one sticky note per step around its calls; the calls are named under their step
+    notes = [n for n in doc["nodes"] if n["type"] == "n8n-nodes-base.stickyNote"]
+    assert len(notes) == 3 and "Mở màn hình" in notes[0]["name"] and notes[0]["parameters"]["width"] > 0
+    assert http_nodes[0]["name"].startswith("Mở màn hình · 1/1 GET /tp/init")
+    # a chain: every node but the last connects to the next (a sticky note takes no part)
     assert set(doc["connections"]) == set(names[:-1])
     assert all(doc["connections"][a]["main"][0][0]["node"] == b for a, b in zip(names, names[1:]))
 
@@ -443,7 +447,7 @@ def test_a_gwt_body_takes_the_session_from_the_page_s_newest_matching_body(monke
             "unrelated body", "7|0|5|http://h/touchpoint/|ABC123|NEWSESSION9|com.tp.Svc|run|1|2|3|4|"]
     result, controller, sent, asked = _real_run(template, live, monkeypatch)
     assert result["status"] == "finished" and "NEWSESSION9" in sent[0][2] and "OLDSESSION" not in sent[0][2]
-    assert controller.details["a1"]["inputs"] == [{"name": "l1", "from": "phiên đang mở của trang IE"}]
+    assert controller.details["g2"]["inputs"] == [{"name": "l1", "from": "phiên đang mở của trang IE"}]
 
 
 def test_a_form_body_and_a_template_with_two_marks_take_the_right_group(monkeypatch):
@@ -465,3 +469,48 @@ def test_the_value_taken_from_the_live_page_is_not_kept_in_the_audit_or_the_flow
     result, controller, sent, _ = _real_run(template, ["sid=SECRETSESSION42&tab=1"], monkeypatch)
     assert "SECRETSESSION42" not in json.dumps(api) and "SECRETSESSION42" not in json.dumps(result)
     assert "SECRETSESSION42" not in json.dumps(controller.steps)   # the canvas detail (memory only) shows the sent body as it always did
+
+
+# ---- one step is one node that fires its batch of calls ---------------------------------------------------------------------------
+
+def test_one_duyet_asks_for_a_whole_step_not_for_each_of_its_calls():
+    from test_replay import batch_nodes
+
+    api = batch_nodes()
+    for node in api:
+        if node["group"] == "g3":
+            node["risk"] = "write"
+    result, controller, person, sent = twin_run(api, answers=[True])
+    assert result["status"] == "finished" and len(person.asked) == 1 and person.asked[0]["step_id"] == "g3" and sent == []
+    assert [r["status"] for r in controller.details["g3"]["requests"]] == [200, 200]
+    assert [s["id"] for s in result["steps"]] == ["g1", "g2", "g3"]
+
+
+def test_a_no_to_the_one_duyet_leaves_every_call_of_the_step_unsent():
+    from test_replay import batch_nodes
+
+    api = batch_nodes()
+    for node in api:
+        if node["group"] == "g3":
+            node["risk"] = "money"
+    result, controller, person, _ = twin_run(api, answers=[False])
+    assert result["status"] == "stopped" and len(person.asked) == 1
+    assert [r["state"] for r in controller.details["g3"]["requests"]] == ["chưa gửi", "chưa gửi"]
+
+
+def test_a_checker_stage_asks_once_at_its_last_step_even_when_that_step_has_several_calls():
+    from test_replay import batch_nodes
+
+    result, controller, person, _ = twin_run(batch_nodes(), answers=[True], role="checker")
+    assert result["status"] == "finished" and len(person.asked) == 1 and person.asked[0]["step_id"] == "g3"
+
+
+def test_a_stage_of_a_flow_saved_before_groups_gets_its_groups_prefixed_and_the_steps_stay_one_node_each():
+    from test_replay import batch_nodes
+
+    old = batch_nodes()
+    for node in old:
+        node.pop("group"), node.pop("group_label")
+    prefixed = twin.prefixed(old, "c1.", "Lập lệnh")
+    assert [g["id"] for g in replay.groups_of(prefixed)] == ["c1.g1", "c1.g2", "c1.g3"]
+    assert replay.groups_of(prefixed)[2]["label"] == "[Lập lệnh] s4_open" and len(replay.groups_of(prefixed)[2]["calls"]) == 2
