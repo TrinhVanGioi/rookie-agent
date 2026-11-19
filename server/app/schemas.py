@@ -52,6 +52,15 @@ def validate_workflow(document: Any) -> None:
                 raise SchemaError(f"workflow không hợp lệ: bước {step['id']} dùng đầu vào không bắt buộc nhưng không phải bước optional if_different")
 
 
+def validate_api_nodes(document: Any) -> None:
+    """The API nodes of a flow as the server keeps them (task 10.3). Beyond the schema: ids unique. (A link may point to a node that
+    is not in the flow: the node then lists that name in `unresolved` and does not run.)"""
+    _validate("api-nodes", document)
+    ids = [node["id"] for node in document]
+    if len(set(ids)) != len(ids):
+        raise SchemaError("api-nodes không hợp lệ: id nút bị trùng")
+
+
 def validate_trace(document: Any) -> None:
     """A trace is the masked raw record of several sessions, the input of the LLM that designs a workflow.
     Beyond the schema: event ids are unique, and every event points to an element the trace describes."""

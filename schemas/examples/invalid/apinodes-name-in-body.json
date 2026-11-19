@@ -1,0 +1,3 @@
+[
+  {"id": "a1", "group": "g1", "label": "Tra cứu → POST /tp/rpc", "method": "POST", "url": "http://tp.local/tp/rpc", "body": "7|0|4|com.fis.tp.Service|find|⟦cif⟧|NGUYEN VAN AN|", "risk": "read"}
+]

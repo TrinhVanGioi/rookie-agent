@@ -22,6 +22,9 @@ def _validate(path: Path) -> None:
         validate_log_row(document)
     elif path.name.startswith("trace-"):
         validate_trace(document)
+    elif path.name.startswith("apinodes-"):
+        from app.api_nodes import check
+        check(document)
     else:
         validate_workflow(document)
 

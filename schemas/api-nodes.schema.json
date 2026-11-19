@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rookie-agent.local/schemas/api-nodes.schema.json",
+  "title": "API nodes",
+  "description": "Các nút API của một luồng như máy chủ giữ (task 10.3, docs/design.md mục 13). Mẫu đã che trên máy GDV: đoạn trông như dữ liệu thành •••, liên kết theo chữ xung quanh không mang chữ đó. Bản đầy đủ chỉ nằm trên máy GDV. Nút thêm trên máy chủ có added: true.",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "required": ["id", "group", "label", "method", "url", "body", "risk"],
+    "additionalProperties": false,
+    "properties": {
+      "id": {"type": "string", "pattern": "^[a-z][a-z0-9_]{0,31}$"},
+      "step_id": {"type": ["string", "null"]},
+      "group": {"type": "string", "minLength": 1, "maxLength": 32},
+      "group_label": {"type": "string", "maxLength": 200},
+      "label": {"type": "string", "minLength": 1, "maxLength": 200},
+      "kind": {"type": "string", "pattern": "^[a-z]{1,16}$"},
+      "via": {"type": "string", "pattern": "^[a-z]{0,16}$"},
+      "file": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {"guess": {"type": "boolean"}, "ctype": {"type": "string", "maxLength": 200}, "size": {"type": "integer"}, "name": {"type": "string", "maxLength": 200}}
+      },
+      "dialog": {"type": "boolean"},
+      "frame": {"type": ["string", "null"], "maxLength": 200},
+      "method": {"enum": ["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD"]},
+      "url": {"type": "string", "minLength": 1, "maxLength": 4000},
+      "headers": {"type": "string", "maxLength": 8000},
+      "body": {"type": "string", "maxLength": 200000},
+      "links": {
+        "type": "object",
+        "additionalProperties": {
+          "type": "object",
+          "required": ["from"],
+          "additionalProperties": false,
+          "properties": {
+            "from": {"type": "string"},
+            "json": {"type": "array", "items": {"type": ["string", "integer"]}},
+            "gwt": {"type": "integer"},
+            "whole": {"type": "boolean"},
+            "text": {"const": true}
+          }
+        }
+      },
+      "risk": {"enum": ["read", "write", "money"]},
+      "complete": {"type": "boolean"},
+      "unresolved": {"type": "array", "items": {"type": "string"}},
+      "ms": {"type": "number", "minimum": 0},
+      "masked": {"type": "integer", "minimum": 0},
+      "added": {"type": "boolean"}
+    }
+  }
+}

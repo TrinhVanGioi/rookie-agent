@@ -527,6 +527,14 @@ class Core:
         }
         api = self._api_for(workflow, ids)
         shown["api_count"] = len(api)
+        put_api = getattr(client, "put_api", None)
+        if api and put_api is not None and workflow.get("id") and workflow.get("version"):
+            from rookie_agent.ie import api_share
+
+            try:      # task 10.3: the server gets the nodes masked; the full templates stay on this PC
+                put_api(workflow["id"], workflow["version"], api_share.for_server(api))
+            except ServerError as error:
+                shown["warnings"] = list(shown["warnings"]) + [f"Chưa gửi được nút API lên máy chủ ({error}); luồng vẫn chạy được trên máy này."]
         flows = [flow for flow in self.store.get("flows", []) if flow.get("title") != shown["title"]]
         self.store.put("flows", flows + [{**shown, "workflow": workflow, "api": api, "input_formats": self._input_formats(workflow, ids),
                                           "learned_at": time.strftime("%Y-%m-%d %H:%M:%S")}])

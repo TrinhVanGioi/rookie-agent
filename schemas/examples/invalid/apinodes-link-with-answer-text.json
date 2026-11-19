@@ -1,0 +1,4 @@
+[
+  {"id": "a1", "group": "g1", "label": "Tra cứu → POST /tp/rpc", "method": "POST", "url": "http://tp.local/tp/rpc", "body": "x=⟦l1⟧", "risk": "read",
+   "links": {"l1": {"from": "a0", "before": "'NGUYEN VAN AN','", "after": "'"}}}
+]

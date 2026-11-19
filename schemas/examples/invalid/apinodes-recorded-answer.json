@@ -1,0 +1,4 @@
+[
+  {"id": "a1", "group": "g1", "label": "Tra cứu → POST /tp/rpc", "method": "POST", "url": "http://tp.local/tp/rpc", "body": "a|⟦cif⟧|", "risk": "read",
+   "answer": "//OK[1,'NGUYEN VAN AN','0123456789']"}
+]

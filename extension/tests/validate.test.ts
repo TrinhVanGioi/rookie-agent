@@ -3,8 +3,11 @@ import { describe, expect, it } from "vitest";
 import { validateEvent, validateWorkflow } from "../src/shared/validate";
 
 // Same example files the server and Windows agent tests use.
-const valid = import.meta.glob("../../schemas/examples/valid/*.json", { eager: true, import: "default" });
-const invalid = import.meta.glob("../../schemas/examples/invalid/*.json", { eager: true, import: "default" });
+// apinodes-* is the server's copy of the API nodes of a flow (task 10.3): the extension does not use it.
+const ours = (files: Record<string, unknown>) =>
+  Object.fromEntries(Object.entries(files).filter(([path]) => !(path.split("/").pop() ?? "").startsWith("apinodes-")));
+const valid = ours(import.meta.glob("../../schemas/examples/valid/*.json", { eager: true, import: "default" }));
+const invalid = ours(import.meta.glob("../../schemas/examples/invalid/*.json", { eager: true, import: "default" }));
 
 function check(path: string, document: unknown): string[] {
   const name = path.split("/").pop() ?? "";

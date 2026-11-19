@@ -1,0 +1,12 @@
+[
+  {"id": "a1", "step_id": null, "group": "g1", "group_label": "Mở màn hình", "label": "Mở màn hình → GET /tp/postAuthentication.fisglobal",
+   "kind": "xhr", "via": "xhr", "frame": "0", "method": "GET", "url": "http://tp.local/tp/postAuthentication.fisglobal?method=getToken&claims=cif",
+   "headers": "", "body": "", "links": {}, "risk": "read", "complete": true, "unresolved": [], "ms": 45, "masked": 0},
+  {"id": "a2", "step_id": "click_tra_cuu", "group": "g2", "group_label": "Bấm «Tra cứu»", "label": "Bấm «Tra cứu» → POST /tp/TPClassLoader",
+   "kind": "xhr", "via": "xhr", "frame": "0", "method": "POST", "url": "http://tp.local/tp/TPClassLoader",
+   "headers": "Authorization: Bearer ⟦l1⟧\r\nContent-Type: text/x-gwt-rpc; charset=utf-8", "body": "7|0|5|com.fis.tp.CifService|find|⟦cif⟧|•••|",
+   "links": {"l1": {"from": "a1", "whole": true}, "l2": {"from": "a1", "text": true}}, "risk": "read", "complete": true, "unresolved": [], "ms": 120, "masked": 1},
+  {"id": "a3", "step_id": "click_in", "group": "g3", "group_label": "Bấm «IN BÁO NỢ/CÓ»", "label": "Bấm «IN BÁO NỢ/CÓ» → POST /tp/exportPdf",
+   "kind": "file", "via": "form", "file": {"guess": true, "ctype": "", "size": 0, "name": ""}, "method": "POST", "url": "http://tp.local/tp/exportPdf",
+   "headers": "", "body": "cif=⟦cif⟧&from=⟦tu_ngay⟧&to=⟦den_ngay⟧", "links": {}, "risk": "read", "complete": true, "unresolved": [], "ms": 300, "masked": 0}
+]

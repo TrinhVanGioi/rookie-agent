@@ -56,6 +56,13 @@ CREATE TABLE IF NOT EXISTS workflow_meta (
     cloned_from TEXT,
     created_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS workflow_api (
+    id TEXT NOT NULL,
+    version INTEGER NOT NULL,
+    api TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (id, version)
+);
 CREATE TABLE IF NOT EXISTS auth_tokens (
     hash TEXT PRIMARY KEY,
     user TEXT NOT NULL,
@@ -181,6 +188,17 @@ class Storage:
                 "FROM workflows w LEFT JOIN workflow_meta m ON m.id = w.id ORDER BY w.id, w.version"
             ).fetchall()
         return [dict(row) for row in rows]
+
+    # ---- the API nodes of a version (task 10.3): masked templates; the full ones stay on the PC ----------------------------
+
+    def set_api(self, workflow_id: str, version: int, api: list[dict[str, Any]]) -> None:
+        with self._lock, self._db:
+            self._db.execute("INSERT OR REPLACE INTO workflow_api VALUES (?, ?, ?, ?)", (workflow_id, version, _dump(api), _now()))
+
+    def get_api(self, workflow_id: str, version: int) -> list[dict[str, Any]] | None:
+        with self._lock:
+            row = self._db.execute("SELECT api FROM workflow_api WHERE id = ? AND version = ?", (workflow_id, version)).fetchone()
+        return json.loads(row["api"]) if row else None
 
     # ---- whose flow it is and who sees it (task 10.2) ----------------------------------------------------------------
 

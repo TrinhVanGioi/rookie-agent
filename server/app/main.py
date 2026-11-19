@@ -14,6 +14,7 @@ from typing import Any, Callable, Literal
 from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
 
+from app import api_nodes
 from app.auth import require, user as caller
 from app.auth.access import NO_OWNER, can_change, can_see, can_share, sees_session
 from app.learner import LearnError, learn, slug
@@ -62,6 +63,10 @@ class StatusIn(BaseModel):
     status: Literal["draft", "tested", "approved"]
 
 
+class ApiIn(BaseModel):
+    api: list[dict[str, Any]] = Field(max_length=2000)
+
+
 class ShareIn(BaseModel):
     visibility: Literal["private", "unit", "all"]
     confirm: bool = False      # the owner saw the preview (GET /workflows/{id}/share-preview)
@@ -98,7 +103,8 @@ def create_app(db_path: str | Path | None = None, auth_mode: str | None = None, 
     app.state.flow_builder = builder if builder.available else None
 
     def workflow_reply(workflow: dict[str, Any], warnings: list[str]) -> dict[str, Any]:
-        return {"workflow": workflow, "digest": digest(workflow), "warnings": warnings}
+        api = storage.get_api(workflow["id"], workflow["version"])     # task 10.3: with a digest of their own; `digest` stays the workflow's
+        return {"workflow": workflow, "digest": digest(workflow), "warnings": warnings, "api": api, "api_digest": api_nodes.digest(api)}
 
     def load(workflow_id: str, version: int | None = None, status: str | None = None):
         found = storage.get_workflow(workflow_id, version, status)
@@ -292,6 +298,19 @@ def create_app(db_path: str | Path | None = None, auth_mode: str | None = None, 
         storage.set_status(workflow_id, version, body.status)
         return workflow_reply(*load(workflow_id, version))
 
+    # ---- the API nodes of a version (task 10.3) -------------------------------------------------------------------
+
+    @app.put("/workflows/{workflow_id}/versions/{version}/api")
+    def put_api(workflow_id: str, version: int, body: ApiIn, request: Request) -> dict[str, Any]:
+        changeable(request, workflow_id)
+        load(workflow_id, version)
+        try:
+            api_nodes.check(body.api)
+        except SchemaError as error:
+            raise HTTPException(422, str(error)) from error
+        storage.set_api(workflow_id, version, body.api)
+        return {"api_digest": api_nodes.digest(body.api), "count": len(body.api)}
+
     # ---- sharing, cloning, owners (task 10.2) ---------------------------------------------------------------------
 
     @app.get("/workflows/{workflow_id}/share-preview")
@@ -323,6 +342,9 @@ def create_app(db_path: str | Path | None = None, auth_mode: str | None = None, 
         copied = {**copy.deepcopy(source), "id": new_id, "version": 1, "status": "draft", "title": title}
         validate_workflow(copied)
         storage.add_workflow(copied, warnings)
+        source_api = storage.get_api(workflow_id, source["version"])
+        if source_api is not None:
+            storage.set_api(new_id, 1, source_api)
         who = caller(request)
         storage.set_owner(new_id, who.name, who.display, who.unit, cloned_from=f"{workflow_id}@{source['version']}")
         return workflow_reply(copied, warnings)

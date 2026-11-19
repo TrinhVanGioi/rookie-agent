@@ -166,6 +166,10 @@ class ServerClient:
     def workflow_version(self, workflow_id: str, version: int) -> dict[str, Any]:
         return self._verified(self._call("GET", f"/workflows/{workflow_id}/versions/{version}"))
 
+    def put_api(self, workflow_id: str, version: int, api: list[dict[str, Any]]) -> dict[str, Any]:
+        """Task 10.3: the API nodes of a version, already masked by `ie.api_share.for_server`."""
+        return self._call("PUT", f"/workflows/{workflow_id}/versions/{version}/api", {"api": api})
+
     def post_test_run(self, workflow_id: str, version: int, result: dict[str, Any]) -> dict[str, Any]:
         return self._call("POST", f"/workflows/{workflow_id}/versions/{version}/test-runs", result)
 
