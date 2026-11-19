@@ -22,7 +22,7 @@ from typing import Any, Protocol
 SUPPORTED_ACTIONS = frozenset({"click", "fill", "select", "submit", "read_value", "wait_for", "read_fields"})
 RISKS = frozenset({"read", "write", "money"})
 MODES = frozenset({"auto", "review", "approve"})
-MOCK_WINDOW_MARKERS = ("Mock TPSS",)
+MOCK_WINDOW_MARKERS = ("Mock TPSS", "TouchPoint (giả lập)")   # the TouchPoint look-alike (mock-site/touchpoint.py) is a mock too
 LOGIN_CHECK_SECONDS = 3.0   # how long to look for the sign-in page before taking the teller as signed in already
 _PLACEHOLDER = re.compile(r"\{([a-z][a-z0-9_]*(?:\.[a-z0-9_]+)*)\}")   # {acct}, or {kq.grid.1.so_tk}: a value read from the screen
 # A step that works on a password or OTP field is the teller's own: the agent never types there, so it never sends there either.

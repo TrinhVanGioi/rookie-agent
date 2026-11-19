@@ -101,6 +101,16 @@ document.cookie = '__rkkeep=' + encodeURIComponent(line) + '; path=/';
   'click-ok'  { $e = $d.getElementById('btnSelect'); $e.focus(); $e.click() }
   'e-type'    { $e = $d.getElementById($env:RK_ID); Do-Focus $d $e; $e.value = $env:RK_VALUE; Do-Blur $d $e }
   'e-click'   { $e = $d.getElementById($env:RK_ID); Send-MouseDown $d $env:RK_ID; $e.focus(); $e.click() }
+  # task 11.2: the same moves inside any frame (RK_FRAME: a path of frame names, e.g. work or work/dlg)
+  'fr-type'   { $fd = Get-Frame $d $env:RK_FRAME; $e = $fd.getElementById($env:RK_ID); Do-Focus $fd $e; $e.value = $env:RK_VALUE; Do-Blur $fd $e }
+  'fr-click'  { $fd = Get-Frame $d $env:RK_FRAME; $e = $fd.getElementById($env:RK_ID); Send-MouseDown $fd $env:RK_ID; $e.focus(); $e.click() }
+  'fr-enter'  {
+    # typed, then Enter as the page hears it (a key event with keyCode 13 fired on the field: a frame has no window of its own to post keys to)
+    $fd = Get-Frame $d $env:RK_FRAME; $e = $fd.getElementById($env:RK_ID); Do-Focus $fd $e; $e.value = $env:RK_VALUE
+    $js = "var e = document.getElementById('" + $env:RK_ID + "'); var ev = document.createEventObject(); ev.keyCode = 13; e.fireEvent('onkeydown', ev);"
+    $null = $fd.parentWindow.execScript($js, 'javascript')
+  }
+  'fr-js'     { $fd = Get-Frame $d $env:RK_FRAME; $null = $fd.parentWindow.execScript([string]$env:RK_JS, 'javascript'); Write-Output ([System.__ComObject].InvokeMember('__res', 'GetProperty', $null, $fd.parentWindow, $null)) }
   'quit'      { $w.Quit() }
   'js'        { $null = $d.parentWindow.execScript([string]$env:RK_JS, 'javascript'); Write-Output ([System.__ComObject].InvokeMember('__res', 'GetProperty', $null, $d.parentWindow, $null)) }
   'cookie'    { Write-Output $d.cookie }

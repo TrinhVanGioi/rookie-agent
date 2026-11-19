@@ -60,6 +60,14 @@ def test_typed_values_are_marks_values_from_earlier_answers_are_links_and_none_i
     assert found[3]["complete"] is False
 
 
+def test_a_typed_value_inside_a_longer_constant_is_left_alone():
+    # task 11.2 (found on the TouchPoint look-alike): the account typed was part of the GWT strong name
+    raw, events, requests = recorded()
+    requests[1] = {**requests[1], "req": "7|0|6|http://tp/|B4D2C1A0F00D5EED0123456789ABCDEF|com.tp.Find|find|0123456789|CIF|"}
+    body = replay.templates(raw, events, requests)[1]["body"]
+    assert body == "7|0|6|http://tp/|B4D2C1A0F00D5EED0123456789ABCDEF|com.tp.Find|find|⟦e0⟧|⟦e1⟧|", body
+
+
 def test_a_token_no_answer_explains_is_hidden_and_the_request_cannot_be_sent_again():
     raw, events, requests = recorded()
     requests[0]["res"] = "{}"

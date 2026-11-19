@@ -40,6 +40,32 @@ def _iso(milliseconds: int) -> str:
     return moment.isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
 
+REACT_MS = 400     # a page answers a press or an Enter at once: a call sent this little before a press belongs to that press
+
+
+def _stamp_ms(event: dict[str, Any]) -> float | None:
+    from datetime import datetime
+
+    try:
+        return datetime.fromisoformat(str(event.get("ts")).replace("Z", "+00:00")).timestamp() * 1000
+    except ValueError:
+        return None
+
+
+def _press_right_after(events: list[dict[str, Any]], sent: Any, after_seq: int | None) -> int | None:
+    """The press (click, Enter) a call was sent for, when the page's own handler ran before the recorder's: the page's onkeydown of a
+    field runs before the recorder hears the key, so the call is sent a few milliseconds before the press is recorded."""
+    if not sent:
+        return None
+    for event in events:
+        if event.get("type") not in ("click", "submit") or (after_seq is not None and int(event["seq"]) <= after_seq):
+            continue
+        at = _stamp_ms(event)
+        if at is not None and 0 <= at - int(sent) <= REACT_MS:
+            return int(event["seq"])
+    return None
+
+
 def _seq_at(events: list[dict[str, Any]], moment: Any, kinds: tuple[str, ...] = ()) -> int | None:
     if not moment:
         return None
@@ -165,10 +191,12 @@ def templates(raw: list[dict[str, Any]], events: list[dict[str, Any]], requests:
     typed_values = {value for value, _ in typed}
 
     def marked(text: str) -> str:
+        # a typed value only where it stands alone: not inside a longer word or number (a typed account number that happens to be part of
+        # the GWT strong name, a class name or another number must not turn that constant into a mark)
         for value, seq in typed:
             mark = f"{OPEN}e{seq}{CLOSE}"
             for form in dict.fromkeys((value, urllib.parse.quote(value, safe=""), urllib.parse.quote_plus(value))):
-                text = text.replace(form, mark)
+                text = re.sub(r"(?<![A-Za-z0-9])" + re.escape(form) + r"(?![A-Za-z0-9])", lambda _m: mark, text)
         return text
 
     out: list[dict[str, Any]] = []
@@ -218,8 +246,10 @@ def templates(raw: list[dict[str, Any]], events: list[dict[str, Any]], requests:
         headers = _AUTH_HEADER.sub(hide_auth, headers)
         after = item.get("after") or {}
         file = file_facts(item.get("file"))
+        after_seq = _seq_at(events, after.get("t"))
+        pressed = _press_right_after(events, item.get("t"), after_seq)
         out.append({
-            "index": index, "after_seq": _seq_at(events, after.get("t")), "kind": str(item.get("kind") or "xhr"),
+            "index": index, "after_seq": pressed if pressed is not None else after_seq, "kind": str(item.get("kind") or "xhr"),
             "frame": str(item.get("frame") or "top"), "method": str(item.get("method") or "GET").upper(),
             "url": url, "headers": headers, "body": body, "links": links,
             "complete": not item.get("cut") and not hidden and "***" not in body and body != "[object]",
@@ -266,15 +296,16 @@ def build_api(workflow: dict[str, Any], events: list[dict[str, Any]], found: lis
         inner = re.fullmatch(r"\{([a-z][a-z0-9_]*)\}", str(step["value"]))
         return f"{OPEN}{inner.group(1)}{CLOSE}" if inner else str(step["value"])
 
-    needed = {link["from"] for item in found for link in item.get("links", {}).values()}
-    signature = [(t["method"], t["url"], t["body"]) for t in found]
+    from rookie_agent.ie import clean
+
+    asking = clean.polling(found)                  # rule 0 of ie/clean.py: the page polling by itself (a keep-alive with a time in it too)
     known = {i["name"] for i in workflow.get("inputs", [])}
     nodes: list[dict[str, Any]] = []
     group_count, last_step = 0, object()
     for item in found:
         if item["status"] >= 400 or (item["status"] == 0 and item["kind"] == "xhr"):
             continue                                   # failed when recorded: not part of the flow
-        if signature.count((item["method"], item["url"], item["body"])) >= POLLING and item["index"] not in needed:
+        if item["index"] in asking:
             continue                                   # the page polling by itself
         step = step_of.get(item["after_seq"]) if item.get("after_seq") is not None else None
         url, body, headers = (_MARK.sub(value_of, item[k]) for k in ("url", "body", "headers"))

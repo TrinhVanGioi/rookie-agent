@@ -40,6 +40,7 @@
     try { if (window.__rkEnsureErr) { window.__rkEnsureErr(); } } catch (eE) {}
     try { if (window.__rkAttach) { window.__rkAttach(); } } catch (eA) {}
     try { if (pending.length && !drainTimer) { drainTimer = window.setTimeout(drain, 0); } } catch (eT) {}
+    try { if (window.__rkRec && !sentChecked) { sentChecked = true; window.setTimeout(sentForms, 0); } } catch (eS) {}   // read by our timer, never here
     s = window.__rkq;
     window.__rkq = "";
     if (s) { try { if (String(doc.cookie || "").indexOf(KEEP) >= 0) { doc.cookie = KEEP + "; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT"; } } catch (e) {} }
@@ -58,9 +59,13 @@
   // known as one that cannot be sent again. The next document of the frame says where the browser went ("nav", at its start).
   var leavingForm = null, leavingAt = 0;
   function formLine() {
-    var f = leavingForm, parts = [], i, x, g, ty, n, v;
+    var f = leavingForm;
     if (!f || new Date().getTime() - leavingAt > 10000) { return ""; }
     leavingForm = null;
+    return formLineOf(f, "");
+  }
+  function formLineOf(f, by) {
+    var parts = [], i, x, g, ty, n, v;
     try {
       for (i = 0; i < f.elements.length; i++) {
         x = f.elements[i]; g = tag(x);
@@ -75,18 +80,73 @@
         parts.push(encodeURIComponent(n) + "=" + encodeURIComponent(v));
       }
       v = parts.join("&");
-      try { window.top.__rkFormAt = new Date().getTime(); } catch (eTop) {}    // for formGo: the page that leaves may be another frame than this one
+      try { window.top.__rkFormAt = new Date().getTime(); window.top.__rkFormSent = String(f.action || "") + "|" + v; } catch (eTop) {}    // for formGo: the page that leaves may be another frame than this one
       return "{" + '"uid":"f' + new Date().getTime() + "-" + Math.floor(Math.random() * 1000000000) + '","t":' + new Date().getTime() + ',"kind":"form","frame":' + str(ownPath()) + ',"method":' + str(String(f.method || "GET").toUpperCase()) +
-        ',"url":' + str(String(f.action || doc.location.href)) + ',"target":' + str(String(f.target || "")) + ',"req":' + str(v.slice(0, FORM_MAX)) + (v.length > FORM_MAX ? ',"cut":true' : "") + "}\n";
+        ',"url":' + str(String(f.action || doc.location.href)) + ',"target":' + str(String(f.target || "")) + ',"req":' + str(v.slice(0, FORM_MAX)) + (v.length > FORM_MAX ? ',"cut":true' : "") +
+        (by ? ',"by":' + str(by) : "") + "}\n";
     } catch (eF) { return ""; }
+  }
+  // Task 11.2: a form the page's script sent into one of its frames while it was loading (a report dialog that posts its form at onload),
+  // before the recorder was in: the frame now shows the form's action. Looked at once, by our own timer, when recording starts in a page.
+  // Two signs, either is enough: the frame shows the action (an answer that is a page), or the page posts it by itself when it opens
+  // (its onload or its own script calls .submit() and the form has no button for a person to send it): an answer that is a download
+  // leaves the frame where it was, so only the second sign shows it. Only read: the page's script text, never run, nothing written.
+  var sentChecked = false;
+  function pathOf(u) { return String(u || "").split("?")[0].replace(/^[a-z]+:\/\/[^\/]+/i, ""); }
+  function postsItself(f) {
+    var onload = "", scripts = "", s, i, el, ty;
+    try { onload = String(doc.body.getAttribute("onload") || ""); } catch (eOl) {}
+    try { s = doc.getElementsByTagName("script"); for (i = 0; i < s.length && i < 40; i++) { scripts += " " + String(s[i].text || "").slice(0, 20000); } } catch (eSc) {}
+    // only a submit that runs when the page opens: in the body's onload, or in a window.onload function (one inside a button's function does not count)
+    if (onload.indexOf(".submit(") < 0 && !/onload\s*=\s*function\s*\([^)]*\)\s*\{[^}]*\.submit\(/.test(scripts)) { return false; }
+    try { for (i = 0; i < f.elements.length; i++) { el = f.elements[i]; ty = typeOf(el); if (ty === "submit" || ty === "image" || tag(el) === "BUTTON") { return false; } } } catch (eEl) {}
+    return true;
+  }
+  function sentForms() {
+    var forms, i, f, t, w, here, act;
+    try { forms = doc.forms; } catch (eFs) { return; }
+    for (i = 0; i < forms.length; i++) {
+      f = forms[i];
+      try {
+        t = String(f.target || ""); act = pathOf(f.action);
+        if (!t || !act) { continue; }
+        w = window.frames[t]; if (!w) { continue; }
+        here = "";
+        try { here = pathOf(w.location.href); } catch (eHere) {}
+        if ((here && here === act) || postsItself(f)) { window.__rkq += formLineOf(f, "load"); }
+      } catch (eSf) {}
+    }
+  }
+  // Task 11.1/11.2: a form the page's own script sends into a frame (form.submit() in a report dialog, the answer a PDF) fires no submit
+  // event, so it is caught where it lands: the frame it targets starts to leave. The form is the one, in a frame above, whose target is
+  // this frame's name; one the teller just sent (formLine) is not made twice. Only read, nothing written onto the page.
+  function scriptForm() {
+    var name = "", w = window, depth = 0, forms, i, f;
+    try { name = String(window.name || ""); } catch (eN) { return null; }
+    if (!name) { return null; }
+    while (depth < 6) {
+      try { if (w === w.parent) { break; } w = w.parent; forms = w.document.forms; } catch (eP) { return null; }
+      for (i = 0; i < forms.length; i++) { f = forms[i]; try { if (String(f.target || "") === name) { return { form: f, win: w }; } } catch (eF2) {} }
+      depth++;
+    }
+    return null;
   }
   // The page starts to leave a moment after a form was sent: a sign that the form really went (a page's own script may stop it), also when
   // the answer is a download and no new document comes. Only a line in memory; nothing is written to the page.
   // the moment of the press, taken at once: the page starts to leave (beforeunload) before our timer makes the form line
   function markForm() { try { window.top.__rkFormAt = new Date().getTime(); } catch (eMf) {} }
   function formGo() {
-    var at = 0;
-    try { at = window.top.__rkFormAt || 0; } catch (eAt) {}
+    var at = 0, f = null, line = "", sent = "";
+    try { at = window.top.__rkFormAt || 0; sent = String(window.top.__rkFormSent || ""); } catch (eAt) {}
+    try {
+      if (window.__rkRec && !window.__rkNoXhr) { f = scriptForm(); }
+      if (f) {
+        line = formLineOf(f.form, "script");
+        if (line && sent && new Date().getTime() - at < 3000 && sent.indexOf(String(f.form.action || "") + "|") === 0) { line = ""; }   // the teller's own form, already a line
+        // the line goes to the queue of the page that holds the form: this frame is leaving, its queue with it
+        if (line) { try { if (typeof f.win.__rkq === "string") { f.win.__rkq += line; } else { window.__rkq += line; } } catch (eQ) { window.__rkq += line; } }
+      }
+    } catch (eSf) {}
     try {
       if (window.__rkRec && at && new Date().getTime() - at < 3000) {
         window.top.__rkFormAt = 0;

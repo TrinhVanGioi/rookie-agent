@@ -160,6 +160,8 @@ class IeSession:
                 self._form = line           # the form the teller sent: the request is known when the next document says where it went
                 self._form_at, self._form_after = time.monotonic(), self._last_action
                 self._form_go = self._form_at - self._go_at < 3.0    # the page may have started to leave just before its line was made
+                if line.get("by") in ("script", "load"):
+                    self._form_go = True       # task 11.2: a form the page's script sent into a frame; that frame already left (or shows the answer)
                 self._go_at = -100.0
             elif line.get("kind") == "formgo":
                 self._go_at = time.monotonic()
