@@ -1034,9 +1034,14 @@ function fileRow(r, onError) {
   if (r.file.saved) {
     row.append(el("strong", "Đã lưu file: " + r.file.name + " (" + r.file.size_text + ") "));
     const openIt = (folder) => async () => { try { await api("POST", "/api/file/open", { path: r.file.path, folder }); } catch (e) { onError(e.message); } };
-    const file = el("button", "Mở file"), dir = el("button", "Mở thư mục");
+    const file = el("button", "Mở file"), dir = el("button", "Mở thư mục"), print = el("button", "In"), note = el("span", "", "detail");
     file.onclick = openIt(false); dir.onclick = openIt(true);
-    row.append(file, dir);
+    print.onclick = async () => {
+      try { const done = await api("POST", "/api/file/open", { path: r.file.path, print: true });
+        note.textContent = done.printed ? " Đã gửi lệnh in." : " Máy chưa có chương trình in cho loại file này, đã mở file để bạn in."; }
+      catch (e) { onError(e.message); }
+    };
+    row.append(file, print, dir, note);
   } else row.append(el("span", r.file.name + " (" + r.file.size_text + ")"));
   return row;
 }
@@ -1367,7 +1372,7 @@ function resultOf(st) {
     if (r.file) files.push(r.file);
     if (r.view && (r.view.rows.length || r.view.pairs.length || r.view.lines.length)) rows.push(r.view);
   }));
-  return { status: st.result.status, message: st.result.message, files, view: files.length ? null : (rows[rows.length - 1] || null) };
+  return { status: st.result.status, message: st.result.message, files, view: rows[rows.length - 1] || null };
 }
 function progressOf(st, total) {
   const seen = []; (st.steps || []).forEach((s) => { if (!seen.includes(s.id)) seen.push(s.id); });

@@ -872,6 +872,16 @@ class Core:
 
         os.startfile(str(path))  # type: ignore[attr-defined]  Windows only: the program the teller's PC uses for this kind of file
 
+    def _print_path(self, path: Path) -> bool:
+        """Send a saved file to the printer with the program this PC uses for it. False when there is none for printing (the caller opens it instead)."""
+        import os
+
+        try:
+            os.startfile(str(path), "print")  # type: ignore[attr-defined]  Windows only
+            return True
+        except OSError:
+            return False
+
     def file_open(self, body: dict[str, Any]) -> dict[str, Any]:
         """«Mở file» / «Mở thư mục» of a saved file. Only a path inside the Rookie folder is opened, and only a kind of file that a person reads
         (never a program or a page); anything else is refused. Local only: nothing is sent."""
@@ -886,6 +896,11 @@ class Core:
             raise UserError("Không còn file này (đã bị xoá hoặc dời đi).")
         if target.suffix.lstrip(".").lower() not in files.OPENABLE:
             raise UserError("Không mở loại file này từ đây. Mở thư mục để xem.")
+        if body.get("print"):             # «In»: the same file inside the Rookie folder, sent to the printer; opened for the teller when it cannot be
+            if self._print_path(target):
+                return {"opened": "file", "printed": True}
+            self._open_path(target)
+            return {"opened": "file", "printed": False}
         self._open_path(target)
         return {"opened": "file"}
 

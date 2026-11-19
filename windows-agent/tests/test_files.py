@@ -316,6 +316,13 @@ def test_the_open_routes_open_only_a_file_inside_the_rookie_folder(tmp_path, mon
     core._open_path = lambda path: opened.append(Path(path))
     assert core.dispatch("POST", "/api/file/open", {"path": str(mine)})[0] == 200 and opened == [mine]
     assert core.dispatch("POST", "/api/file/open", {"path": str(mine), "folder": True})[0] == 200 and opened[-1] == folder
+    printed = []
+    core._print_path = lambda path: printed.append(Path(path)) or True
+    reply = core.dispatch("POST", "/api/file/open", {"path": str(mine), "print": True})
+    assert reply[0] == 200 and reply[1]["printed"] is True and printed == [mine]
+    core._print_path = lambda path: False                            # no program of this PC prints that kind of file: it is opened for the teller to print
+    reply = core.dispatch("POST", "/api/file/open", {"path": str(mine), "print": True})
+    assert reply[0] == 200 and reply[1]["printed"] is False and opened[-1] == mine
     outside = tmp_path / "secret.pdf"
     outside.write_bytes(b"x")
     exe = folder / "run.exe"
