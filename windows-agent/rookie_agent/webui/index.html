@@ -97,6 +97,20 @@
   .node.sel { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent); }
   .simreq { border-top: 1px solid var(--line); margin-top: 8px; padding-top: 8px; }
   .simhead { font-family: monospace; font-size: 12px; word-break: break-all; font-weight: 600; }
+  /* the calls of a step: one line each, opened one at a time; long lists scroll inside the card instead of spilling */
+  .calls { max-height: 320px; overflow: auto; margin-top: 6px; border: 1px solid var(--line); border-radius: 8px; }
+  .calls details { border-bottom: 1px solid var(--line); }
+  .calls details:last-child { border-bottom: 0; }
+  .calls summary { display: flex; gap: 8px; align-items: center; padding: 4px 8px; cursor: pointer; font-size: 12px; list-style: none; }
+  .calls summary::-webkit-details-marker { display: none; }
+  .calls summary::before { content: "▸"; color: var(--muted); }
+  .calls details[open] > summary::before { content: "▾"; }
+  .calls .cname { font-family: monospace; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .calls .cmeta { color: var(--muted); white-space: nowrap; }
+  .calls .cbad { color: var(--bad, #b42318); white-space: nowrap; }
+  .calls .cbody { padding: 4px 8px 8px 22px; max-height: 260px; overflow: auto; font-size: 12px; }
+  .calls .cbody li, .calls .cbody td { overflow-wrap: anywhere; }
+  .calls .cbody ul { margin: 4px 0; padding-left: 16px; }
   .simreq pre { max-height: 200px; overflow: auto; white-space: pre-wrap; word-break: break-all; font-size: 12px; background: var(--bg); padding: 6px; }
   .node .live { font-size: 12px; font-weight: 600; margin-top: 4px; min-height: 0; }
   .node.st-run { border-color: var(--accent); animation: rk-pulse 1s ease-in-out infinite; }
@@ -960,26 +974,56 @@ function detailCard(run, stepId) {
   card.append(el("strong", "Thao tác: " + d.action));
   if (d.twin) card.append(el("div", d.twin, "twin-head"));
   card.append(el("div", "Trạng thái: " + (LIVE_WORDS[s.status] || s.status || "") + (s.detail ? " — " + s.detail : ""), "detail"));
-  (d.inputs || []).forEach((x) => card.append(el("div", "Đầu vào «" + x.name + "»: " + x.from, "detail")));
-  if (!d.requests.length) card.append(el("div", "Không có lời gọi: bước này chỉ là thao tác trên màn hình.", "detail"));
-  else if (d.requests.length > 1) card.append(el("div", "Bước này gửi " + d.requests.length + " lời gọi, lần lượt:", "detail"));
+  const inputs = [], seenIn = new Set();
+  (d.inputs || []).forEach((x) => { if (!seenIn.has(x.name)) { seenIn.add(x.name); inputs.push(x); } });
+  const typed = inputs.filter((x) => x.from === "GDV nhập").map((x) => "«" + x.name + "»"), linked = inputs.filter((x) => x.from !== "GDV nhập");
+  if (typed.length) card.append(el("div", "GDV nhập: " + typed.join(", "), "detail"));
+  if (linked.length) card.append(el("div", "Lấy từ trả lời trước: " + linked.length + " giá trị (token, mã phiên…)", "detail"));
+  if (!d.requests.length) { card.append(el("div", "Không có lời gọi: bước này chỉ là thao tác trên màn hình.", "detail")); return card; }
+  const okCount = d.requests.filter((r) => !r.state && !r.error && r.status && r.status < 400).length;
+  card.append(el("div", d.requests.length + " lời gọi · " + okCount + " trả về tốt. Bấm một dòng để xem chi tiết.", "detail"));
+  const list = el("div", undefined, "calls simreq");
   d.requests.forEach((r, i) => {
-    const part = el("div", undefined, "simreq");
-    part.append(el("div", "Lời gọi " + (i + 1) + "/" + d.requests.length + ": " + r.method + " " + r.url, "simhead"));
-    if (r.state) { part.append(el("div", "Trạng thái: " + r.state + (r.error ? " · " + r.error : ""), "detail")); card.append(part); return; }
-    part.append(el("div", "Thời gian: " + (r.ms || 0) + " ms · Mã trả về: " + (r.status || "—") + (r.error ? " · " + r.error : ""), "detail"));
-    if (r.body) { const det = el("details"); det.append(el("summary", "Gửi đi (" + r.body.length + " ký tự)"), el("pre", r.body)); part.append(det); }
+    const key = stepId + "#" + i, det = el("details");
+    if (openCalls.has(key)) det.open = true;
+    det.addEventListener("toggle", () => { if (det.open) openCalls.add(key); else openCalls.delete(key); });
+    const sum = el("summary"), name = el("span", (i + 1) + ". " + callTitle(r), "cname");
+    name.title = r.method + " " + r.url;
+    sum.append(name);
+    if (r.state) sum.append(el("span", r.state, "cmeta"));
+    else sum.append(el("span", (r.status || "—") + " · " + (r.ms || 0) + " ms", r.error || !r.status || r.status >= 400 ? "cbad" : "cmeta"));
+    det.append(sum);
+    const body = el("div", undefined, "cbody");
+    body.append(el("div", r.method + " " + r.url, "simhead"));
+    if (r.error) body.append(el("div", "Lỗi: " + r.error, "detail"));
+    if (r.body) { const sent = el("details"); sent.append(el("summary", "Gửi đi (" + r.body.length + " ký tự)"), el("pre", r.body)); body.append(sent); }
     const v = r.view;
     if (v) {
-      part.append(el("div", "Dữ liệu trả về (" + v.kind + ", " + v.size + " ký tự):", "detail"));
-      if (v.pairs.length) { const t = el("table", undefined, "seen-table"); v.pairs.forEach((p) => { const tr = el("tr"); tr.append(el("th", p[0]), el("td", p[1])); t.append(tr); }); part.append(t); }
-      if (v.rows.length) { const t = el("table", undefined, "seen-table"); v.rows.forEach((row, j) => { const tr = el("tr"); row.forEach((c) => tr.append(el(j === 0 && v.kind === "json" ? "th" : "td", c))); t.append(tr); }); part.append(t); }
-      if (v.lines.length) { const ul = el("ul"); v.lines.forEach((l) => ul.append(el("li", l))); part.append(ul); }
-      if (!v.pairs.length && !v.rows.length && !v.lines.length) part.append(el("div", "(trả về trống)", "detail"));
+      body.append(el("div", "Dữ liệu trả về (" + v.kind + ", " + v.size + " ký tự):", "detail"));
+      if (v.pairs.length) { const t = el("table", undefined, "seen-table"); v.pairs.forEach((p) => { const tr = el("tr"); tr.append(el("th", p[0]), el("td", p[1])); t.append(tr); }); body.append(t); }
+      if (v.rows.length) { const t = el("table", undefined, "seen-table"); v.rows.forEach((row, j) => { const tr = el("tr"); row.forEach((c) => tr.append(el(j === 0 && v.kind === "json" ? "th" : "td", c))); t.append(tr); }); body.append(t); }
+      if (v.lines.length) { const ul = el("ul"); v.lines.slice(0, 30).forEach((l) => ul.append(el("li", l.length > 160 ? l.slice(0, 160) + "…" : l))); body.append(ul);
+        if (v.lines.length > 30) body.append(el("div", "… còn " + (v.lines.length - 30) + " dòng", "detail")); }
+      if (!v.pairs.length && !v.rows.length && !v.lines.length) body.append(el("div", "(trả về trống)", "detail"));
     }
-    card.append(part);
+    det.append(body); list.append(det);
   });
+  card.append(list);
+  list.addEventListener("scroll", () => { callsScroll[stepId] = list.scrollTop; });
+  if (callsScroll[stepId]) requestAnimationFrame(() => { list.scrollTop = callsScroll[stepId]; });
   return card;
+}
+const callsScroll = {};
+// which call lines the person opened: the card is redrawn on every poll and must not close them
+const openCalls = new Set();
+// A call as a person names it: the last part of the path, and the operation when the call names one in a usual parameter
+// (method, methodName, action, operation, in the query or a form body). Any site, nothing of one system is written here.
+function callTitle(r) {
+  const url = String(r.url || ""), path = url.replace(/^[a-z]+:\/\/[^/]+/i, "").split("?")[0];
+  const last = path.split("/").filter(Boolean).pop() || path || "/";
+  const params = (url.split("?")[1] || "") + "&" + String(r.body || "");
+  const m = params.match(/(?:^|&)(?:methodName|method|action|operation)=([A-Za-z_][\w.]{1,60})/);
+  return r.method + " " + last + (m ? " · " + m[1] : "");
 }
 function paintCanvas(status) {
   lastRun = status;
