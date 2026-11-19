@@ -11,9 +11,11 @@ import time
 from pathlib import Path
 from typing import Any, Callable, Literal
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.auth import require, user as caller
+from app.auth.access import NO_OWNER, can_change, can_see, can_share, sees_session
 from app.learner import LearnError, learn, slug
 from app.schemas import SchemaError, validate_event, validate_workflow
 from app.storage import Storage
@@ -60,6 +62,21 @@ class StatusIn(BaseModel):
     status: Literal["draft", "tested", "approved"]
 
 
+class ShareIn(BaseModel):
+    visibility: Literal["private", "unit", "all"]
+    confirm: bool = False      # the owner saw the preview (GET /workflows/{id}/share-preview)
+
+
+class CloneIn(BaseModel):
+    title: str | None = Field(default=None, min_length=1, max_length=80)
+
+
+class OwnerIn(BaseModel):
+    owner: str = Field(min_length=1, max_length=64)
+    owner_display: str = Field(default="", max_length=80)
+    unit: str = Field(default="", max_length=80)
+
+
 def digest(workflow: dict[str, Any]) -> str:
     """SHA-256 of the canonical JSON. The runner checks it to detect a changed copy."""
     canonical = json.dumps(workflow, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
@@ -89,6 +106,24 @@ def create_app(db_path: str | Path | None = None, auth_mode: str | None = None, 
             raise HTTPException(404, "Không tìm thấy workflow")
         return found
 
+    # task 10.2: a flow the caller may not see is "not found" (not even that it exists); one they see but do not own is 403
+    def visible(request: Request, workflow_id: str) -> dict[str, Any]:
+        meta = storage.meta(workflow_id)
+        if storage.get_workflow(workflow_id) is None or not can_see(caller(request), meta):
+            raise HTTPException(404, "Không tìm thấy workflow")
+        return meta
+
+    def changeable(request: Request, workflow_id: str) -> dict[str, Any]:
+        meta = visible(request, workflow_id)
+        if not can_change(caller(request), meta):
+            raise HTTPException(403, "Chỉ chủ luồng hoặc quản trị được sửa luồng này.")
+        return meta
+
+    def own(request: Request, workflow_id: str) -> None:
+        if storage.meta(workflow_id)["owner"] is None and storage.get_workflow(workflow_id) is not None:
+            who = caller(request)
+            storage.set_owner(workflow_id, who.name, who.display, who.unit)
+
     @app.get("/health")
     def health() -> dict[str, str]:
         return {"status": "ok", "service": "server"}
@@ -96,7 +131,7 @@ def create_app(db_path: str | Path | None = None, auth_mode: str | None = None, 
     # ---- sessions -----------------------------------------------------------------
 
     @app.post("/sessions", status_code=201)
-    def post_session(body: SessionIn) -> dict[str, Any]:
+    def post_session(body: SessionIn, request: Request) -> dict[str, Any]:
         problems: list[str] = []
         for index, event in enumerate(body.events):
             try:
@@ -112,18 +147,20 @@ def create_app(db_path: str | Path | None = None, auth_mode: str | None = None, 
                 problems.append(f"sự kiện {index}: seq phải liên tục từ 0")
         if problems:
             raise HTTPException(422, problems[:20])
-        if not storage.add_session(body.session_id, body.engine, body.events, body.role, body.case_key, body.synthetic):
+        if not storage.add_session(body.session_id, body.engine, body.events, body.role, body.case_key, body.synthetic,
+                                   owner=caller(request).name):
             raise HTTPException(409, "Phiên ghi này đã được gửi")
         return {"session_id": body.session_id, "engine": body.engine, "event_count": len(body.events)}
 
     @app.get("/sessions")
-    def list_sessions(engine: Literal["web", "java", "ie"] | None = None) -> dict[str, Any]:
-        return {"sessions": storage.list_sessions(engine)}
+    def list_sessions(request: Request, engine: Literal["web", "java", "ie"] | None = None) -> dict[str, Any]:
+        who = caller(request)
+        return {"sessions": storage.list_sessions(engine, owner=None if who.has("admin") else who.name)}
 
     @app.get("/sessions/{session_id}")
-    def get_session(session_id: str) -> dict[str, Any]:
+    def get_session(session_id: str, request: Request) -> dict[str, Any]:
         session = storage.get_session(session_id)
-        if session is None:
+        if session is None or not sees_session(caller(request), session):
             raise HTTPException(404, "Không tìm thấy phiên ghi")
         return {"schema_version": 2 if session["engine"] == "ie" else 1, **session}
 
@@ -137,14 +174,16 @@ def create_app(db_path: str | Path | None = None, auth_mode: str | None = None, 
         return candidate
 
     @app.post("/workflows/learn", status_code=201)
-    def learn_workflow(body: LearnIn) -> dict[str, Any]:
+    def learn_workflow(body: LearnIn, request: Request) -> dict[str, Any]:
         if body.workflow_id is None and body.title is None:
             raise HTTPException(422, "Cần đặt tên cho việc này.")
         workflow_id = body.workflow_id or id_from_title(body.title or "")
+        if storage.get_workflow(workflow_id) is not None:
+            changeable(request, workflow_id)          # a new version of someone else's flow: no
         sessions = []
         for session_id in body.session_ids:
             session = storage.get_session(session_id)
-            if session is None:
+            if session is None or not sees_session(caller(request), session):
                 raise HTTPException(404, f"Không tìm thấy phiên ghi {session_id}")
             sessions.append(session["events"])
         version = storage.next_version(workflow_id)
@@ -160,6 +199,7 @@ def create_app(db_path: str | Path | None = None, auth_mode: str | None = None, 
                     built = model.build(body.traces, workflow_id, version, body.title)
                     storage.add_workflow(built.workflow, built.warnings)
                     storage.add_learn_sources(workflow_id, version, body.session_ids)
+                    own(request, workflow_id)
                     return {**workflow_reply(built.workflow, built.warnings), "method": "codie", "questions": built.questions, "llm": {"calls": built.calls}}
                 except FlowBuildError as error:
                     extra["fallback_reason"] = error.reason
@@ -171,6 +211,7 @@ def create_app(db_path: str | Path | None = None, auth_mode: str | None = None, 
             raise HTTPException(422, detail) from error
         storage.add_workflow(workflow, warnings)
         storage.add_learn_sources(workflow_id, version, body.session_ids)
+        own(request, workflow_id)
         return {**workflow_reply(workflow, warnings), **extra}
 
     @app.post("/assistant/plan")
@@ -183,28 +224,35 @@ def create_app(db_path: str | Path | None = None, auth_mode: str | None = None, 
         return assistant.plan(body, getattr(app.state, "assistant_client", None))
 
     @app.get("/workflows")
-    def list_workflows() -> dict[str, Any]:
-        return {"workflows": storage.list_workflows()}
+    def list_workflows(request: Request) -> dict[str, Any]:
+        who = caller(request)
+        rows = [{**row, "owner_display": row["owner_display"] or (NO_OWNER if row["owner"] is None else row["owner"])}
+                for row in storage.list_workflows() if can_see(who, row)]
+        return {"workflows": rows}
 
     @app.get("/workflows/{workflow_id}")
-    def latest_workflow(workflow_id: str) -> dict[str, Any]:
+    def latest_workflow(workflow_id: str, request: Request) -> dict[str, Any]:
+        visible(request, workflow_id)
         return workflow_reply(*load(workflow_id))
 
     @app.get("/workflows/{workflow_id}/approved")
-    def approved_workflow(workflow_id: str) -> dict[str, Any]:
+    def approved_workflow(workflow_id: str, request: Request) -> dict[str, Any]:
         """The newest approved version. Runners outside the sandbox use only this."""
+        visible(request, workflow_id)
         found = storage.get_workflow(workflow_id, status="approved")
         if found is None:
             raise HTTPException(404, "Workflow chưa có bản nào được duyệt")
         return workflow_reply(*found)
 
     @app.get("/workflows/{workflow_id}/versions/{version}")
-    def workflow_version(workflow_id: str, version: int) -> dict[str, Any]:
+    def workflow_version(workflow_id: str, version: int, request: Request) -> dict[str, Any]:
+        visible(request, workflow_id)
         return workflow_reply(*load(workflow_id, version))
 
     @app.post("/workflows/{workflow_id}/versions/{version}/revise", status_code=201)
-    def revise_workflow(workflow_id: str, version: int, body: ReviseIn) -> dict[str, Any]:
+    def revise_workflow(workflow_id: str, version: int, body: ReviseIn, request: Request) -> dict[str, Any]:
         """Change how much control some steps have. Makes a new version that starts again as a draft."""
+        changeable(request, workflow_id)
         workflow, warnings = load(workflow_id, version)
         revised = copy.deepcopy(workflow)
         steps = {step["id"]: step for step in revised["steps"]}
@@ -224,14 +272,16 @@ def create_app(db_path: str | Path | None = None, auth_mode: str | None = None, 
         return workflow_reply(revised, warnings)
 
     @app.post("/workflows/{workflow_id}/versions/{version}/test-runs", status_code=201)
-    def add_test_run(workflow_id: str, version: int, body: TestRunIn) -> dict[str, Any]:
+    def add_test_run(workflow_id: str, version: int, body: TestRunIn, request: Request) -> dict[str, Any]:
+        changeable(request, workflow_id)
         load(workflow_id, version)
         ok = body.status == "finished"
         storage.add_test_run(workflow_id, version, ok, body.model_dump())
         return {"ok": ok}
 
     @app.post("/workflows/{workflow_id}/versions/{version}/status")
-    def set_status(workflow_id: str, version: int, body: StatusIn) -> dict[str, Any]:
+    def set_status(workflow_id: str, version: int, body: StatusIn, request: Request) -> dict[str, Any]:
+        changeable(request, workflow_id)
         workflow, warnings = load(workflow_id, version)
         move = (workflow["status"], body.status)
         if move not in _TRANSITIONS:
@@ -241,6 +291,48 @@ def create_app(db_path: str | Path | None = None, auth_mode: str | None = None, 
         validate_workflow({**workflow, "status": body.status})
         storage.set_status(workflow_id, version, body.status)
         return workflow_reply(*load(workflow_id, version))
+
+    # ---- sharing, cloning, owners (task 10.2) ---------------------------------------------------------------------
+
+    @app.get("/workflows/{workflow_id}/share-preview")
+    def share_preview(workflow_id: str, request: Request) -> dict[str, Any]:
+        """Exactly what others will see: steps, labels, names of the inputs. No value (there is none on the server)."""
+        visible(request, workflow_id)
+        workflow, _ = load(workflow_id)
+        steps = [{"label": (step.get("target") or {}).get("label") or step["action"], "risk": step["risk"], "mode": step["mode"]}
+                 for step in workflow["steps"]]
+        inputs = [{"name": item["name"], "label": item.get("label") or item["name"], "type": item["type"]} for item in workflow["inputs"]]
+        return {"title": workflow.get("title") or workflow_id, "steps": steps, "inputs": inputs, "visibility": storage.meta(workflow_id)["visibility"]}
+
+    @app.post("/workflows/{workflow_id}/share")
+    def share(workflow_id: str, body: ShareIn, request: Request) -> dict[str, Any]:
+        meta = visible(request, workflow_id)
+        if not can_share(caller(request), meta):
+            raise HTTPException(403, "Chỉ chủ luồng mới chia sẻ được luồng này.")
+        if not body.confirm:
+            raise HTTPException(422, "Xem trước nội dung sẽ chia sẻ rồi xác nhận.")
+        storage.set_visibility(workflow_id, body.visibility)
+        return {"id": workflow_id, "visibility": body.visibility}
+
+    @app.post("/workflows/{workflow_id}/clone", status_code=201)
+    def clone(workflow_id: str, body: CloneIn, request: Request) -> dict[str, Any]:
+        visible(request, workflow_id)
+        source, warnings = storage.get_workflow(workflow_id, status="approved") or load(workflow_id)
+        title = body.title or f"{source.get('title') or workflow_id} (bản sao)"[:80]
+        new_id = id_from_title(title)
+        copied = {**copy.deepcopy(source), "id": new_id, "version": 1, "status": "draft", "title": title}
+        validate_workflow(copied)
+        storage.add_workflow(copied, warnings)
+        who = caller(request)
+        storage.set_owner(new_id, who.name, who.display, who.unit, cloned_from=f"{workflow_id}@{source['version']}")
+        return workflow_reply(copied, warnings)
+
+    @app.post("/workflows/{workflow_id}/owner")
+    def give_owner(workflow_id: str, body: OwnerIn, request: Request) -> dict[str, Any]:
+        require(request, "admin")
+        load(workflow_id)
+        storage.set_owner(workflow_id, body.owner, body.owner_display or body.owner, body.unit)
+        return storage.meta(workflow_id)
 
     from app.twin.routes import register as register_twin
 

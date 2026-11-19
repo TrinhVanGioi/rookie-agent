@@ -46,6 +46,16 @@ CREATE TABLE IF NOT EXISTS process_models (
     created_at TEXT NOT NULL,
     PRIMARY KEY (id, version)
 );
+CREATE TABLE IF NOT EXISTS workflow_meta (
+    id TEXT PRIMARY KEY,
+    owner TEXT,
+    owner_display TEXT,
+    unit TEXT NOT NULL DEFAULT '',
+    visibility TEXT NOT NULL DEFAULT 'private',
+    shared_at TEXT,
+    cloned_from TEXT,
+    created_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS auth_tokens (
     hash TEXT PRIMARY KEY,
     user TEXT NOT NULL,
@@ -71,8 +81,8 @@ class Storage:
         with self._lock, self._db:
             self._db.executescript(_SCHEMA)
             have = {row["name"] for row in self._db.execute("PRAGMA table_info(sessions)")}
-            for column, kind in (("role", "TEXT"), ("case_key", "TEXT"), ("synthetic", "INTEGER NOT NULL DEFAULT 0")):
-                if column not in have:   # a database made before Gate 9
+            for column, kind in (("role", "TEXT"), ("case_key", "TEXT"), ("synthetic", "INTEGER NOT NULL DEFAULT 0"), ("owner", "TEXT")):
+                if column not in have:   # a database made before Gate 9 (role, case_key, synthetic) or Gate 10 (owner)
                     self._db.execute(f"ALTER TABLE sessions ADD COLUMN {column} {kind}")
 
     def close(self) -> None:
@@ -88,13 +98,14 @@ class Storage:
         role: str | None = None,
         case_key: str | None = None,
         synthetic: bool = False,
+        owner: str | None = None,
     ) -> bool:
         """Store a session. Returns False when the id already exists. `case_key` is already a hash made on the PC."""
         with self._lock, self._db:
             try:
                 self._db.execute(
-                    "INSERT INTO sessions (id, engine, created_at, events, role, case_key, synthetic) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                    (session_id, engine, _now(), _dump(events), role, case_key, int(synthetic)),
+                    "INSERT INTO sessions (id, engine, created_at, events, role, case_key, synthetic, owner) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    (session_id, engine, _now(), _dump(events), role, case_key, int(synthetic), owner),
                 )
             except sqlite3.IntegrityError:
                 return False
@@ -113,13 +124,18 @@ class Storage:
             "role": row["role"],
             "case_key": row["case_key"],
             "synthetic": bool(row["synthetic"]),
+            "owner": row["owner"],
         }
 
-    def list_sessions(self, engine: str | None = None) -> list[dict[str, Any]]:
-        query = "SELECT id, engine, created_at, json_array_length(events) AS n FROM sessions"
-        args: tuple = ()
+    def list_sessions(self, engine: str | None = None, owner: str | None = None) -> list[dict[str, Any]]:
+        """`owner`: only the sessions of that person (None: all of them, for the admin or with login off)."""
+        query, where, args = "SELECT id, engine, created_at, json_array_length(events) AS n FROM sessions", [], []
         if engine:
-            query, args = query + " WHERE engine = ?", (engine,)
+            where, args = where + ["engine = ?"], args + [engine]
+        if owner is not None:
+            where, args = where + ["owner = ?"], args + [owner]
+        if where:
+            query += " WHERE " + " AND ".join(where)
         with self._lock:
             rows = self._db.execute(query + " ORDER BY created_at, id", args).fetchall()
         return [
@@ -159,11 +175,37 @@ class Storage:
     def list_workflows(self) -> list[dict[str, Any]]:
         with self._lock:
             rows = self._db.execute(
-                "SELECT id, version, status, created_at, json_extract(document, '$.engine') AS engine, "
-                "json_extract(document, '$.title') AS title "
-                "FROM workflows ORDER BY id, version"
+                "SELECT w.id, w.version, w.status, w.created_at, json_extract(w.document, '$.engine') AS engine, "
+                "json_extract(w.document, '$.title') AS title, m.owner, m.owner_display, COALESCE(m.unit, '') AS unit, "
+                "COALESCE(m.visibility, 'private') AS visibility, m.cloned_from "
+                "FROM workflows w LEFT JOIN workflow_meta m ON m.id = w.id ORDER BY w.id, w.version"
             ).fetchall()
         return [dict(row) for row in rows]
+
+    # ---- whose flow it is and who sees it (task 10.2) ----------------------------------------------------------------
+
+    def meta(self, workflow_id: str) -> dict[str, Any]:
+        with self._lock:
+            row = self._db.execute("SELECT * FROM workflow_meta WHERE id = ?", (workflow_id,)).fetchone()
+        if row is None:     # learned before Gate 10: no owner
+            return {"id": workflow_id, "owner": None, "owner_display": None, "unit": "", "visibility": "private", "cloned_from": None}
+        return dict(row)
+
+    def set_owner(self, workflow_id: str, owner: str, owner_display: str, unit: str, cloned_from: str | None = None) -> None:
+        with self._lock, self._db:
+            self._db.execute(
+                "INSERT INTO workflow_meta (id, owner, owner_display, unit, cloned_from, created_at) VALUES (?, ?, ?, ?, ?, ?) "
+                "ON CONFLICT(id) DO UPDATE SET owner = excluded.owner, owner_display = excluded.owner_display, unit = excluded.unit",
+                (workflow_id, owner, owner_display, unit, cloned_from, _now()),
+            )
+
+    def set_visibility(self, workflow_id: str, visibility: str) -> None:
+        with self._lock, self._db:
+            self._db.execute("UPDATE workflow_meta SET visibility = ?, shared_at = ? WHERE id = ?", (visibility, _now(), workflow_id))
+
+    def forget_owner(self, workflow_id: str) -> None:
+        with self._lock, self._db:
+            self._db.execute("DELETE FROM workflow_meta WHERE id = ?", (workflow_id,))
 
     def set_status(self, workflow_id: str, version: int, status: str) -> None:
         with self._lock, self._db:

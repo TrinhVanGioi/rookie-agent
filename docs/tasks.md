@@ -1,4 +1,4 @@
-# Danh sách việc theo cổng (Gate)
+﻿# Danh sách việc theo cổng (Gate)
 
 Làm lần lượt từng task, mỗi task một commit nhỏ. Mỗi task có tiêu chí nghiệm thu kiểm chứng được: viết test trước, code cho test qua. Chỉ sang Gate sau khi toàn bộ nghiệm thu của Gate trước đã qua. Thiết kế chi tiết ở `docs/design.md`; quy tắc cứng ở `CLAUDE.md`.
 
@@ -219,7 +219,7 @@ Mỗi người thấy luồng của mình và luồng được chia sẻ cho mì
 | Task | Nội dung | Tiêu chí nghiệm thu |
 | --- | --- | --- |
 | 10.1 | Định danh và vai trò | `ROOKIE_AUTH=off` (mặc định, như trước), `dev` (người cố định trong `config/roles.json`), `ldap` (AD; vai trò theo nhóm AD). Test: không đăng nhập thì 401 tiếng Việt; sai mật khẩu không nói sai phần nào; 5 lần sai khoá 10 phút; token hết hạn và đăng xuất; server chỉ giữ SHA-256 của token, không giữ mật khẩu; AD: vai trò theo nhóm, không thuộc nhóm thì từ chối, mật khẩu rỗng không gửi, tên lạ không vào câu tìm. Agent: «Đăng nhập máy chủ» ở trang `:8765`, chỉ giữ token, nhật ký «Gửi và nhận» không hiện mật khẩu hay token. **Xong** |
-| 10.2 | Chủ luồng, quyền xem, chia sẻ, sao chép | Test: chủ luồng là người Học; mỗi người chỉ thấy luồng của mình và luồng chia sẻ cho đơn vị mình, quản trị thấy hết; chia sẻ có xem trước (bước, nhãn, tên tham số), chỉ chủ luồng chia sẻ được; clone thuộc người clone, bản gốc không đổi; luồng cũ «Chưa rõ chủ», quản trị gán chủ |
+| 10.2 | Chủ luồng, quyền xem, chia sẻ, sao chép | Test: chủ luồng là người Học; mỗi người chỉ thấy luồng của mình và luồng chia sẻ cho đơn vị mình, quản trị thấy hết; chia sẻ có xem trước (bước, nhãn, tên tham số), chỉ chủ luồng chia sẻ được; clone thuộc người clone, bản gốc không đổi; luồng cũ «Chưa rõ chủ», quản trị gán chủ. **Xong**: `app/auth/access.py`, `workflow_meta`, `/share-preview`, `/share`, `/clone`, `/owner`; bản ghi có chủ |
 | 10.3 | Nút API lên server | `schemas/api-nodes.schema.json`. Test: lúc Học gửi nút theo danh sách trường được phép (không `answer`, `shape`); server từ chối mẫu có giá trị nhạy cảm; digest tính trên cả luồng và nút; bản đã duyệt trả cả nút |
 | 10.4 | API sửa luồng | Test: di chuyển, xoá, đổi thứ tự, thêm nút HTTP, sửa mẫu, đổi nhãn, thêm nút Duyệt, nâng mode; hạ rủi ro bị từ chối; url chuyển tiền thành `money`; xoá nút nguồn của liên kết bị từ chối; mẫu có số tài khoản bị từ chối; người sửa tự duyệt bị 409 |
 | 10.5 | Nhật ký chạy lên server | Test: dòng audit gửi lên (gửi lỗi thì giữ lại gửi sau); lịch sử chạy theo luồng: ai chạy, version, từng nút, ai Duyệt; không giá trị nào lọt qua |
