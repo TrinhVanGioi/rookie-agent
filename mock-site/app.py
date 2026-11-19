@@ -13,11 +13,12 @@ from typing import Literal
 from urllib.parse import parse_qs
 
 from fastapi import FastAPI, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse, Response
 
 from pydantic import BaseModel
 
 import banking_pages
+import touchpoint
 from banking import Bank, BankError, Customer, Transfer
 from data import Row, generate_reports
 from layout import page
@@ -184,6 +185,25 @@ def _rows(source: str, date: str, account: str | None) -> list[Row]:
     if account:
         rows = [row for row in rows if row["account"] == account]
     return rows
+
+
+tp = touchpoint.TouchPoint()   # task 11.1: the TouchPoint look-alike for Internet Explorer, at /tp/
+
+
+@app.api_route("/tp/{rest:path}", methods=["GET", "POST"])
+async def touchpoint_pages(request: Request, rest: str) -> Response:
+    target = request.url.path + ("?" + request.url.query if request.url.query else "")
+    status, headers, body = tp.handle(request.method, target, dict(request.headers), await request.body())
+    response = Response(content=body, status_code=status)
+    for name, value in headers:
+        response.headers.append(name, value)
+    response.headers["X-UA-Compatible"] = "IE=8"     # TouchPoint's machines run IE 8/9
+    return response
+
+
+@app.get("/tp")
+def touchpoint_root() -> RedirectResponse:
+    return RedirectResponse("/tp/", status_code=302)
 
 
 @app.get("/health")
