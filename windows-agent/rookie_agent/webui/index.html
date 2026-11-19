@@ -1115,7 +1115,14 @@ $("twAuto").onclick = async () => {
   $("twMsg").textContent = "";
   try {
     const d = await api("GET", "/api/twin/suggest");
-    if (!(d.stages || []).length) { $("twMsg").append(el("div", "Chưa đủ lần ghi để tự dựng quy trình. Ghi một lần với vai trò GDV lập lệnh và một lần với vai trò Kiểm soát viên (đặt vai trò ở trên), Học cả hai, rồi bấm lại.", "msg bad")); return; }
+    if (!(d.stages || []).length) {
+      // Nothing joined yet: say why, and that a process can still be built by hand from the flows learned on this PC.
+      $("twMsg").append(el("div", "Chưa tự dựng được: máy chủ chưa thấy lệnh nào có cả lần ghi của GDV lập lệnh và lần ghi của Kiểm soát viên.", "msg bad"));
+      $("twMsg").append(el("div", twFlows.length
+        ? "Vẫn dựng tay được: chọn luồng đã học ở ô «Thêm chặng» ngay bên dưới, bấm «Thêm chặng» (mỗi luồng một chặng), rồi bấm Lưu. Một chặng là đủ để Chạy thử trên bản sao."
+        : "Máy này chưa có luồng nào đã học. Hãy Ghi và Học một luồng (ví dụ tra CIF) trước.", "msg"));
+      return;
+    }
     twProcessId = ""; $("twPick").value = ""; $("twName").value = d.name || "Quy trình mới"; twStages = stagesFromServer(d.stages);
     $("twMsg").append(el("div", "Đã dựng bản nháp " + twStages.length + " chặng từ các lần ghi. Kiểm tra thứ tự và vai trò, rồi bấm Lưu.", "msg ok"));
     drawTwin(); drawTwinInputs();
