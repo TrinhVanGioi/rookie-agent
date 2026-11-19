@@ -267,6 +267,13 @@ def main() -> None:
         sys.argv[1:] = ["host"]
     if hasattr(sys.stdout, "reconfigure") and sys.argv[1:2] != ["host"]:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    if sys.argv[1:2] == ["mcp"]:      # task 11.9: the MCP server for Genie Codie (stdio, or --http PORT); its options are its own
+        from rookie_agent.mcp.server import main as mcp_main
+
+        if hasattr(sys.stdin, "reconfigure"):
+            sys.stdin.reconfigure(encoding="utf-8")
+        mcp_main(sys.argv[2:])
+        return
 
     parser = argparse.ArgumentParser(prog="rookie_agent", description="Windows agent của Rookie Agent (hướng B)")
     commands = parser.add_subparsers(dest="command", required=True)
