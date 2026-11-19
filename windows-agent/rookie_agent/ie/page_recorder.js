@@ -647,12 +647,15 @@
   // A dialog (showModalDialog, alert, confirm, prompt) makes the page's script wait, and what waits in our queue waits with it: so the queue
   // is drained just before the page's call, and the address of a dialog that shows a page or a file is reported like a window.open.
   // Not in a run (the agent drives the page then), and a stand-in that cannot be put in leaves the page's own function.
+  // A message box of the page (a warning after a mistaken press: Dong y / Huy) is not part of what the teller's flow does: its address is not kept.
+  // The same words are in ie-bridge.ps1 (Test-MessageBox), which leaves such a dialog out of the recording.
+  function isMessageBox(u) { return /(messagebox|dlgmsg|dlgalert|dlgconfirm|dlgwarn|dlgerror|dlginfo)/i.test(String(u === null || u === undefined ? "" : u).split("?")[0]); }
   function hookWaiting(name) {
     var real = window[name], dialog = (name === "showModalDialog" || name === "showModelessDialog");
     if (!real || window["__rkW_" + name]) { return; }
     window[name] = function (a, b, c) {
       try { if (window.__rkRec && window.__rkDrain) { window.__rkDrain(); } } catch (eD) {}
-      try { if (dialog && !window.__rkNoXhr) { openLine(a, "dialog"); } } catch (eL) {}
+      try { if (dialog && !window.__rkNoXhr && !isMessageBox(a)) { openLine(a, "dialog"); } } catch (eL) {}
       if (arguments.length >= 3) { return real(a, b, c); }
       if (arguments.length === 2) { return real(a, b); }
       if (arguments.length === 1) { return real(a); }

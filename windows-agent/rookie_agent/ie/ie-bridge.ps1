@@ -64,6 +64,11 @@ public static class RkDialogs {
     $script:dialogsOk = $true
   } catch { $script:dialogsOk = $false }
 }
+# A message box of the page (a warning after a mistaken press) is left out of the recording: not its clicks, not its requests.
+# The same words are in page_recorder.js (isMessageBox).
+function Test-MessageBox($doc) {
+    try { return ([string]$doc.URL).Split('?')[0] -match '(?i)(messagebox|dlgmsg|dlgalert|dlgconfirm|dlgwarn|dlgerror|dlginfo)' } catch { return $false }
+}
 function New-DialogTarget([long]$server) {
     $o = New-Object psobject -Property @{ Hwnd = $server; Dlg = $true }
     # the document is taken again at each use: a dialog that goes to another page has a new document
@@ -201,6 +206,8 @@ function Update-Targets {
                 $key = "dlg:" + $server
                 if ($baseline.ContainsKey($key) -or $known.ContainsKey($key)) { continue }
                 $known[$key] = $true
+                $first = $null; try { $first = [RkDialogs]::DocumentOf([long]$server) } catch { }
+                if ($first -and (Test-MessageBox $first)) { continue }
                 [void]$targets.Add((New-DialogTarget $server))
             }
         } catch { }
@@ -240,6 +247,7 @@ function Collect {
             if ($still) { [void]$diag.Add("window $n changing page"); continue }
             $targets.Remove($t); [void]$diag.Add("window $n closed"); continue
         }
+        if ($t.PSObject.Properties['Dlg'] -and (Test-MessageBox $t.Document)) { $targets.Remove($t); [void]$diag.Add("window $n (message box) left out"); continue }   # it went to a message box page
         $frames = @(Get-Windows $top)
         $tkey = Get-Key $t; if (-not $tkey) { $tkey = "t$n" }
         $pageState = Get-PageState $frames $tkey

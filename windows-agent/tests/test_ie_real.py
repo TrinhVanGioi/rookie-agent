@@ -1,4 +1,4 @@
-﻿"""The IE recorder on a REAL Internet Explorer window (a change to the IE path only counts as done when this passes).
+"""The IE recorder on a REAL Internet Explorer window (a change to the IE path only counts as done when this passes).
 
 It opens its own IE window (title "RookieE2E ...") on a small local site shaped like TouchPoint (a login page, then a page with
 nested iframes and a frameset whose frame `rhidden` holds the role form), drives it through COM like a teller, and checks what the
@@ -208,7 +208,12 @@ window.setTimeout(function () {
   var x = window.XMLHttpRequest ? new XMLHttpRequest() : new ActiveXObject('Msxml2.XMLHTTP'); x.open('GET', '/api/exportpdf?from=dlg&fmt=pdf', true); x.send('');
 }, 3000);
 window.setTimeout(function () { window.close(); }, 9000);</script></body></html>"""
-PAGES = {"/dlgviewer": DLGVIEWER, "/waiting": WAITING, "/export": EXPORT, "/tokapp": TOKAPP, "/sessapp": SESSAPP, "/cifapp": CIFAPP, "/jslink": JSLINK, "/slowpage": SLOW, "/opener": OPENER, "/ajaxtab": AJAXTAB, "/ajaxnav": AJAXNAV, "/ajax2": AJAX2, "/form": FORM, "/ajax": AJAX, "/search": SEARCH_TOP, "/clock": CLOCK, "/searchform": SEARCH_FORM, "/desktop": DESKTOP, "/rhidden": RHIDDEN, "/rhidden2": RHIDDEN2, "/blank": BLANK}
+# the page calls showModalDialog: for a report and for its own message box (the stand-in does nothing; the recorder's hook around it reports the address)
+DLGCALL = b"""<html><head><title>RookieE2E Dlgcall</title></head><body>
+<input type="button" id="btnRpt" value="rpt" onclick="showModalDialog('/viewReport.jsp?x=1', null, 'dialogWidth:300px')">
+<input type="button" id="btnMsg" value="msg" onclick="showModalDialog('/touchpoint/utilities/dlgMessageBox.jsp?language=vi', null, 'dialogWidth:300px')">
+<script>window.showModalDialog = function () { return null; };</script></body></html>"""
+PAGES = {"/dlgcall": DLGCALL, "/touchpoint/utilities/dlgMessageBox.jsp": DLGVIEWER, "/dlgviewer": DLGVIEWER, "/waiting": WAITING, "/export": EXPORT, "/tokapp": TOKAPP, "/sessapp": SESSAPP, "/cifapp": CIFAPP, "/jslink": JSLINK, "/slowpage": SLOW, "/opener": OPENER, "/ajaxtab": AJAXTAB, "/ajaxnav": AJAXNAV, "/ajax2": AJAX2, "/form": FORM, "/ajax": AJAX, "/search": SEARCH_TOP, "/clock": CLOCK, "/searchform": SEARCH_FORM, "/desktop": DESKTOP, "/rhidden": RHIDDEN, "/rhidden2": RHIDDEN2, "/blank": BLANK}
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -1682,3 +1687,32 @@ def test_a_page_shown_in_a_dialog_that_opens_while_recording_is_recorded_with_it
         finally:
             process.kill()
     assert any("/api/exportpdf?from=dlg" in str(r.get("url")) for r in session.requests), (session.requests, session.notes)
+
+
+def test_the_address_of_a_message_box_dialog_is_not_a_request_but_the_address_of_a_report_dialog_is():
+    with real_ie("/dlgcall") as bridge:
+        session = start_session(bridge, requests=True)
+        time.sleep(1.0)
+        for button in ("btnMsg", "btnRpt"):
+            os.environ["RK_ID"] = button
+            drive("e-click", "RookieE2E Dlgcall")
+            time.sleep(1.0)
+        session.stop()
+    urls = [str(line.get("url")) for line in session.raw if line.get("kind") == "open"]
+    assert any("viewReport.jsp" in u for u in urls) and not any("dlgMessageBox" in u for u in urls), urls
+
+
+def test_a_message_box_dialog_that_opens_while_recording_is_left_out_of_the_recording(tmp_path):
+    Handler.seen.clear()
+    with real_ie("/waiting") as bridge:
+        session = start_session(bridge, requests=True)
+        host = tmp_path / "dlg.hta"
+        host.write_text('<html><head><HTA:APPLICATION ID="x" /></head><body><script>window.setTimeout(function () { window.showModelessDialog("http://127.0.0.1:%d/touchpoint/utilities/dlgMessageBox.jsp", null, "dialogWidth:300px;dialogHeight:200px"); }, 500);'
+                        'window.setTimeout(function () { window.close(); }, 12000);</script></body></html>' % bridge.test_port, encoding="utf-8")
+        process = subprocess.Popen(["mshta.exe", str(host)])
+        try:
+            time.sleep(8.0)
+            session.stop()
+        finally:
+            process.kill()
+    assert not any("/api/exportpdf?from=dlg" in str(r.get("url")) for r in session.requests), session.requests       # the message box is not recorded: its request is not
