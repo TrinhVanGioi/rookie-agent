@@ -191,14 +191,14 @@ function exportXhr() {
 }
 function exportWin() { window.open('/api/exportpdf?from=' + document.getElementById('txtFrom').value + '&fmt=pdf', '_blank'); }
 </script></body></html>"""
-# A button whose own script makes the page wait (a dialog): here alert is a stand-in that reports, by a request, whether the press is already in the recorder's queue.
+# A button whose own script makes the page wait (a dialog): here alert is a stand-in that makes a request, so the order of the lines shows whether the press was recorded first.
 WAITING = b"""<html><head><title>RookieE2E Waiting</title></head><body>
 <table><tr><td><input type="checkbox" id="chkRow"></td><td>Row 1</td></tr></table>
 <input type="button" id="btnWait" value="In b&aacute;o n&#7907;/c&oacute;" onclick="waitCall()">
 <script>
 window.alert = function () {
   var x = window.XMLHttpRequest ? new XMLHttpRequest() : new ActiveXObject('Msxml2.XMLHTTP');
-  x.open('GET', '/api/mark?queued=' + ((window.__rkq || '').indexOf('btnWait') >= 0 ? 'yes' : 'no'), false); x.send('');
+  x.open('GET', '/api/mark', false); x.send('');
 };
 function waitCall() { alert('x'); }
 </script></body></html>"""
@@ -1652,6 +1652,10 @@ def test_a_press_is_in_the_recorders_queue_before_the_page_script_that_it_starte
         drive("e-click", "RookieE2E Waiting")
         time.sleep(2.0)
         session.stop()
-    assert any(x.startswith("/api/mark?queued=yes") for x in Handler.seen), Handler.seen
+    assert any(x.startswith("/api/mark") for x in Handler.seen), Handler.seen
+    kinds = [(line.get("kind"), line.get("id") or line.get("url")) for line in session.raw]
+    press = next((i for i, k in enumerate(kinds) if k == ("click", "btnWait")), None)
+    asked = next((i for i, k in enumerate(kinds) if k[0] == "ajax" and "/api/mark" in str(k[1])), None)
+    assert press is not None and asked is not None and press < asked, kinds      # the press comes before the request its own script made
     ids = [line.get("id") for line in session.raw if line.get("kind") == "click"]
     assert ids.count("chkRow") == 1 and ids.count("btnWait") == 1, ids
