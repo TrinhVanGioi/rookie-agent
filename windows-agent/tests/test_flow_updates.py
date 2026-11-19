@@ -185,6 +185,35 @@ def test_trying_a_draft_runs_it_on_the_twin_and_tells_the_server_without_taking_
     assert (line["mode"], line["workflow_id"], line["version"]) == ("twin", "tra-cuu", 2) and "9988776655" not in json.dumps(line)
 
 
+def test_a_shared_flow_is_listed_taken_and_made_runnable_with_one_recording(tmp_path):
+    from test_webui import record_one
+
+    flow = local_flow()
+    approved = server_version(flow, 1, "approved")
+    approved["workflow"]["title"] = "Tra cứu"
+
+    class Shared(Server):
+        def list_workflows(self):
+            return [{"id": "tra-cuu", "version": 1, "status": "approved", "title": "Tra cứu", "owner_display": "GDV Hai"},
+                    {"id": "nhap", "version": 1, "status": "draft", "title": "Nháp"}]
+
+        def approved_workflow(self, workflow_id):
+            return copy.deepcopy(approved)
+
+    core, session = make_core(tmp_path, server_client=Shared)
+    assert core.dispatch("GET", "/api/flows/shared", {})[1]["flows"] == [{"workflow_id": "tra-cuu", "title": "Tra cứu", "owner": "GDV Hai", "version": 1}]
+    taken = core.dispatch("POST", "/api/flows/import", {"workflow_id": "tra-cuu"})[1]
+    stored = core.store.get("flows")[0]
+    masked = [n for n in stored["api"] if n.get("complete") is False]
+    assert taken["title"] == "Tra cứu" and taken["needs_recording"] is bool(masked)
+    assert core.dispatch("GET", "/api/flows/shared", {})[1]["flows"] == []                 # now on this PC
+    record_one(core, session)
+    core.store.update(core.store.listing()[0]["id"], requests=[{**n, "index": i, "after_seq": 0, "status": 200} for i, n in enumerate(flow["api"])])
+    status, reply = core.dispatch("POST", "/api/flows/bind", {"title": "Tra cứu"})
+    assert status == 200, reply
+    assert reply["missing"] == [] and reply["bound"] == len(masked)
+
+
 def test_a_read_step_put_under_duyet_on_the_admin_page_asks_before_it_is_sent():
     api = copy.deepcopy(nodes()[:2])
     for node in api:

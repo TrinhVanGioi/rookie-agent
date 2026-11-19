@@ -227,7 +227,26 @@ Mỗi người thấy luồng của mình và luồng được chia sẻ cho mì
 | 10.7 | Đồng bộ về máy GDV | Test: tab Luồng báo «Có bản mới», xem khác biệt, «Dùng bản này»; chưa bấm thì vẫn chạy bản cũ; mất kết nối thì chạy bản đang có; audit ghi version. **Xong**: `GET /api/flows/updates`, `POST /api/flows/update/try` (bản nháp chạy trên bản sao, không thay bản đang dùng; xong thì báo máy chủ và chuyển «đã chạy thử»), `POST /api/flows/update/take` (chỉ bản đã Duyệt; kiểm cả hai digest); `api_share.merge` giữ mẫu đầy đủ của máy này theo id nút; nút đặt Duyệt trên trang quản trị hỏi người cả khi chạy thật; nút thêm trên máy chủ thì bản sao trả lời rỗng |
 | 10.8 | Test đầu cuối, tài liệu, đóng gói | Playwright cho `/admin`: đăng nhập, sửa, lưu nháp, người khác duyệt. `docs/design.md` mục 13, `CLAUDE.md`, wheel `ldap3`, gói mới. **Xong**: `tests/e2e/specs/admin.spec.ts` (máy chủ thứ hai cổng 8002, `ROOKIE_AUTH=dev`); mục 13 trong `docs/design.md`; `ldap3` trong `requirements-run.txt`; `package-patch-ie.ps1` mang cả `.html`, `.js`, `.css` của `server/app` (trang quản trị). Chưa thử với AD thật (chỉ thư mục giả) |
 
+## Gate 11: hoàn thiện theo định hướng thi, Ghi và Học chắc chắn tổng thể
+
+Định hướng thi (Digital Process Twin, ba giai đoạn Học, Xây bản sao số, Thực hiện bằng tiếng Việt). Ghi và Học được làm chắc bằng một hệ thống giả lập có đủ các mẫu khó của TouchPoint và một ma trận Ghi → Học → Chạy trên IE thật, thay cho việc sửa từng lỗi khi gặp. Cài đặt tạm giữ như hiện tại (zip).
+
+| Task | Nội dung | Tiêu chí nghiệm thu |
+| --- | --- | --- |
+| 11.1 | TouchPoint giả lập trên IE (`mock-site/touchpoint.py`, phục vụ ở `/tp/`) | Đăng nhập, frameset, getToken rồi TPClassLoader có Bearer (chỉ token mới nhất), thân GWT-RPC và trả lời kiểu GWT thật (số trỏ vào bảng chuỗi), tra tài khoản bằng Enter hoặc nút, lịch sử theo ngày, tick dòng, «IN BÁO NỢ/CÓ» mở hộp thoại tự gửi form lấy PDF, «XUẤT SAO KÊ» bằng `window.open`, «TẢI EXCEL» bằng form vào khung ẩn, hộp thông báo khi bấm sai, `keepalive` định kỳ, lập lệnh chuyển tiền và màn hình duyệt của KSV. Dữ liệu tự sinh. `mock-site/tests/test_touchpoint.py`. **Xong** |
+| 11.2 | Ma trận trên IE thật (`windows-agent/tests/test_ie_matrix.py`) | Mỗi kịch bản: ghi hai lần với dữ liệu khác (có nhiễu: Enter thay nút, ngày sai và hộp thông báo), Học, chạy bằng yêu cầu với dữ liệu mới, so lời gọi máy chủ giả lập nhận được. Kịch bản In báo nợ/có: **qua ở chế độ 8**. Sao kê `window.open`, Excel khung ẩn, lập lệnh tiền: đã viết, đang chạy thử |
+| 11.3 | Bản ghi tự kiểm tra (`ie/check.py`) | Sau «Dừng ghi»: dùng được, đáng biết, hay cần ghi lại, bằng chữ dễ hiểu và chỉ chỗ (lời gọi lỗi, mã bảo mật không rõ nguồn, file đoán, hộp thông báo, bấm nhầm, không thao tác nào gọi hệ thống, phần trang không đọc được). `tests/test_check.py`. **Xong** |
+| 11.4 | Làm sạch có luật (`ie/clean.py`) | Luật 0 trang tự hỏi định kỳ (kể cả có thời gian trong địa chỉ); luật 2 hộp thông báo và bấm nhầm; luật 1 cùng tác dụng là cùng bước (Enter thay nút). Đánh số lại sự kiện, `after_seq` và dấu `⟦eN⟧`. Kèm ba sửa lỗi tổng thể ma trận tìm ra: giá trị đã nhập không thay vào giữa một hằng số (strong name GWT); request gửi trước cú bấm vài trăm mili giây thuộc về cú bấm đó (Enter); form trang tự gửi vào khung (cả lúc trang vừa mở, câu trả lời là file tải về) được ghi. `tests/test_clean.py`. **Xong**. Còn thiếu: báo cáo chất lượng và tự chạy thử bản sao ngay sau Học |
+| 11.5 | Màn hình chính cho GDV | Đã có: «Sửa trên sơ đồ», «Chia sẻ» mở trang quản trị đúng quy trình và tự đăng nhập bằng mã dùng một lần 60 giây (`/auth/handoff`, `/auth/exchange`). Còn lại: sắp lại trang theo việc (Trợ lý, Việc hay làm, Dạy việc mới, Nâng cao) |
+| 11.6 | Gợi ý theo màn hình | Chưa làm |
+| 11.7 | Dùng quy trình được chia sẻ ở máy khác | `GET /api/flows/shared`, `POST /api/flows/import`, «Làm mẫu một lần để dùng» (`POST /api/flows/bind`, `api_share.bind`: ghép theo tác dụng và thứ tự, mẫu đầy đủ của máy này, cấu trúc và Duyệt giữ nguyên, nút không khớp thì báo). **Xong** (chưa thử trên IE thật) |
+| 11.8 | Đo thời gian tiết kiệm | Trung vị làm tay (bản ghi) và trợ lý (lần chạy xong), dưới 3 lần mỗi bên thì không hiện số; thẻ quy trình và trang quản trị (`/runs/summary`). **Xong** |
+| 11.9 | MCP cho Genie Codie (`python -m rookie_agent mcp`) | 5 tool, không có tool Duyệt, không trả giá trị, `idempotency_key`, timeout tổng rồi Dừng khẩn, vai trò maker/checker, audit qua `/api/mcp/audit`, stdio hoặc HTTP có token và danh sách địa chỉ. `tests/test_mcp.py`. **Xong** |
+| 11.10 | Slide, tài liệu, đóng gói | Slide: «Tình huống lạ» thay «Điều kiện», bỏ Java ở slide Bài toán, thêm trang «Gọi quy trình ở đâu». Còn lại: tài liệu, đóng gói |
+
 ## Phần để sau PoC
+
+- Lắng nghe điều hướng của trình duyệt (`BeforeNavigate2`) từ cầu nối, để bắt mọi form và tải file kể cả trong hộp thoại modal; cần một luồng có vòng thông điệp riêng.
 
 - Đánh giá độ chính xác của LLM nội bộ (Learner, giải thích lệch, self-healing) trên bộ mẫu; self-healing bằng ảnh nếu model nhận được ảnh.
 - Quy trình thật đầu tiên (đối chiếu cuối ngày, hành trình chuyển tiền ngoại tệ) và kết nối hệ thống thật.

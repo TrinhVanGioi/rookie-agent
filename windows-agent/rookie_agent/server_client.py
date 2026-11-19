@@ -101,6 +101,10 @@ class ServerClient:
         """Task 10.1: the server checks the password (AD) and gives a token; the password is not kept anywhere."""
         return self._call("POST", "/auth/login", {"username": username, "password": password, "client": "agent"})
 
+    def handoff(self) -> dict[str, Any]:
+        """Task 11.5: a one-time code (60 s) that opens the admin page signed in as this PC's login."""
+        return self._call("POST", "/auth/handoff", {})
+
     def logout(self) -> dict[str, Any]:
         return self._call("POST", "/auth/logout", {})
 
@@ -168,6 +172,9 @@ class ServerClient:
         if api is not None and digest(api) != reply.get("api_digest"):
             raise ServerError("Nút API nhận về không khớp mã kiểm tra (digest); không dùng.")
         return reply
+
+    def list_workflows(self) -> list[dict[str, Any]]:
+        return self._call("GET", "/workflows").get("workflows") or []
 
     def edit_record(self, workflow_id: str, version: int) -> dict[str, Any] | None:
         return self._call("GET", f"/workflows/{urllib.parse.quote(workflow_id, safe='')}/versions/{int(version)}/edit").get("edit")

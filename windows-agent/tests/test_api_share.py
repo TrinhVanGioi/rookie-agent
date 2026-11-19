@@ -104,6 +104,28 @@ def test_learning_still_works_when_the_nodes_cannot_be_sent(tmp_path):
     assert status == 200 and any("nút API" in w for w in reply["warnings"])
 
 
+def test_a_shared_flow_is_made_runnable_here_from_one_recording_of_this_pc():
+    shared = api_share.for_server([node(id="a1", group="g1", url="http://tp.local/tp/postAuthentication.fisglobal?method=getToken&claims=Acct", body="",
+                                        headers="", links={}),
+                                   node(id="a2", group="g2", links={"l1": {"from": "a1", "whole": True}},
+                                        body="7|0|6|http://tp.local/tp/|STRONG|com.fis.tp.Service|find|⟦cif⟧|TRAN THI B|")])
+    shared[1].update(group_label="Tìm khách", mode="approve")
+    assert api_share.needs_template(shared[1]) and not api_share.needs_template(shared[0])
+    mine = [node(id="a7", url="http://tp.local/tp/keepalive?t=1", body="", headers="", links={}),
+            node(id="a8", url="http://tp.local/tp/postAuthentication.fisglobal?method=getToken&claims=Acct", body="", headers="", links={}),
+            node(id="a9", body="7|0|6|http://tp.local/tp/|STRONG|com.fis.tp.Service|find|⟦cif⟧|TRAN THI B|", links={"l1": {"from": "a8", "whole": True}})]
+    bound, missing = api_share.bind(shared, mine)
+    assert missing == [] and bound[1]["bound"] and bound[1]["body"].endswith("|TRAN THI B|")              # this PC's own full template
+    assert bound[1]["links"] == {"l1": {"from": "a1", "whole": True}} and bound[1]["unresolved"] == []    # pointing at the flow's own node
+    assert (bound[1]["id"], bound[1]["group_label"], bound[1]["mode"]) == ("a2", "Tìm khách", "approve")  # the flow's structure stays
+
+
+def test_a_node_this_recording_did_not_do_is_said():
+    shared = api_share.for_server([node(id="a2")])
+    bound, missing = api_share.bind(shared, [node(id="x", url="http://tp.local/other", body="", headers="")])
+    assert missing == ["Tra cứu"] and not bound[0].get("bound")
+
+
 def test_the_same_samples_give_the_same_count_as_the_server_check():
     # the server checks with the same rule (server/app/api_nodes.py, test_api_nodes.py uses these samples)
     assert api_share.mask_text("a|NGUYEN VAN AN|b") == ("a|•••|b", 1)

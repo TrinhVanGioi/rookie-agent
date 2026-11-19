@@ -297,7 +297,9 @@
     <section>
       <h2>Luồng đã học</h2>
       <p class="sub">Mỗi ô là một bước agent đã học, nối theo thứ tự chạy. Bấm vào ô để xem chi tiết. Màu viền: xanh là chỉ xem, vàng là ghi dữ liệu, đỏ là tiền. Trang này chỉ để xem, chưa sửa được.</p>
-      <div class="row"><select id="flowPick" class="grow"></select><button id="flowRefresh">Làm mới</button></div>
+      <div class="row"><select id="flowPick" class="grow"></select><button id="flowRefresh">Làm mới</button>
+        <button id="flowEdit" title="Mở trang quản trị trên máy chủ, đúng quy trình này">Sửa trên sơ đồ</button><button id="flowShare">Chia sẻ</button></div>
+      <div id="flowAdminMsg"></div>
       <div id="flowEmpty" class="msg bad" hidden>Chưa có luồng nào. Hãy Ghi 3 lần rồi bấm Học ở tab «Ghi và Học».</div>
       <div class="canvas" id="canvas" hidden><div class="flowrow" id="flowrow"></div></div>
       <div id="flowDetail"></div>
@@ -306,9 +308,10 @@
     <section id="updBox">
       <h2>Bản mới trên máy chủ</h2>
       <p class="sub">Luồng có thể được sửa trên trang quản trị. Máy này vẫn chạy bản của mình cho tới khi bạn bấm «Dùng bản này». Bản nháp thì chạy thử trên bản sao trước (không đụng hệ thống thật), rồi nhờ người khác người sửa Duyệt.</p>
-      <div class="row"><button id="updCheck">Kiểm tra bản mới</button></div>
+      <div class="row"><button id="updCheck">Kiểm tra bản mới</button><button id="sharedCheck">Quy trình được chia sẻ cho bạn</button></div>
       <div id="updMsg"></div>
       <div id="updList"></div>
+      <div id="sharedList"></div>
     </section>
     <section id="runBox">
       <h2>Chạy luồng này</h2>
@@ -692,6 +695,7 @@ $("record").onclick = async () => {
       recording = false; preview = false; button.textContent = "Bắt đầu ghi"; button.className = "primary"; $("recstate").textContent = ""; $("rname").value = ""; showMode();
       loadSeen(); loadRequests();
       say("recmsg", "Đã ghi " + r.events + " thao tác. Các ô nhập: " + r.typed_fields + ", giá trị được lưu: " + r.typed_values_kept + ".", "ok");
+      showCheck(r.check || []);
       loadRecordings();
     }
   } catch (e) {
@@ -713,6 +717,16 @@ async function serverCheck() {
   } catch (e) { say("servermsg", e.message, "bad"); }
 }
 $("serverCheck").onclick = serverCheck;
+// task 11.3: what the recording says about itself, in plain words: ok, worth knowing, record again
+function showCheck(found) {
+  const box = $("recmsg");
+  if (!found.length) return;
+  const words = { ok: "✓", note: "ℹ", redo: "⚠ Cần ghi lại:" }, kinds = { ok: "ok", note: "ok", redo: "bad" };
+  for (const f of found) {
+    const line = el("div", words[f.level] + " " + f.text + (f.hint ? " " + f.hint : ""), "msg " + kinds[f.level]);
+    box.append(line);
+  }
+}
 // task 10.1: the server may ask who is learning; only the token it gives is kept on this PC, never the password
 function showServerUser(name) {
   $("serverWhoRow").hidden = !name; $("serverLoginRow").hidden = !!name;
@@ -1222,6 +1236,15 @@ function drawFlow(flow) {
 }
 $("flowPick").onchange = () => drawFlow(flows[$("flowPick").value]);
 $("flowRefresh").onclick = loadFlows;
+// task 11.5: edit or share on the server's admin page, opened on this flow and signed in as you
+async function openAdmin() {
+  const flow = flows[$("flowPick").value || 0];
+  if (!flow || !flow.workflow_id) { say("flowAdminMsg", "Luồng này chưa có trên máy chủ (học từ trước khi có máy chủ). Hãy Học lại.", "bad"); return; }
+  try { const r = await api("POST", "/api/admin/open", { workflow_id: flow.workflow_id }); window.open(r.url, "_blank"); say("flowAdminMsg", "", "ok"); }
+  catch (e) { say("flowAdminMsg", e.message, "bad"); }
+}
+$("flowEdit").onclick = openAdmin;
+$("flowShare").onclick = openAdmin;
 
 // task 10.7: versions edited on the admin page; this PC keeps running its own copy until the teller takes a new one
 const UPD_STATUS = { draft: "bản nháp", tested: "đã chạy thử, chờ Duyệt trên trang quản trị", approved: "đã Duyệt" };
@@ -1279,6 +1302,31 @@ async function tryUpdate(u, box) {
   }
 }
 $("updCheck").onclick = checkUpdates;
+// task 11.7: a flow someone shared: take it, then make it runnable here by doing it once (Ghi, then «Làm mẫu một lần để dùng»)
+$("sharedCheck").onclick = async () => {
+  const list = $("sharedList"); list.textContent = "";
+  try {
+    const r = await api("GET", "/api/flows/shared");
+    if (!r.flows.length) { say("updMsg", "Chưa có quy trình nào được chia sẻ cho bạn.", "ok"); return; }
+    say("updMsg", "", "ok");
+    for (const f of r.flows) {
+      const row = el("div", undefined, "row"), take = el("button", "Lấy về");
+      row.append(el("span", "«" + f.title + "» của " + (f.owner || "?") + " (v" + f.version + ")", "grow"), take);
+      take.onclick = async () => {
+        try {
+          const done = await api("POST", "/api/flows/import", { workflow_id: f.workflow_id });
+          say("updMsg", done.message, "ok"); await loadFlows();
+          if (done.needs_recording) {
+            const bind = el("button", "Làm mẫu một lần để dùng", "primary");
+            bind.onclick = async () => { try { const b = await api("POST", "/api/flows/bind", { title: done.title }); say("updMsg", b.message, b.missing.length ? "bad" : "ok"); } catch (e) { say("updMsg", e.message, "bad"); } };
+            row.append(bind);
+          }
+        } catch (e) { say("updMsg", e.message, "bad"); }
+      };
+      list.append(row);
+    }
+  } catch (e) { say("updMsg", e.message, "bad"); }
+};
 
 // ---- Kho luồng: the agents that are approved and have finished a run, as cards (local to this PC; docs/design.md 6.4) ----
 function saveJson(doc, fileName) {
@@ -1309,6 +1357,7 @@ function libCard(c) {
   meta.append(el("span", c.steps_n + " bước", "badge"), el("span", c.calls_n + " lời gọi", "badge"), el("span", RISK[c.risk_max] || c.risk_max, "badge"),
     el("span", "Chạy gần nhất: " + c.last_run, "detail"));
   card.append(meta);
+  if (c.savings && c.savings.saved_s !== undefined) card.append(el("div", "⏱ " + c.savings.text, "detail"));   // task 11.8: only with enough measures
   const canvas = el("div", undefined, "canvas"), row = el("div", undefined, "flowrow"), detail = el("div");
   canvas.append(row); card.append(canvas, detail);
   drawNodes(row, flowNodes(c), (b, node) => showNodeLines(detail, node));

@@ -18,6 +18,7 @@ from typing import Any
 
 FIELDS = ("id", "step_id", "group", "group_label", "label", "kind", "via", "file", "dialog", "frame", "method", "url", "headers", "body",
           "links", "risk", "complete", "unresolved", "ms")
+# a node bound on this PC (task 11.7) keeps `bound`; it is never sent up again with its full template (for_server masks it like any other)
 MASK = "•••"
 _SPLIT = re.compile(r"""([|&=,;:"'{}\[\]<>()\\\r\n\t/?])""")
 _MARK = re.compile(r"(⟦[^⟧]*⟧|•••)")
@@ -94,6 +95,53 @@ def merge(local: list[dict[str, Any]], server: list[dict[str, Any]]) -> list[dic
                 made["unresolved"] = list(node["unresolved"])
         out.append(made)
     return out
+
+
+def needs_template(node: dict[str, Any]) -> bool:
+    """A recorded node whose full template is on the PC that recorded it (task 11.7)."""
+    return bool(node.get("masked")) and not node.get("added") and not node.get("bound")
+
+
+def bind(flow_nodes: list[dict[str, Any]], recorded: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[str]]:
+    """Task 11.7: a flow shared from another PC made runnable here from ONE recording made on this PC. Each node that needs its template
+    takes the first call of the recording, not taken yet and in order, that does the same thing (method, path, and the GWT service and
+    method or the `method=` of the query: ie/clean.py `_op`, never a value). The structure, ids, labels, risk and Duyệt stay the flow's;
+    the template, links, answer shape come from here, the links pointing at the flow's own node ids. Returns (nodes, labels not matched)."""
+    from rookie_agent.ie.clean import _op
+
+    out = [dict(n) for n in flow_nodes]
+    taken: set[int] = set()
+    local_to_flow: dict[str, str] = {}
+    missing: list[str] = []
+    cursor = 0
+    for node in out:                          # every node is matched (for the links); only those that need it take the template
+        place = next((i for i in range(cursor, len(recorded)) if i not in taken and _op(recorded[i]) == _op(node)), None)
+        if place is None:
+            place = next((i for i in range(len(recorded)) if i not in taken and _op(recorded[i]) == _op(node)), None)
+        if place is None:
+            if needs_template(node):
+                missing.append(str(node.get("group_label") or node.get("label")))
+            continue
+        taken.add(place)
+        cursor = place + 1
+        here = recorded[place]
+        local_to_flow[str(here["id"])] = str(node["id"])
+        if not needs_template(node):
+            continue
+        node.update({k: here.get(k) for k in ("url", "headers", "body", "shape", "answer", "frame") if k in here})
+        node["links"] = dict(here.get("links") or {})
+        node["complete"], node["bound"] = bool(here.get("complete")), True
+        node["masked"] = 0
+    ids = {n["id"] for n in out}
+    for node in out:
+        if not node.get("bound"):
+            continue
+        links = {}
+        for name, rule in (node.get("links") or {}).items():
+            links[name] = {**rule, "from": local_to_flow.get(str(rule.get("from")), str(rule.get("from")))}
+        node["links"] = links
+        node["unresolved"] = sorted(name for name, rule in links.items() if rule["from"] not in ids)
+    return out, missing
 
 
 def for_server(nodes: list[dict[str, Any]]) -> list[dict[str, Any]]:

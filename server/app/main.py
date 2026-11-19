@@ -445,10 +445,35 @@ def create_app(db_path: str | Path | None = None, auth_mode: str | None = None, 
         visible(request, workflow_id)
         return {"runs": storage.runs_of(workflow_id)}
 
+    def _savings(workflow_id: str) -> dict[str, Any]:
+        """Task 11.8: by hand (the recordings it was learned from, first action to last) against the finished runs; medians, 3 of each at least."""
+        import statistics
+        from datetime import datetime
+
+        manual: list[float] = []
+        for wid, _, session_ids in storage.learn_sources():
+            if wid != workflow_id:
+                continue
+            manual = []
+            for session_id in session_ids:
+                stamps = []
+                for event in (storage.get_session(session_id) or {}).get("events") or []:
+                    try:
+                        stamps.append(datetime.fromisoformat(str(event.get("ts")).replace("Z", "+00:00")).timestamp())
+                    except ValueError:
+                        pass
+                if len(stamps) >= 2:
+                    manual.append(max(stamps) - min(stamps))
+        runs = [float(r.get("seconds") or 0) for r in storage.runs_of(workflow_id) if r.get("status") == "finished" and r.get("mode") in ("run", "simulate")]
+        if len(manual) < 3 or len(runs) < 3:
+            return {}
+        by_hand, agent = statistics.median(manual), statistics.median(runs)
+        return {"manual_s": round(by_hand, 1), "agent_s": round(agent, 1), "saved_s": round(max(0.0, by_hand - agent), 1)}
+
     @app.get("/runs/summary")
     def run_summary(request: Request) -> dict[str, Any]:
         who = caller(request)
-        return {"flows": {wid: row for wid, row in storage.run_summary().items() if can_see(who, storage.meta(wid))}}
+        return {"flows": {wid: {**row, **_savings(wid)} for wid, row in storage.run_summary().items() if can_see(who, storage.meta(wid))}}
 
     # ---- sharing, cloning, owners (task 10.2) ---------------------------------------------------------------------
 

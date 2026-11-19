@@ -372,7 +372,15 @@ class Core:
             self.store.update(session.session_id, **extra)
         except Exception:  # noqa: BLE001
             pass
-        return {"id": document["session_id"], "trace_file": trace_path, "requests_kept": kept, **summarize_events(document["events"])}
+        findings: list[dict[str, str]] = []
+        try:    # task 11.3: the recording checks itself and says, in plain words, what to record again
+            from rookie_agent.ie import check
+
+            findings = check.check(self.store.load(session.session_id), notes=list(getattr(session, "notes", []) or []),
+                                   requests_on=bool(getattr(session, "_requests", True)))
+        except Exception:  # noqa: BLE001
+            pass
+        return {"id": document["session_id"], "trace_file": trace_path, "requests_kept": kept, "check": findings, **summarize_events(document["events"])}
 
     def _write_trace(self, session: Any) -> str | None:
         """Everything the page reported, masked, as one file the teller or the team can open to see what was recorded.
@@ -461,6 +469,23 @@ class Core:
         self.store.put("server_user", reply["user"])
         return {"user": reply["user"]}
 
+    def admin_open(self, body: dict[str, Any]) -> dict[str, Any]:
+        """Task 11.5: the address of the admin page for one flow («Sửa trên sơ đồ», «Chia sẻ»), signed in by a one-time code when the
+        server asks for logins. The page opens it in a new window; nothing else is sent."""
+        client = self._server()
+        base = str(getattr(client, "base_url", "") or self.store.get("server_url", DEFAULT_SERVER)).rstrip("/")
+        params: dict[str, str] = {}
+        flow_id = str(body.get("workflow_id") or "")
+        if re.fullmatch(r"[a-z0-9][a-z0-9-]{0,63}", flow_id):
+            params["flow"] = flow_id
+        try:
+            code = (client.handoff() or {}).get("code") if getattr(client, "token", None) else None
+        except ServerError as error:
+            raise UserError(str(error)) from error
+        if code:
+            params["code"] = code
+        return {"url": base + "/admin/" + ("?" + urllib.parse.urlencode(params) if params else "")}
+
     def server_logout(self, _: dict[str, Any]) -> dict[str, Any]:
         try:
             self._server().logout()
@@ -496,9 +521,16 @@ class Core:
         if not title:
             raise UserError("Đặt tên cho việc này, ví dụ: Vấn tin tài khoản.")
         client = self._server()
+        documents = {session_id: self.store.load(session_id) for session_id in ids}
+        if all(d.get("engine") == "ie" for d in documents.values()):
+            from rookie_agent.ie import clean
+
+            # task 11.4: the recordings cleaned together by the rules of ie/clean.py; the stored recordings are not changed
+            documents = dict(zip(ids, clean.clean([documents[i] for i in ids])))
+        self._cleaned = documents
         try:
             for session_id in ids:
-                document = self.store.load(session_id)
+                document = documents[session_id]
                 try:
                     client.post_session(session_id, document["engine"], self._events_for_server(document), **self._process_fields(document))
                 except ServerError as error:
@@ -535,9 +567,12 @@ class Core:
                 put_api(workflow["id"], workflow["version"], api_share.for_server(api))
             except ServerError as error:
                 shown["warnings"] = list(shown["warnings"]) + [f"Chưa gửi được nút API lên máy chủ ({error}); luồng vẫn chạy được trên máy này."]
+        from rookie_agent.assistant import savings
+
+        manual = [s for s in (savings.recording_seconds(self.store.load(i).get("events") or []) for i in ids) if s]   # task 11.8: by hand
         flows = [flow for flow in self.store.get("flows", []) if flow.get("title") != shown["title"]]
         self.store.put("flows", flows + [{**shown, "workflow": workflow, "api": api, "input_formats": self._input_formats(workflow, ids),
-                                          "learned_at": time.strftime("%Y-%m-%d %H:%M:%S")}])
+                                          "manual_seconds": manual, "learned_at": time.strftime("%Y-%m-%d %H:%M:%S")}])
         return shown
 
     def _input_formats(self, workflow: dict[str, Any], ids: list[str]) -> dict[str, str]:
@@ -565,7 +600,7 @@ class Core:
 
         for session_id in ids:
             try:
-                document = self.store.load(session_id)
+                document = (getattr(self, "_cleaned", None) or {}).get(session_id) or self.store.load(session_id)
             except (OSError, ValueError):
                 continue
             if document.get("requests"):
@@ -613,9 +648,12 @@ class Core:
                                        "ready": bool(n["complete"] and not n["unresolved"])} for n in calls]})
             return out
 
+        from rookie_agent.assistant import savings
+
         def listed(flow: dict[str, Any]) -> dict[str, Any]:
             workflow = flow.get("workflow") or {}
             return {k: v for k, v in flow.items() if k not in ("workflow", "requests", "api", "read_confirmed")} | {
+                "savings": savings.summary(list(flow.get("manual_seconds") or []), savings.run_seconds(self.store.home / "audit.jsonl", str(flow.get("title")))),
                 # the nodes the canvas draws (task 8.5): one per step, with the calls it fires; never a template's body
                 "api_nodes": api_nodes(flow.get("api") or [], flow),
                 "approved": workflow.get("status") == "approved", "engine": workflow.get("engine"),
@@ -774,6 +812,66 @@ class Core:
         self._audit_line({"time": time.strftime("%Y-%m-%d %H:%M:%S"), "title": flow["title"], "mode": "update", "status": "taken",
                           "from_version": old_version, "version": copy["workflow"]["version"], "edited_by": (edit or {}).get("edited_by")})
         return {"taken": True, "version": copy["workflow"]["version"]}
+
+    # ---- a flow shared by someone else (task 11.7): take it, then make it runnable here with one recording of this PC --------------
+
+    def flows_shared(self, _: dict[str, Any]) -> dict[str, Any]:
+        """Approved flows the server lets this login see that this PC does not have yet (shared with the unit or everyone)."""
+        try:
+            rows = self._server().list_workflows()
+        except ServerError as error:
+            raise UserError(str(error)) from error
+        here = {(f.get("workflow") or {}).get("id") for f in self.store.get("flows", [])}
+        approved: dict[str, dict[str, Any]] = {}
+        for row in rows:
+            if row.get("status") == "approved" and row["id"] not in here:
+                approved[row["id"]] = {"workflow_id": row["id"], "title": row.get("title") or row["id"], "owner": row.get("owner_display"), "version": row["version"]}
+        return {"flows": list(approved.values())}
+
+    def flow_import(self, body: dict[str, Any]) -> dict[str, Any]:
+        from rookie_agent.ie import api_share
+
+        workflow_id = str(body.get("workflow_id") or "")
+        try:
+            reply = self._server().approved_workflow(workflow_id)
+        except ServerError as error:
+            raise UserError(str(error)) from error
+        from rookie_agent.server_client import digest
+
+        if reply.get("api") is not None and digest(reply["api"]) != reply.get("api_digest"):
+            raise UserError("Nút API nhận về không khớp mã kiểm tra (digest); không lấy.")
+        workflow = reply["workflow"]
+        title = str(workflow.get("title") or workflow_id)
+        api = api_share.merge([], reply.get("api") or []) if reply.get("api") else []
+        flows = [f for f in self.store.get("flows", []) if f.get("title") != title]
+        self.store.put("flows", flows + [{"title": title, "workflow": workflow, "api": api, "imported": True, "warnings": [],
+                                          "inputs": [i.get("label") or i["name"] for i in workflow.get("inputs", [])], "steps": [],
+                                          "learned_at": time.strftime("%Y-%m-%d %H:%M:%S")}])
+        need = sum(1 for n in api if n.get("complete") is False)
+        return {"title": title, "needs_recording": need > 0,
+                "message": f"Đã lấy «{title}». " + ("Làm mẫu một lần trên máy này (Ghi rồi bấm «Làm mẫu một lần để dùng») để chạy được bằng yêu cầu." if need else "")}
+
+    def flow_bind(self, body: dict[str, Any]) -> dict[str, Any]:
+        """One recording of this PC gives the shared flow the full templates it lacks (api_share.bind)."""
+        from rookie_agent.ie import api_share, clean, replay
+
+        flows = self.store.get("flows", [])
+        flow = next((f for f in flows if f.get("title") == str(body.get("title") or "")), None)
+        if flow is None:
+            raise UserError("Không thấy luồng này trên máy.")
+        listing = self.store.listing()
+        recording = str(body.get("recording_id") or (listing[0]["id"] if listing else ""))
+        if not recording:
+            raise UserError("Chưa có bản ghi nào. Bấm Ghi, làm việc này một lần, Dừng ghi rồi bấm lại.")
+        (document,) = clean.clean([self.store.load(recording)])
+        local = replay.build_api(flow["workflow"], document["events"], document.get("requests") or [],
+                                 describe=lambda s: friendly_step(s["action"], (s.get("target") or {}).get("label")))
+        nodes, missing = api_share.bind(flow.get("api") or [], local)
+        flow["api"] = nodes
+        self.store.put("flows", flows)
+        bound = sum(1 for n in nodes if n.get("bound"))
+        return {"bound": bound, "missing": missing,
+                "message": (f"Đã ghép {bound} lời gọi từ bản ghi của máy này." + (f" Chưa ghép được: {', '.join(missing)}; hãy ghi đủ các bước đó rồi bấm lại." if missing else ""))}
 
     def flow_update_try(self, body: dict[str, Any]) -> dict[str, Any]:
         """Try a draft version on the twin, without taking it. When it finishes, the server is told (a passed sandbox run), and the
@@ -1282,6 +1380,17 @@ class Core:
             raise UserError("Câu hỏi này không còn mở (hoặc không đúng câu hỏi). Xem lại màn hình.")
         return {"answered": True}
 
+    def mcp_audit(self, body: dict[str, Any]) -> dict[str, Any]:
+        """Task 11.9: one line of audit.jsonl per MCP tool call, in the same file; names and states only (the fields are a fixed list)."""
+        word = re.compile(r"^[A-Za-z0-9_.:-]{0,80}$")
+        line = {"time": time.strftime("%Y-%m-%d %H:%M:%S"), "mode": "mcp", "tool": str(body.get("tool") or "")[:40],
+                "title": str(body.get("title") or "")[:80], "status": str(body.get("status") or "")[:40],
+                "seconds": float(body.get("seconds") or 0),
+                "input_names": [str(n) for n in body.get("input_names") or [] if re.fullmatch(r"[a-z][a-z0-9_]{0,63}", str(n))][:30],
+                "idempotency_key": str(body.get("idempotency_key") or "") if word.match(str(body.get("idempotency_key") or "")) else ""}
+        self._audit_line(line)
+        return {"ok": True}
+
     def run_stop(self, _: dict[str, Any]) -> dict[str, Any]:
         """Dừng khẩn: wins over every answer, also over an open question."""
         if self._run is not None:
@@ -1689,6 +1798,8 @@ class Core:
         "POST /api/record/stop": "record_stop", "GET /api/recordings": "recordings", "POST /api/recordings/delete": "delete_recording",
         "POST /api/server/check": "server_check", "POST /api/server/start": "server_start",
         "POST /api/server/login": "server_login", "POST /api/server/logout": "server_logout",
+        "POST /api/mcp/audit": "mcp_audit", "POST /api/admin/open": "admin_open",
+        "GET /api/flows/shared": "flows_shared", "POST /api/flows/import": "flow_import", "POST /api/flows/bind": "flow_bind",
         "GET /api/flows/updates": "flow_updates", "POST /api/flows/update/take": "flow_update_take", "POST /api/flows/update/try": "flow_update_try", "POST /api/learn": "learn",
         "POST /api/diagnostics": "diagnostics", "GET /api/flows": "flows",
         "GET /api/codie": "codie_status", "POST /api/codie/test": "codie_test", "GET /api/calls": "calls", "GET /api/seen": "seen", "GET /api/requests": "requests", "GET /api/live": "live", "GET /api/screen": "screen", "POST /api/ie/inspect": "ie_inspect", "POST /api/flow/approve": "flow_approve", "POST /api/flow/read-withdraw": "flow_read_withdraw","POST /api/run/start": "run_start", "GET /api/run/status": "run_status", "POST /api/run/decide": "run_decide", "POST /api/run/stop": "run_stop", "POST /api/assistant/plan": "assistant_plan", "POST /api/assistant/answer": "assistant_answer", "POST /api/assistant/run": "assistant_run", "GET /api/assistant/habits": "assistant_habits", "GET /api/library": "library", "POST /api/library/n8n": "library_n8n", "GET /api/trace/last": "last_trace",

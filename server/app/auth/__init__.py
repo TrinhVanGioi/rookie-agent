@@ -144,6 +144,32 @@ def install(app: FastAPI, auth: Auth) -> None:
             response.set_cookie(COOKIE, token, max_age=int(auth.hours * 3600), httponly=True, samesite="strict", path="/")
         return response
 
+    @app.post("/auth/handoff")
+    def handoff(request: Request) -> dict[str, Any]:
+        """Task 11.5: the agent (with its token) asks for a one-time code, good for 60 s, that opens the admin page signed in as the same
+        person (the page trades it for its cookie). With login off there is nothing to hand over."""
+        if auth.mode == "off":
+            return {"code": None}
+        who = auth.user_of(token_of(request))
+        if who is None:
+            raise HTTPException(401, NEED_LOGIN)
+        code = secrets.token_urlsafe(24)
+        auth.storage.add_token(_hash("handoff:" + code), who.as_dict(), "handoff", auth.clock() + 60)
+        return {"code": code}
+
+    @app.post("/auth/exchange")
+    def exchange(body: dict[str, Any]) -> JSONResponse:
+        code = str(body.get("code") or "")
+        found = auth.storage.get_token(_hash("handoff:" + code)) if code else None
+        if found is None or found[1] != "handoff" or found[2] <= auth.clock():
+            raise HTTPException(401, "Mã mở trang đã hết hạn. Bấm lại nút trên trang Rookie của máy bạn.")
+        auth.storage.delete_token(_hash("handoff:" + code))          # one time only
+        token, expires = secrets.token_urlsafe(32), auth.clock() + auth.hours * 3600
+        auth.storage.add_token(_hash(token), found[0], "admin", expires)
+        response = JSONResponse({"user": found[0]})
+        response.set_cookie(COOKIE, token, max_age=int(auth.hours * 3600), httponly=True, samesite="strict", path="/")
+        return response
+
     @app.post("/auth/logout")
     def logout(request: Request) -> JSONResponse:
         auth.logout(token_of(request))

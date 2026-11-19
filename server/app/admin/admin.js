@@ -62,6 +62,13 @@ function isOwner(meta) { return !!meta.owner && meta.owner === state.me.name; }
 
 async function start() {
   let me;
+  // task 11.5: opened from the teller's own Rookie page: a one-time code signs in as the same person; ?flow= opens that flow
+  const params = new URLSearchParams(location.search);
+  if (params.get("code")) {
+    try { await api("POST", "/auth/exchange", { code: params.get("code") }); } catch (e) { say("loginMsg", e.message, "bad"); }
+    params.delete("code");
+    history.replaceState(null, "", location.pathname + (params.toString() ? "?" + params.toString() : ""));
+  }
   try { me = await api("GET", "/auth/me"); } catch (e) { showLogin(); return; }
   state.me = me.user; state.mode = me.mode;
   $("offBanner").hidden = me.mode !== "off";
@@ -69,6 +76,8 @@ async function start() {
   $("whoName").textContent = me.user.display + (me.user.unit ? " · " + me.user.unit : "") + (isAdmin() ? " · quản trị" : "");
   $("logout").hidden = me.mode === "off";
   await loadList();
+  const wanted = new URLSearchParams(location.search).get("flow");
+  if (wanted && flowsById().some((f) => f.id === wanted)) await openFlow(wanted);
 }
 
 // ---- the list -----------------------------------------------------------------------------------------------------------------
@@ -121,6 +130,7 @@ function drawList() {
     if (f.approved && f.approved !== l) badges.append(el("span", "đang dùng v" + f.approved.version, "chip approved"));
     badges.append(el("span", RISK[l.max_risk], "chip " + l.max_risk));
     if (runs) badges.append(el("span", runs.runs + " lần chạy" + (runs.failed ? " · " + Math.round(100 * runs.failed / runs.runs) + "% lỗi" : ""), "chip"));
+    if (runs && runs.saved_s !== undefined) badges.append(el("span", "tiết kiệm ~" + (runs.saved_s >= 90 ? (runs.saved_s / 60).toFixed(1).replace(".", ",") + " phút" : Math.round(runs.saved_s) + " giây") + "/lần", "chip read"));
     li.append(badges);
     li.onclick = () => openFlow(f.id);
     box.append(li);

@@ -96,6 +96,20 @@ def test_five_wrong_passwords_lock_the_name_for_ten_minutes(dev, clock):
     assert login(dev, "gdv1", "pw-gdv1").status_code == 200
 
 
+def test_the_agent_opens_the_admin_page_signed_in_with_a_one_time_code_that_expires(dev, clock):
+    token = login(dev, "gdv1", "pw-gdv1").json()["token"]
+    code = dev.post("/auth/handoff", headers={"Authorization": "Bearer " + token}).json()["code"]
+    opened = dev.post("/auth/exchange", json={"code": code})
+    assert opened.status_code == 200 and opened.json()["user"]["name"] == "gdv1" and "httponly" in opened.headers["set-cookie"].lower()
+    assert dev.get("/auth/me").json()["user"]["name"] == "gdv1"
+    assert dev.post("/auth/exchange", json={"code": code}).status_code == 401              # one time only
+    late = dev.post("/auth/handoff", headers={"Authorization": "Bearer " + token}).json()["code"]
+    clock.now += 61
+    assert dev.post("/auth/exchange", json={"code": late}).status_code == 401              # 60 seconds
+    dev.cookies.clear()
+    assert dev.post("/auth/handoff").status_code == 401                                     # not without a login
+
+
 def test_the_server_keeps_only_a_hash_of_a_token_and_never_the_password(dev, tmp_path):
     token = login(dev, "gdv1", "pw-gdv1").json()["token"]
     raw = (tmp_path / "auth.db").read_bytes()

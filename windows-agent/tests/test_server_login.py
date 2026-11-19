@@ -49,6 +49,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._reply(401, {"detail": "Sai tên đăng nhập hoặc mật khẩu."})
         if self.path == "/auth/logout":
             return self._reply(200, {"ok": True})
+        if self.path == "/auth/handoff":
+            return self._reply(200, {"code": "one-time"} if self.headers.get("Authorization") == "Bearer tok-123" else {"code": None})
         return self._reply(404, {"detail": "?"})
 
 
@@ -94,6 +96,17 @@ def test_a_wrong_password_is_said_in_vietnamese_and_nothing_is_kept(tmp_path, se
     status, reply = core.dispatch("POST", "/api/server/login", {"username": "gdv1", "password": "sai"})
     assert status == 400 and "Sai tên đăng nhập hoặc mật khẩu" in reply["error"]
     assert core.store.get("server_token") is None
+
+
+def test_the_admin_page_opens_on_the_flow_signed_in_with_a_one_time_code(tmp_path, server):
+    core, _ = make_core(tmp_path, server_client=ServerClient)
+    core.store.put("server_url", server)
+    status, reply = core.dispatch("POST", "/api/admin/open", {"workflow_id": "sao-ke"})
+    assert status == 200 and reply["url"] == server + "/admin/?flow=sao-ke"                 # not signed in: no code
+    core.dispatch("POST", "/api/server/login", {"username": "gdv1", "password": "bi-mat"})
+    reply = core.dispatch("POST", "/api/admin/open", {"workflow_id": "sao-ke"})[1]
+    assert reply["url"] == server + "/admin/?flow=sao-ke&code=one-time"
+    assert core.dispatch("POST", "/api/admin/open", {"workflow_id": "../x"})[1]["url"] == server + "/admin/?code=one-time"
 
 
 def test_a_server_that_asks_for_a_login_says_so(server):
