@@ -246,7 +246,7 @@
     <div class="msg bad twin-banner">BẢN SAO – không gửi hệ thống thật. Trang này vẽ, đo và thử quy trình trên bản sao; chạy thật vẫn phải làm trong phiên IE của GDV, và Duyệt luôn do người bấm.</div>
     <section>
       <h2>Vai trò của máy này</h2>
-      <p class="sub">Máy này ghi và học với vai trò nào? Vai trò đi kèm bản ghi để nối lệnh của GDV lập lệnh với lần duyệt của Kiểm soát viên. Mã lệnh không bao giờ rời máy: chỉ gửi mã băm bằng khoá chung của đơn vị.</p>
+      <p class="sub">Máy này ghi và học với vai trò nào? Vấn tin (tra cứu) chỉ cần vai trò GDV, không cần Kiểm soát viên. Việc có duyệt (chuyển tiền) thì vai trò đi kèm bản ghi để nối lệnh của GDV với lần duyệt của Kiểm soát viên. Mã lệnh không bao giờ rời máy: chỉ gửi mã băm bằng khoá chung của đơn vị.</p>
       <div class="row"><select id="twRole" class="grow"></select><button id="twRoleSave">Lưu vai trò</button></div>
       <label class="field" for="twUnitKey">Khoá của đơn vị (cả đơn vị dùng cùng một khoá, đưa cho máy khác để mã băm khớp nhau)</label>
       <input type="text" id="twUnitKey">
@@ -254,7 +254,7 @@
     </section>
     <section>
       <h2><span class="num">1</span>Sơ đồ quy trình</h2>
-      <p class="sub">Một quy trình gồm các chặng nối nhau, mỗi chặng là một luồng đã học (ví dụ GDV lập lệnh rồi Kiểm soát viên duyệt). Bấm «Dựng quy trình từ các lần ghi» để agent tự ghép từ các lần ghi của GDV và KSV, rồi chỉnh lại nếu cần và bấm Lưu. Nét nối càng dày thì càng nhiều ca đi qua; ô đỏ là điểm nghẽn.</p>
+      <p class="sub">Một quy trình gồm các chặng nối nhau, mỗi chặng là một luồng đã học (vấn tin chỉ có một chặng của GDV; chuyển tiền có chặng GDV lập lệnh rồi chặng Kiểm soát viên duyệt). Bấm «Dựng quy trình từ các lần ghi» để agent tự dựng từ các lần ghi đã Học, rồi chỉnh lại nếu cần và bấm Lưu. Nét nối càng dày thì càng nhiều ca đi qua; ô đỏ là điểm nghẽn.</p>
       <div class="row"><select id="twPick" class="grow"></select><button id="twReload">Tải lại</button></div>
       <label class="field" for="twName">Tên quy trình</label>
       <input type="text" id="twName" placeholder="Ví dụ: Chuyển tiền: GDV lập lệnh, KSV duyệt">
@@ -1070,7 +1070,7 @@ $("asGo").onclick = async () => {
 $("asStop").onclick = async () => { try { await api("POST", "/api/run/stop"); } catch (e) { /* the run may have ended */ } };
 
 // ---- Bản sao quy trình (Gate 9): one canvas for the real process (with its numbers), the run on the twin and the "what if" ----
-const ROLE_VN = { maker: "GDV lập lệnh", checker: "KSV" };
+const ROLE_VN = { maker: "GDV", checker: "KSV" };
 const TWIN_BANNER = "BẢN SAO – không gửi hệ thống thật";
 let twFlows = [], twStages = [], twProcesses = [], twProcessId = "", twNodes = [], twMetrics = null, twDiscover = null, twScenario = null, twRunStatus = null, twPinned = null, twTimer = null;
 function fmtSec(s) {
@@ -1116,15 +1116,26 @@ $("twAuto").onclick = async () => {
   try {
     const d = await api("GET", "/api/twin/suggest");
     if (!(d.stages || []).length) {
-      // Nothing joined yet: say why, and that a process can still be built by hand from the flows learned on this PC.
-      $("twMsg").append(el("div", "Chưa tự dựng được: máy chủ chưa thấy lệnh nào có cả lần ghi của GDV lập lệnh và lần ghi của Kiểm soát viên.", "msg bad"));
+      // The server knows no learned recording (e.g. flows learned before Gate 9): an inquiry needs one role, so take the
+      // flow learned on this PC that the twin can run, as one stage.
+      const local = twFlows.find((f) => f.twin_ready) || null;
+      if (local) {
+        twProcessId = ""; $("twPick").value = ""; $("twName").value = local.title;
+        twStages = [{ flowId: local.workflow_id || local.title, title: local.title, label: local.title, role: "maker" }];
+        $("twMsg").append(el("div", "Đã dựng quy trình một chặng «" + local.title + "» từ luồng đã học trên máy này (vấn tin: một vai trò, không cần duyệt). Bấm Lưu, rồi Chạy thử ở mục 3.", "msg ok"));
+        drawTwin(); drawTwinInputs(); return;
+      }
+      $("twMsg").append(el("div", d.reason || "Chưa tự dựng được từ các lần ghi.", "msg bad"));
       $("twMsg").append(el("div", twFlows.length
         ? "Vẫn dựng tay được: chọn luồng đã học ở ô «Thêm chặng» ngay bên dưới, bấm «Thêm chặng» (mỗi luồng một chặng), rồi bấm Lưu. Một chặng là đủ để Chạy thử trên bản sao."
         : "Máy này chưa có luồng nào đã học. Hãy Ghi và Học một luồng (ví dụ tra CIF) trước.", "msg"));
       return;
     }
     twProcessId = ""; $("twPick").value = ""; $("twName").value = d.name || "Quy trình mới"; twStages = stagesFromServer(d.stages);
-    $("twMsg").append(el("div", "Đã dựng bản nháp " + twStages.length + " chặng từ các lần ghi. Kiểm tra thứ tự và vai trò, rồi bấm Lưu.", "msg ok"));
+    $("twMsg").append(el("div", twStages.length === 1
+      ? "Đã dựng quy trình một chặng «" + twStages[0].label + "» (vấn tin: một vai trò, không cần duyệt). Bấm Lưu, rồi Chạy thử ở mục 3."
+      : "Đã dựng bản nháp " + twStages.length + " chặng từ các lần ghi. Kiểm tra thứ tự và vai trò, rồi bấm Lưu.", "msg ok"));
+    if ((d.others || []).length) $("twMsg").append(el("div", "Luồng khác đã ghi: " + d.others.map((o) => o.label).join(", ") + ". Muốn dùng luồng khác thì bỏ chặng này rồi chọn ở «Thêm chặng».", "msg"));
     drawTwin(); drawTwinInputs();
   } catch (e) { twErr("twMsg", e); }
 };
@@ -1166,7 +1177,7 @@ function drawStageRows() {
     const row = el("div", undefined, "row"), name = el("input"), role = el("select");
     name.type = "text"; name.value = s.label; name.className = "grow"; name.oninput = () => { s.label = name.value; };
     name.onchange = drawTwin;
-    role.append(new Option("GDV lập lệnh", "maker"), new Option("Kiểm soát viên (KSV)", "checker")); role.value = s.role; role.onchange = () => { s.role = role.value; drawTwin(); };
+    role.append(new Option("Giao dịch viên (GDV)", "maker"), new Option("Kiểm soát viên (KSV)", "checker")); role.value = s.role; role.onchange = () => { s.role = role.value; drawTwin(); };
     const up = el("button", "↑"), down = el("button", "↓"), del = el("button", "Bỏ chặng");
     up.onclick = () => { if (i) { [twStages[i - 1], twStages[i]] = [twStages[i], twStages[i - 1]]; drawTwin(); } };
     down.onclick = () => { if (i < twStages.length - 1) { [twStages[i + 1], twStages[i]] = [twStages[i], twStages[i + 1]]; drawTwin(); } };

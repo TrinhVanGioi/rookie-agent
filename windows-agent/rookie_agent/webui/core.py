@@ -1148,12 +1148,12 @@ class Core:
 
     def twin_settings(self, _: dict[str, Any]) -> dict[str, Any]:
         return {"role": self._role(), "unit_key": self._unit_key(), "case_regex": self._case_regex(),
-                "roles": [{"id": "maker", "label": "GDV lập lệnh"}, {"id": "checker", "label": "Kiểm soát viên"}]}
+                "roles": [{"id": "maker", "label": "Giao dịch viên (GDV)"}, {"id": "checker", "label": "Kiểm soát viên"}]}
 
     def twin_settings_save(self, body: dict[str, Any]) -> dict[str, Any]:
         if "role" in body:
             if body["role"] not in ROLE_NAMES:
-                raise UserError("Vai trò chỉ có thể là GDV lập lệnh hoặc Kiểm soát viên.")
+                raise UserError("Vai trò chỉ có thể là Giao dịch viên hoặc Kiểm soát viên.")
             self.store.put("role", body["role"])
         if body.get("unit_key"):
             key = str(body["unit_key"]).strip()

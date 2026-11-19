@@ -161,9 +161,24 @@ def test_suggest_builds_a_draft_from_joined_cases(client, world):
     assert draft["cases_joined"] == 10 and draft["name"] and draft["reason"] is None
 
 
-def test_suggest_without_joined_cases_says_why(client):
+def test_suggest_with_nothing_learned_says_why(client):
     draft = client.get("/twin/suggest").json()
     assert draft["stages"] == [] and draft["handoffs"] == [] and "ghi" in draft["reason"].lower()
+
+
+def test_an_inquiry_needs_one_role_and_no_approval_so_the_draft_is_one_stage(client):
+    """Vấn tin: only the teller's recordings, no case key, no checker. The draft is that one workflow, no handoff."""
+    for i in range(3):
+        events = case_sessions(i)["maker"]
+        body = {"schema_version": 3, "engine": "web", "session_id": events[0]["session_id"], "events": events, "role": "maker"}
+        assert client.post("/sessions", json=body).status_code == 201
+    reply = client.post("/workflows/learn", json={"workflow_id": "tra-cif", "title": "Tra CIF", "session_ids": ["m0", "m1", "m2"]})
+    assert reply.status_code == 201, reply.text
+    draft = client.get("/twin/suggest").json()
+    assert [(s["workflow_id"], s["role"]) for s in draft["stages"]] == [("tra-cif", "maker")]
+    assert draft["handoffs"] == [] and draft["reason"] is None and draft["name"] == "Tra CIF"
+    saved = client.post("/twin/processes", json={"name": draft["name"], "stages": draft["stages"], "handoffs": []})
+    assert saved.status_code == 201, saved.text
 
 
 # ---- discover ---------------------------------------------------------------------------------------------

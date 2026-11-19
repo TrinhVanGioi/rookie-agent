@@ -78,10 +78,7 @@ def suggest(rows: list[dict[str, Any]], storage: Storage | None = None) -> dict[
         for rank, workflow_id in enumerate(sorted(first, key=first.get)):  # type: ignore[arg-type]
             ranks.setdefault(workflow_id, []).append(rank)
     if not joined:
-        return {
-            "name": "", "stages": [], "handoffs": [], "cases_joined": 0,
-            "reason": "Chưa có ca nào đi qua nhiều việc (ví dụ người lập lệnh rồi người kiểm soát duyệt). Hãy ghi cả hai vai trò cho cùng một ca rồi thử lại.",
-        }
+        return _single_stage(rows, storage)
     order = sorted(ranks, key=lambda w: (median(ranks[w]), w))
     stages = []
     for workflow_id in order:
@@ -97,3 +94,25 @@ def suggest(rows: list[dict[str, Any]], storage: Storage | None = None) -> dict[
             name += "_2"
         handoffs.append({"from_stage": a["id"], "to_stage": b["id"], "queue": name})
     return {"name": "Quy trình đầu cuối", "stages": stages, "handoffs": handoffs, "cases_joined": joined, "reason": None}
+
+
+def _single_stage(rows: list[dict[str, Any]], storage: Storage | None) -> dict[str, Any]:
+    """No case went through two workflows: an inquiry (vấn tin) needs one role and no approval, so the draft is the
+    workflow seen in the most cases, as a single stage. The other recorded workflows are offered as alternatives."""
+    cases: dict[str, set[str]] = {}
+    roles: dict[str, Counter[str]] = {}
+    for row in rows:
+        cases.setdefault(row["workflow_id"], set()).add(row["case"])
+        roles.setdefault(row["workflow_id"], Counter())[row["role"] or "maker"] += 1
+    if not cases:
+        return {"name": "", "stages": [], "handoffs": [], "cases_joined": 0, "others": [],
+                "reason": "Máy chủ chưa có lần ghi nào đã Học. Hãy Ghi và Học một luồng (ví dụ tra CIF) rồi bấm lại."}
+
+    def title(workflow_id: str) -> str:
+        found = storage.get_workflow(workflow_id) if storage is not None else None
+        return (found[0].get("title") if found else None) or workflow_id
+
+    ranked = sorted(cases, key=lambda w: (-len(cases[w]), w))
+    stages = [{"id": w, "workflow_id": w, "label": title(w), "role": roles[w].most_common(1)[0][0]} for w in ranked]
+    return {"name": stages[0]["label"], "stages": stages[:1], "handoffs": [], "cases_joined": 0, "others": stages[1:],
+            "reason": None}

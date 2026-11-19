@@ -10,7 +10,7 @@ from __future__ import annotations
 from typing import Any
 
 NOTE = "Chỉ để xem/lưu; chạy thật phải trong phiên IE của GDV"
-ROLE_WORDS = {"maker": "GDV lập lệnh", "checker": "KSV"}
+ROLE_WORDS = {"maker": "GDV", "checker": "KSV"}
 STEP = 240
 
 
