@@ -23,6 +23,16 @@
       }
     ]
   },
+  "api": {
+    "description": "Nút API thêm hoặc sửa trên trang quản trị (task 10.4). Rủi ro là mức cao hơn của luật này (theo method và đường dẫn, so không phân biệt hoa thường, chữ không dấu) và luật ie theo nhãn nút. Không khớp luật nào: GET/HEAD là read, còn lại là write. Luật có human_only không được đưa vào luồng.",
+    "default_mutation": "write",
+    "rules": [
+      {"risk": "money", "human_only": true, "method": ".*", "path": "approve|reject|phe-?duyet|tu-?choi"},
+      {"risk": "money", "method": ".*", "path": "transfer|chuyen-?tien|payment|thanh-?toan|withdraw|rut-?tien|deposit|nop-?tien|hach-?toan"},
+      {"risk": "write", "method": ".*", "path": "save|create|update|delete|remove|insert|luu|tao|sua|xoa|cap-?nhat"},
+      {"risk": "read", "method": "GET|HEAD", "path": ".*"}
+    ]
+  },
   "java": {
     "description": "Theo màn hình (tiêu đề cửa sổ) và nhãn nút. Bấm nút hoặc mục menu không khớp luật nào thì là write, vì hướng Java không quan sát được API. Nhấn Enter trong một ô (submit) được xếp theo cùng bảng; ô không có luật thì là write.",
     "default_click": "write",

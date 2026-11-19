@@ -63,6 +63,14 @@ class StatusIn(BaseModel):
     status: Literal["draft", "tested", "approved"]
 
 
+class EditIn(BaseModel):
+    ops: list[dict[str, Any]] = Field(min_length=1, max_length=200)
+
+
+class LayoutIn(BaseModel):
+    layout: dict[str, tuple[float, float]] = Field(max_length=2000)
+
+
 class ApiIn(BaseModel):
     api: list[dict[str, Any]] = Field(max_length=2000)
 
@@ -294,6 +302,10 @@ def create_app(db_path: str | Path | None = None, auth_mode: str | None = None, 
             raise HTTPException(409, f"Không chuyển được từ {move[0]} sang {move[1]}")
         if body.status == "tested" and not storage.has_passed_test_run(workflow_id, version):
             raise HTTPException(409, "Phải chạy thử thành công ở sandbox trước khi chuyển sang tested")
+        edited = storage.get_edit(workflow_id, version)
+        if (body.status == "approved" and edited is not None and app.state.auth.mode != "off"
+                and edited["edited_by"] == caller(request).name):
+            raise HTTPException(409, "Người sửa bản này không tự duyệt được. Nhờ chủ luồng hoặc quản trị khác duyệt.")
         validate_workflow({**workflow, "status": body.status})
         storage.set_status(workflow_id, version, body.status)
         return workflow_reply(*load(workflow_id, version))
@@ -310,6 +322,45 @@ def create_app(db_path: str | Path | None = None, auth_mode: str | None = None, 
             raise HTTPException(422, str(error)) from error
         storage.set_api(workflow_id, version, body.api)
         return {"api_digest": api_nodes.digest(body.api), "count": len(body.api)}
+
+    # ---- editing on the admin page (task 10.4) ------------------------------------------------------------------------
+
+    @app.post("/workflows/{workflow_id}/versions/{version}/edit", status_code=201)
+    def edit_workflow(workflow_id: str, version: int, body: EditIn, request: Request) -> dict[str, Any]:
+        """Every save is a new draft version; the base version does not change. The server checks every rule again."""
+        from app import edit
+
+        changeable(request, workflow_id)
+        workflow, warnings = load(workflow_id, version)
+        try:
+            edited, api = edit.apply(workflow, storage.get_api(workflow_id, version), body.ops)
+        except edit.EditError as error:
+            raise HTTPException(422, str(error)) from error
+        edited["version"], edited["status"] = storage.next_version(workflow_id), "draft"
+        validate_workflow(edited)
+        storage.add_workflow(edited, warnings)
+        if api is not None:
+            storage.set_api(workflow_id, edited["version"], api)
+        storage.add_edit(workflow_id, edited["version"], version, caller(request).name, body.ops)
+        return workflow_reply(edited, warnings)
+
+    @app.get("/workflows/{workflow_id}/versions/{version}/edit")
+    def edit_record(workflow_id: str, version: int, request: Request) -> dict[str, Any]:
+        visible(request, workflow_id)
+        load(workflow_id, version)
+        return {"edit": storage.get_edit(workflow_id, version)}
+
+    @app.get("/workflows/{workflow_id}/layout")
+    def get_layout(workflow_id: str, request: Request) -> dict[str, Any]:
+        visible(request, workflow_id)
+        return {"layout": storage.get_layout(workflow_id)}
+
+    @app.put("/workflows/{workflow_id}/layout")
+    def put_layout(workflow_id: str, body: LayoutIn, request: Request) -> dict[str, Any]:
+        """Where the nodes are drawn on the canvas: not a new version (it changes nothing that runs)."""
+        changeable(request, workflow_id)
+        storage.set_layout(workflow_id, body.layout)
+        return {"layout": body.layout}
 
     # ---- sharing, cloning, owners (task 10.2) ---------------------------------------------------------------------
 

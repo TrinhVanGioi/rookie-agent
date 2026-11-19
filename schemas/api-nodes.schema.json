@@ -43,11 +43,16 @@
         }
       },
       "risk": {"enum": ["read", "write", "money"]},
+      "mode": {"enum": ["auto", "review", "approve"], "description": "Chỉ có khi được nâng trên trang quản trị hoặc nút thêm ở đó. Không có thì read là auto, còn lại là approve."},
       "complete": {"type": "boolean"},
       "unresolved": {"type": "array", "items": {"type": "string"}},
       "ms": {"type": "number", "minimum": 0},
       "masked": {"type": "integer", "minimum": 0},
       "added": {"type": "boolean"}
-    }
+    },
+    "allOf": [
+      {"description": "Nút write luôn là approve.", "if": {"required": ["mode"], "properties": {"risk": {"const": "write"}}}, "then": {"properties": {"mode": {"const": "approve"}}}},
+      {"description": "Nút money không bao giờ là auto.", "if": {"required": ["mode"], "properties": {"risk": {"const": "money"}}}, "then": {"properties": {"mode": {"enum": ["review", "approve"]}}}}
+    ]
   }
 }

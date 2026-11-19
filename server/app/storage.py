@@ -63,6 +63,20 @@ CREATE TABLE IF NOT EXISTS workflow_api (
     created_at TEXT NOT NULL,
     PRIMARY KEY (id, version)
 );
+CREATE TABLE IF NOT EXISTS workflow_edits (
+    id TEXT NOT NULL,
+    version INTEGER NOT NULL,
+    base_version INTEGER NOT NULL,
+    edited_by TEXT NOT NULL,
+    ops TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (id, version)
+);
+CREATE TABLE IF NOT EXISTS workflow_layout (
+    id TEXT PRIMARY KEY,
+    layout TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS auth_tokens (
     hash TEXT PRIMARY KEY,
     user TEXT NOT NULL,
@@ -199,6 +213,28 @@ class Storage:
         with self._lock:
             row = self._db.execute("SELECT api FROM workflow_api WHERE id = ? AND version = ?", (workflow_id, version)).fetchone()
         return json.loads(row["api"]) if row else None
+
+    # ---- edits on the admin page and where the nodes are drawn (task 10.4) --------------------------------------------
+
+    def add_edit(self, workflow_id: str, version: int, base_version: int, edited_by: str, ops: list[dict[str, Any]]) -> None:
+        with self._lock, self._db:
+            self._db.execute("INSERT INTO workflow_edits VALUES (?, ?, ?, ?, ?, ?)", (workflow_id, version, base_version, edited_by, _dump(ops), _now()))
+
+    def get_edit(self, workflow_id: str, version: int) -> dict[str, Any] | None:
+        with self._lock:
+            row = self._db.execute("SELECT * FROM workflow_edits WHERE id = ? AND version = ?", (workflow_id, version)).fetchone()
+        if row is None:
+            return None
+        return {"base_version": row["base_version"], "edited_by": row["edited_by"], "ops": json.loads(row["ops"]), "at": row["created_at"]}
+
+    def set_layout(self, workflow_id: str, layout: dict[str, Any]) -> None:
+        with self._lock, self._db:
+            self._db.execute("INSERT OR REPLACE INTO workflow_layout VALUES (?, ?, ?)", (workflow_id, _dump(layout), _now()))
+
+    def get_layout(self, workflow_id: str) -> dict[str, Any]:
+        with self._lock:
+            row = self._db.execute("SELECT layout FROM workflow_layout WHERE id = ?", (workflow_id,)).fetchone()
+        return json.loads(row["layout"]) if row else {}
 
     # ---- whose flow it is and who sees it (task 10.2) ----------------------------------------------------------------
 

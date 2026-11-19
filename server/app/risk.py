@@ -74,6 +74,34 @@ def risk_of(event: dict[str, Any], config_path: Path = CONFIG_PATH) -> Risk:
     return _web_risk(event, config["web"])
 
 
+ORDER = {"read": 0, "write": 1, "money": 2}
+
+
+def _plain(text: str) -> str:
+    """Lower case without Vietnamese marks (đ -> d), for matching addresses."""
+    text = unicodedata.normalize("NFD", text.replace("đ", "d").replace("Đ", "D"))
+    return "".join(c for c in text if unicodedata.category(c) != "Mn").lower()
+
+
+def risk_of_call(method: str, url: str, label: str, config_path: Path = CONFIG_PATH) -> Risk:
+    """An API node added or changed on the admin page (task 10.4): the higher of the `api` rules (method and address) and the `ie`
+    rules (the label, as a button). Not classified: GET/HEAD read, anything else write."""
+    from urllib.parse import unquote, urlsplit
+
+    config = _config(config_path)
+    parts = urlsplit(url)
+    address = _plain(unquote(parts.path + ("?" + parts.query if parts.query else "")))
+    by_address: Risk | None = None
+    for rule in config["api"]["rules"]:
+        if re.fullmatch(rule["method"], method.upper()) and re.search(rule["path"], address):
+            by_address = Risk(rule["risk"], bool(rule.get("human_only")))
+            break
+    if by_address is None:
+        by_address = READ if method.upper() in ("GET", "HEAD") else Risk(config["api"]["default_mutation"])
+    by_label = _java_risk({"type": "click", "url": "", "target": {"label": label, "tag": "button"}}, config["ie"])
+    return max(by_address, by_label, key=lambda r: (ORDER[r.level], r.human_only))
+
+
 def mode_for(risk: str) -> str:
     """Default control mode for a risk level. `write` and `money` always wait for approval."""
     return "auto" if risk == "read" else "approve"
