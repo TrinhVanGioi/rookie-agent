@@ -289,7 +289,7 @@ def real_ie(path="/"):
     threading.Thread(target=server.serve_forever, daemon=True).start()
     port = server.server_address[1]
     opened = subprocess.run(["powershell.exe", "-NoProfile", "-Command",
-                             "try { $ie = New-Object -ComObject InternetExplorer.Application } catch { exit 3 }; $ie.Visible = $true; "
+                             "try { $ie = New-Object -ComObject InternetExplorer.Application } catch { exit 3 }; $ie.Visible = $false; "
                              f"$ie.Navigate2('http://127.0.0.1:{port}{path}'); $t = 0; while ($ie.Busy -and $t -lt 100) {{ Start-Sleep -Milliseconds 200; $t++ }}; Start-Sleep 2"],
                             timeout=60)
     if opened.returncode == 3:

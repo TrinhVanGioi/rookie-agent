@@ -5,7 +5,7 @@ foreach ($x in $shell.Windows()) { try { if ($x.FullName -match 'iexplore' -and 
 if ($null -eq $w) { Write-Output "no window"; exit 2 }
 $d = $w.Document
 Add-Type -Namespace RK -Name U -MemberDefinition '[DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h); [DllImport("user32.dll")] public static extern void SwitchToThisWindow(IntPtr h, bool alt);'
-if ($Action -ne 'quit' -and $Action -ne 'title') { [RK.U]::SwitchToThisWindow([IntPtr]$w.HWND, $true); [void][RK.U]::SetForegroundWindow([IntPtr]$w.HWND); Start-Sleep -Milliseconds 500 }
+# The test window is invisible and is never brought to the front: the owner of the PC keeps working undisturbed.
 Add-Type -Namespace RK -Name W -MemberDefinition @'
 [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr h, uint m, IntPtr w, IntPtr l);
 [DllImport("user32.dll")] public static extern IntPtr FindWindowEx(IntPtr parent, IntPtr after, string cls, string win);
