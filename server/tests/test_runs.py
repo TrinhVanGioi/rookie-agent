@@ -66,3 +66,12 @@ def test_runs_are_seen_like_their_flow_and_the_summary_counts_failures(api):
     summary = api.get("/runs/summary", headers=api.as_["quantri"]).json()["flows"][api.flow]
     assert (summary["runs"], summary["failed"]) == (3, 1) and summary["last"] == "2026-11-19 10:00:00"
     assert api.get("/runs/summary", headers=api.as_["gdv2"]).json()["flows"] == {}
+
+
+def test_the_summary_says_the_time_saved_once_there_are_three_recordings_and_three_finished_runs(api):
+    # the three recordings of the fixture last 0 s each (one timestamp): make the runs slower than nothing to see only the counting
+    api.post("/runs", json={"runs": [run(api.flow, "r1"), run(api.flow, "r2")]}, headers=api.as_["gdv1"])
+    assert "saved_s" not in api.get("/runs/summary", headers=api.as_["gdv1"]).json()["flows"][api.flow]
+    api.post("/runs", json={"runs": [run(api.flow, "r3")]}, headers=api.as_["gdv1"])
+    row = api.get("/runs/summary", headers=api.as_["gdv1"]).json()["flows"][api.flow]
+    assert (row["agent_s"], row["saved_s"]) == (3.5, 0.0) and "manual_s" in row
