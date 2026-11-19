@@ -160,6 +160,18 @@ class ServerClient:
             raise ServerError("Workflow nhận về không khớp mã kiểm tra (digest); không chạy.")
         return reply
 
+    def flow_version(self, workflow_id: str, version: int | None = None) -> dict[str, Any]:
+        """Task 10.7: a version (the newest when None) with its API nodes; both digests checked."""
+        path = f"/workflows/{urllib.parse.quote(workflow_id, safe='')}" + (f"/versions/{int(version)}" if version else "")
+        reply = self._verified(self._call("GET", path))
+        api = reply.get("api")
+        if api is not None and digest(api) != reply.get("api_digest"):
+            raise ServerError("Nút API nhận về không khớp mã kiểm tra (digest); không dùng.")
+        return reply
+
+    def edit_record(self, workflow_id: str, version: int) -> dict[str, Any] | None:
+        return self._call("GET", f"/workflows/{urllib.parse.quote(workflow_id, safe='')}/versions/{int(version)}/edit").get("edit")
+
     def approved_workflow(self, workflow_id: str) -> dict[str, Any]:
         return self._verified(self._call("GET", f"/workflows/{workflow_id}/approved"))
 

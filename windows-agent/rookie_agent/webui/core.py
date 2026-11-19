@@ -673,6 +673,131 @@ class Core:
         self._cache_clear()
         return {"withdrawn": True}
 
+    # ---- versions edited on the admin page (task 10.7) ---------------------------------------------------------------------------
+    # The PC keeps running its own copy until the teller takes a new one. A draft is tried on the twin here (its result goes up, so
+    # the version can become «đã chạy thử»); only a version approved on the server, by someone other than whoever edited it, is taken.
+
+    @staticmethod
+    def _flow_changes(old: dict[str, Any], new: dict[str, Any]) -> list[str]:
+        """What changed, in words, between two copies of a flow ({workflow, api}): nodes added, removed, renamed, risk, Duyệt, order."""
+        from rookie_agent.ie import replay
+
+        def nodes(copy: dict[str, Any]) -> list[dict[str, Any]]:
+            if copy.get("api"):
+                return [{"id": g["id"], "label": g["label"], "risk": g["risk"], "approve": bool(g.get("approve"))} for g in replay.groups_of(copy["api"])]
+            return [{"id": s["id"], "label": friendly_step(s["action"], (s.get("target") or {}).get("label")), "risk": s.get("risk", "read"),
+                     "approve": s.get("mode") == "approve"} for s in (copy.get("workflow") or {}).get("steps", [])]
+
+        before, after = nodes(old), nodes(new)
+        was, now = {n["id"]: n for n in before}, {n["id"]: n for n in after}
+        lines = [f"Thêm nút «{n['label']}» ({RISK_WORDS.get(n['risk'], n['risk'])})" for n in after if n["id"] not in was]
+        lines += [f"Xoá nút «{n['label']}»" for n in before if n["id"] not in now]
+        for n in after:
+            o = was.get(n["id"])
+            if o is None:
+                continue
+            if o["label"] != n["label"]:
+                lines.append(f"Đổi tên «{o['label']}» thành «{n['label']}»")
+            if o["risk"] != n["risk"]:
+                lines.append(f"«{n['label']}»: rủi ro {RISK_WORDS.get(o['risk'], o['risk'])} → {RISK_WORDS.get(n['risk'], n['risk'])}")
+            if n["approve"] and not o["approve"]:
+                lines.append(f"«{n['label']}»: thêm bước Duyệt")
+        if [n["id"] for n in after if n["id"] in was] != [n["id"] for n in before if n["id"] in now]:
+            lines.append("Đổi thứ tự các nút")
+        return lines or ["Không khác về các nút (có thể chỉ đổi nhãn ô nhập)."]
+
+    def _server_copy(self, flow: dict[str, Any], reply: dict[str, Any]) -> dict[str, Any]:
+        from rookie_agent.ie import api_share
+
+        api = api_share.merge(flow.get("api") or [], reply["api"]) if reply.get("api") is not None else (flow.get("api") or [])
+        return {"workflow": reply["workflow"], "api": api}
+
+    def flow_updates(self, _: dict[str, Any]) -> dict[str, Any]:
+        """For each flow of this PC that the server knows: a newer version there, what changed, and what the teller can do with it."""
+        found = []
+        try:
+            client = self._server()
+            for flow in self.store.get("flows", []):
+                workflow = flow.get("workflow") or {}
+                if not workflow.get("id"):
+                    continue
+                try:
+                    reply = client.flow_version(workflow["id"])
+                except ServerError as error:
+                    if getattr(error, "status", None) in (403, 404):
+                        continue
+                    raise
+                newest = reply["workflow"]
+                if int(newest["version"]) <= int(workflow.get("version") or 0):
+                    continue
+                edit = client.edit_record(workflow["id"], newest["version"])
+                found.append({"title": flow["title"], "workflow_id": workflow["id"], "local_version": workflow.get("version"),
+                              "version": newest["version"], "status": newest["status"], "edited_by": (edit or {}).get("edited_by"),
+                              "changes": self._flow_changes({"workflow": workflow, "api": flow.get("api")}, self._server_copy(flow, reply)),
+                              "can_take": newest["status"] == "approved", "can_try": newest["status"] == "draft"})
+        except (ServerError, UserError) as error:
+            return {"updates": found, "error": f"Chưa hỏi được máy chủ ({error}). Luồng trên máy này vẫn chạy như cũ."}
+        return {"updates": found}
+
+    def _update_target(self, body: dict[str, Any]) -> tuple[list[dict[str, Any]], dict[str, Any], dict[str, Any], Any]:
+        flows = self.store.get("flows", [])
+        flow = next((f for f in flows if f.get("title") == str(body.get("title") or "")), None)
+        if flow is None or not (flow.get("workflow") or {}).get("id"):
+            raise UserError("Không thấy luồng này trên máy.")
+        client = self._server()
+        try:
+            reply = client.flow_version(flow["workflow"]["id"], int(body.get("version") or 0) or None)
+        except ServerError as error:
+            raise UserError(str(error)) from error
+        return flows, flow, reply, client
+
+    def flow_update_take(self, body: dict[str, Any]) -> dict[str, Any]:
+        """Take a version approved on the server: it replaces this PC's copy (the full templates stay from this PC)."""
+        flows, flow, reply, client = self._update_target(body)
+        if reply["workflow"]["status"] != "approved":
+            raise UserError("Bản này chưa được Duyệt trên máy chủ. Chạy thử trên bản sao, rồi nhờ người khác (không phải người sửa) Duyệt.")
+        copy = self._server_copy(flow, reply)
+        old_version = flow["workflow"].get("version")
+        steps = {s["id"] for s in copy["workflow"].get("steps", [])}
+        flow["workflow"], flow["api"] = copy["workflow"], copy["api"]
+        flow.pop("repair", None)
+        if flow.get("read_confirmed"):
+            flow["read_confirmed"] = {k: v for k, v in flow["read_confirmed"].items() if k in steps}
+        flow["inputs"] = [i.get("label") or i["name"] for i in copy["workflow"].get("inputs", [])]
+        self.store.put("flows", flows)
+        self._cache_clear()
+        edit = None
+        try:
+            edit = client.edit_record(copy["workflow"]["id"], copy["workflow"]["version"])
+        except ServerError:
+            pass
+        self._audit_line({"time": time.strftime("%Y-%m-%d %H:%M:%S"), "title": flow["title"], "mode": "update", "status": "taken",
+                          "from_version": old_version, "version": copy["workflow"]["version"], "edited_by": (edit or {}).get("edited_by")})
+        return {"taken": True, "version": copy["workflow"]["version"]}
+
+    def flow_update_try(self, body: dict[str, Any]) -> dict[str, Any]:
+        """Try a draft version on the twin, without taking it. When it finishes, the server is told (a passed sandbox run), and the
+        version becomes «đã chạy thử»; someone other than whoever edited it then approves it on the admin page."""
+        _, flow, reply, client = self._update_target(body)
+        if reply["workflow"]["status"] != "draft":
+            raise UserError("Chỉ chạy thử bản nháp. Bản này đã qua bước chạy thử.")
+        copy = self._server_copy(flow, reply)
+        trial = {**flow, "workflow": copy["workflow"], "api": copy["api"]}
+        workflow_id, version = copy["workflow"]["id"], copy["workflow"]["version"]
+
+        def told(result: dict[str, Any]) -> None:
+            try:
+                client.post_test_run(workflow_id, version, {"status": result["status"], "message": str(result.get("message") or "")[:300],
+                                                            "steps": [{"id": s["id"], "status": s["status"]} for s in result.get("steps", [])]})
+                if result["status"] == "finished":
+                    client.set_status(workflow_id, version, "tested")
+            except ServerError:
+                pass          # the person sees the result here; the server can be told by trying again
+
+        stage = {"flow": trial, "role": "maker", "label": f"{flow['title']} (bản v{version}, thử)"}
+        return self.twin_run({"inputs": body.get("inputs") or {}, "name": stage["label"]}, stages=[stage], on_done=told,
+                             ref={"id": workflow_id, "version": version})
+
     def run_start(self, body: dict[str, Any], via: str | None = None) -> dict[str, Any]:
         from rookie_agent.ie.driver import IeDriver
         from rookie_agent.runner import required_inputs, run_workflow
@@ -993,7 +1118,7 @@ class Core:
         if state.get("via"):
             line["via"], line["input_names"] = state["via"], state.get("input_names", [])
         flow = next((f for f in self.store.get("flows", []) if f.get("title") == state["title"]), None)
-        workflow = (flow or {}).get("workflow") or {}
+        workflow = state.get("workflow_ref") or (flow or {}).get("workflow") or {}
         if workflow.get("id"):           # task 10.5: which flow and version ran, so the server can show the run under it
             line["run_id"], line["workflow_id"], line["version"] = uuid.uuid4().hex, workflow["id"], workflow.get("version")
         try:
@@ -1475,7 +1600,8 @@ class Core:
             out.append({"flow": flow, "role": stage.get("role") if stage.get("role") in ROLE_NAMES else "maker", "label": str(stage.get("label") or flow["title"])})
         return out
 
-    def twin_run(self, body: dict[str, Any]) -> dict[str, Any]:
+    def twin_run(self, body: dict[str, Any], stages: list[dict[str, Any]] | None = None,
+                 on_done: Callable[[dict[str, Any]], None] | None = None, ref: dict[str, Any] | None = None) -> dict[str, Any]:
         """Chạy thử trên bản sao: the stages in order (maker, queue, checker), answered from the skeletons kept with each flow. Nothing is
         sent to IE or the network. A node that writes or moves money, and a checker's stage, wait for a person's Duyệt."""
         from rookie_agent.ie import replay, twin
@@ -1485,7 +1611,7 @@ class Core:
             raise UserError("Đang chạy một luồng. Đợi xong hoặc bấm Dừng khẩn.")
         if self._ie_session is not None:
             raise UserError("Đang ghi. Bấm Dừng ghi trước khi chạy.")
-        stages = self._twin_stages(body)
+        stages = stages or self._twin_stages(body)
         plan = []
 
         def describe(step: dict[str, Any]) -> str:
@@ -1506,6 +1632,8 @@ class Core:
         state: dict[str, Any] = {"mode": "twin", "title": title, "controller": controller, "stop": stop, "result": None, "stops_before": None,
                                  "started": time.time(), "via": None, "input_names": sorted(inputs), "twin": True,
                                  "stages": [{"label": p["label"], "role": p["role"], "nodes": [g["id"] for g in replay.groups_of(p["nodes"])]} for p in plan]}
+        if ref:
+            state["workflow_ref"] = ref      # task 10.7: a version tried before it is taken; the audit names it, not this PC's copy
         send = twin.make_twin_send(inputs, str(body.get("seed") or ""))
 
         def work() -> None:
@@ -1530,6 +1658,8 @@ class Core:
             result = {**result, "steps": steps, "twin": True, "simulated_ms": simulated}
             state["result"] = result
             self._audit(state, result)       # flow names, step ids and states only, mode "twin": no value
+            if on_done is not None:
+                on_done(result)
 
         state["thread"] = threading.Thread(target=work, name="twin-run", daemon=True)
         self._run = state
@@ -1558,7 +1688,8 @@ class Core:
         "POST /api/switch-bits": "switch_bits", "GET /api/windows": "windows", "POST /api/record/start": "record_start",
         "POST /api/record/stop": "record_stop", "GET /api/recordings": "recordings", "POST /api/recordings/delete": "delete_recording",
         "POST /api/server/check": "server_check", "POST /api/server/start": "server_start",
-        "POST /api/server/login": "server_login", "POST /api/server/logout": "server_logout", "POST /api/learn": "learn",
+        "POST /api/server/login": "server_login", "POST /api/server/logout": "server_logout",
+        "GET /api/flows/updates": "flow_updates", "POST /api/flows/update/take": "flow_update_take", "POST /api/flows/update/try": "flow_update_try", "POST /api/learn": "learn",
         "POST /api/diagnostics": "diagnostics", "GET /api/flows": "flows",
         "GET /api/codie": "codie_status", "POST /api/codie/test": "codie_test", "GET /api/calls": "calls", "GET /api/seen": "seen", "GET /api/requests": "requests", "GET /api/live": "live", "GET /api/screen": "screen", "POST /api/ie/inspect": "ie_inspect", "POST /api/flow/approve": "flow_approve", "POST /api/flow/read-withdraw": "flow_read_withdraw","POST /api/run/start": "run_start", "GET /api/run/status": "run_status", "POST /api/run/decide": "run_decide", "POST /api/run/stop": "run_stop", "POST /api/assistant/plan": "assistant_plan", "POST /api/assistant/answer": "assistant_answer", "POST /api/assistant/run": "assistant_run", "GET /api/assistant/habits": "assistant_habits", "GET /api/library": "library", "POST /api/library/n8n": "library_n8n", "GET /api/trace/last": "last_trace",
         "POST /api/voucher/read": "voucher_read", "POST /api/voucher/confirm": "voucher_confirm", "POST /api/voucher/run": "voucher_run",

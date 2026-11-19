@@ -56,6 +56,46 @@ def _link(rule: dict[str, Any]) -> dict[str, Any]:
     return {k: v for k, v in rule.items() if k in ("from", "json", "gwt", "whole")}
 
 
+_RANK = {"read": 0, "write": 1, "money": 2}
+
+
+def merge(local: list[dict[str, Any]], server: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """A version edited on the admin page, made runnable on this PC (task 10.7): the order, groups, labels, risk and Duyệt come from the
+    server; the full templates, links and the shape of the answer of a recorded node come from this PC, matched by node id.
+
+    - A node the server could see whole (`masked` 0) takes the server's templates (they may have been edited there).
+    - A node masked on the way up keeps this PC's templates (the server could not change them).
+    - A node added on the server has no recorded answer: the twin answers it empty.
+    - A recorded node this PC does not have (learned on another PC) cannot be sent from here: it is marked incomplete.
+    - Risk only goes up. A node the server dropped is dropped."""
+    mine = {n["id"]: n for n in local}
+    out = []
+    for node in server:
+        here = mine.get(node["id"])
+        if node.get("added") or here is None:
+            made = {**node, "answer": "", "shape": None}
+            if not node.get("added") and node.get("masked"):
+                made["complete"] = False      # its full template is on the PC that recorded it
+            out.append(made)
+            continue
+        made = dict(here)
+        for key in ("group", "group_label", "label", "step_id"):
+            if key in node:
+                made[key] = node[key]
+        if _RANK.get(str(node.get("risk")), 0) > _RANK.get(str(here.get("risk")), 0):
+            made["risk"] = node["risk"]
+        if node.get("mode"):
+            made["mode"] = node["mode"]
+        if not node.get("masked"):
+            for key in ("method", "url", "headers", "body"):
+                if key in node:
+                    made[key] = node[key]
+            if "unresolved" in node:
+                made["unresolved"] = list(node["unresolved"])
+        out.append(made)
+    return out
+
+
 def for_server(nodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
     out = []
     for node in nodes:

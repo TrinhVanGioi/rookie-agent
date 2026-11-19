@@ -20,6 +20,8 @@ def make_twin_send(inputs: dict[str, str], seed: str = "") -> Callable[[dict[str
     that is the same for the same inputs and seed."""
     def twin_send(node: dict[str, Any], url: str, headers: str, body: str) -> dict[str, Any]:
         skeleton = node.get("shape")
+        if not skeleton and node.get("added"):     # a node added on the admin page (task 10.7) was never recorded: an empty answer
+            return {"ok": True, "status": 200, "ms": int(node.get("ms") or DEFAULT_MS), "text": ""}
         if not skeleton:
             return {"ok": False, "status": 0, "ms": 0, "error": "chưa có bản sao của trả lời này"}
         if skeleton.get("kind") == "file":     # a file answers with a tiny synthetic one: run_api shows it and saves nothing (not to Downloads, not to a temp folder)
@@ -30,7 +32,7 @@ def make_twin_send(inputs: dict[str, str], seed: str = "") -> Callable[[dict[str
 
 
 def has_twin(api: list[dict[str, Any]]) -> bool:
-    return bool(api) and all(n.get("shape") for n in api)
+    return bool(api) and all(n.get("shape") or n.get("added") for n in api)
 
 
 def screen_nodes(workflow: dict[str, Any], describe: Callable[[dict[str, Any]], str]) -> list[dict[str, Any]]:

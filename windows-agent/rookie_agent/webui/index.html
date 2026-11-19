@@ -303,6 +303,13 @@
       <div id="flowDetail"></div>
       <div id="flowConfirms"></div>
     </section>
+    <section id="updBox">
+      <h2>Bản mới trên máy chủ</h2>
+      <p class="sub">Luồng có thể được sửa trên trang quản trị. Máy này vẫn chạy bản của mình cho tới khi bạn bấm «Dùng bản này». Bản nháp thì chạy thử trên bản sao trước (không đụng hệ thống thật), rồi nhờ người khác người sửa Duyệt.</p>
+      <div class="row"><button id="updCheck">Kiểm tra bản mới</button></div>
+      <div id="updMsg"></div>
+      <div id="updList"></div>
+    </section>
     <section id="runBox">
       <h2>Chạy luồng này</h2>
       <p class="sub">Chọn trang Internet Explorer đã đăng nhập, nhập thông tin cần dùng, rồi bấm Chạy. Agent chạy lại luồng bằng những gì đã học: gửi lại các request trong phiên của trang đó, không bấm, không điền gì trên giao diện; mỗi ô trên sơ đồ hiện thao tác, request, dữ liệu trả về và thời gian. Chỉ các bước chỉ xem được chạy; bước ghi dữ liệu và bước tiền dừng lại.</p>
@@ -1215,6 +1222,63 @@ function drawFlow(flow) {
 }
 $("flowPick").onchange = () => drawFlow(flows[$("flowPick").value]);
 $("flowRefresh").onclick = loadFlows;
+
+// task 10.7: versions edited on the admin page; this PC keeps running its own copy until the teller takes a new one
+const UPD_STATUS = { draft: "bản nháp", tested: "đã chạy thử, chờ Duyệt trên trang quản trị", approved: "đã Duyệt" };
+async function checkUpdates() {
+  const list = $("updList"); list.textContent = ""; say("updMsg", "Đang hỏi máy chủ...", "ok");
+  try {
+    const r = await api("GET", "/api/flows/updates");
+    say("updMsg", r.error || (r.updates.length ? "" : "Không có bản mới."), r.error ? "bad" : "ok");
+    for (const u of r.updates) {
+      const box = el("div", undefined, "msg");
+      box.append(el("div", "«" + u.title + "»: máy này đang dùng v" + u.local_version + ", máy chủ có v" + u.version + " (" + (UPD_STATUS[u.status] || u.status) + ")"
+        + (u.edited_by ? ", do " + u.edited_by + " sửa" : "")));
+      const ul = el("ul"); for (const line of u.changes) ul.append(el("li", line)); box.append(ul);
+      const row = el("div", undefined, "row");
+      if (u.can_try) {
+        const t = el("button", "Chạy thử bản này trên bản sao");
+        t.onclick = () => tryUpdate(u, box);
+        row.append(t);
+      }
+      if (u.can_take) {
+        const k = el("button", "Dùng bản này", "primary");
+        k.onclick = async () => {
+          try { const done = await api("POST", "/api/flows/update/take", { title: u.title, version: u.version }); say("updMsg", "Đã dùng v" + done.version + " cho «" + u.title + "».", "ok"); await loadFlows(); await checkUpdates(); }
+          catch (e) { say("updMsg", e.message, "bad"); }
+        };
+        row.append(k);
+      }
+      box.append(row); list.append(box);
+    }
+  } catch (e) { say("updMsg", e.message, "bad"); }
+}
+async function tryUpdate(u, box) {
+  const inputs = {};
+  if (currentFlow && currentFlow.title === u.title) for (const i of document.querySelectorAll("#runInputs input")) if (i.value) inputs[i.dataset.name] = i.value;
+  const line = el("div", "Đang chạy thử trên bản sao..."); box.append(line);
+  try { await api("POST", "/api/flows/update/try", { title: u.title, version: u.version, inputs }); }
+  catch (e) { line.textContent = e.message; return; }
+  for (;;) {
+    await new Promise((ok) => setTimeout(ok, 400));
+    const s = await api("GET", "/api/twin/status");
+    if (s.state === "waiting_approval" && s.ask) {
+      line.textContent = "Bản sao chờ bạn Duyệt: " + (s.ask.label || s.ask.step_id || "");
+      const yes = el("button", "Duyệt", "primary"), no = el("button", "Không");
+      const answer = async (ok) => { yes.remove(); no.remove(); await api("POST", "/api/twin/decide", { ask_id: s.ask.id, approve: ok }); };
+      yes.onclick = () => answer(true); no.onclick = () => answer(false);
+      line.append(" ", yes, " ", no);
+      await new Promise((ok) => { const wait = setInterval(async () => { const n = await api("GET", "/api/twin/status"); if (n.state !== "waiting_approval" || !n.ask || n.ask.id !== s.ask.id) { clearInterval(wait); ok(); } }, 400); });
+      continue;
+    }
+    if (s.state !== "running") {
+      line.textContent = s.state === "finished" ? "Chạy thử xong trên bản sao, đã báo máy chủ. Nhờ người khác (không phải người sửa) Duyệt bản này trên trang quản trị, rồi bấm «Kiểm tra bản mới» và «Dùng bản này»."
+        : "Chạy thử không xong (" + s.state + "): " + ((s.result && s.result.message) || "");
+      return;
+    }
+  }
+}
+$("updCheck").onclick = checkUpdates;
 
 // ---- Kho luồng: the agents that are approved and have finished a run, as cards (local to this PC; docs/design.md 6.4) ----
 function saveJson(doc, fileName) {

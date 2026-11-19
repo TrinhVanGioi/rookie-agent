@@ -349,6 +349,8 @@ def groups_of(nodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
         group["ms"] += int(node.get("ms") or 0)
         if _RISK_RANK.get(str(node.get("risk")), 0) > _RISK_RANK[group["risk"]]:
             group["risk"] = str(node["risk"])
+        if node.get("mode") == "approve":     # task 10.7: a Duyệt added on the admin page before a read step
+            group["approve"] = True
     return groups
 
 
@@ -503,7 +505,13 @@ def run_api(workflow: dict[str, Any], nodes: list[dict[str, Any]], values: dict[
         real_calls = [c for c in calls if c.get("kind") != "screen"]
         shown["requests"] = [{"method": c["method"], "url": c["url"], "state": NOT_SENT} for c in real_calls]
         slot = {c["id"]: i for i, c in enumerate(real_calls)}
-        if twin and (group["risk"] != "read" or (role == "checker" and not asks and group["id"] == last_id)):
+        if group["risk"] == "read" and group.get("approve") and not twin:
+            # a read step someone put under Duyệt on the admin page (task 10.7): the person says yes before anything is sent
+            step = {"id": group["id"], "risk": "read", "action": "approve", "target": {"label": label}}
+            if not controller.approve(step, groups.index(group), len(groups)):
+                note(group, "rejected" if not stop.is_set() else "stopped", "người duyệt không đồng ý" if not stop.is_set() else "Dừng khẩn", shown)
+                return end("stopped", f"«{label}» không được Duyệt: dừng, chưa gửi gì.")
+        if twin and (group["risk"] != "read" or group.get("approve") or (role == "checker" and not asks and group["id"] == last_id)):
             step = {"id": group["id"], "risk": group["risk"] if group["risk"] != "read" else "write", "action": "approve", "target": {"label": label}}
             if not controller.approve(step, groups.index(group), len(groups)):      # one Duyệt for the whole step
                 note(group, "rejected" if not stop.is_set() else "stopped", "người duyệt không đồng ý" if not stop.is_set() else "Dừng khẩn", shown)
