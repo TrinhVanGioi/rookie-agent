@@ -179,6 +179,7 @@ ACCT_BODY = """<h3>Tra cứu tài khoản</h3>
 <td><input type="button" class="b" id="btnHistory" value="XEM LỊCH SỬ" onclick="showHistory()"></td></tr></table>
 <div id="rows"></div>
 <p><input type="button" class="b" id="btnPrint" value="IN BÁO NỢ/CÓ" onclick="printSlips()">
+<input type="button" class="b" id="btnPrintData" value="XEM BÁO NỢ/CÓ" onclick="printData()">
 <input type="button" class="b" id="btnStatement" value="XUẤT SAO KÊ" onclick="statement()">
 <input type="button" class="b" id="btnExcel" value="TẢI EXCEL" onclick="excel()"></p>
 <form id="frmExcel" method="post" action="/tp/exportExcel" target="hidFrame"><input type="hidden" name="acct" id="hidAcct"><input type="hidden" name="from" id="hidFrom"><input type="hidden" name="to" id="hidTo"></form>
@@ -218,6 +219,17 @@ function printSlips() {
   var ids = ticked();
   if (!ids.length) { msgBox("Chọn ít nhất một giao dịch để in."); return; }
   openDialog("/tp/viewReport.jsp?acct=" + current + "&ids=" + ids.join(","));
+}
+// the debit advice is not a file: the dialog asks a service and fills its own fields with the answer
+function printData() {
+  var ids = ticked();
+  if (!ids.length) { msgBox("Chọn ít nhất một giao dịch để xem."); return; }
+  // the page asks the service and hands the answer to the dialog, which puts it into its own fields
+  call("ReportService", "debitAdvice", [current, ids.join(",")], function (data, err) {
+    if (err) { msgBox(err); return; }
+    window.__advice = data;
+    openDialog("/tp/viewData.jsp");
+  });
 }
 function statement() {
   if (!isDay($("txtFrom").value) || !isDay($("txtTo").value)) { msgBox("Sai định dạng ngày. Nhập theo dd/mm/yyyy."); return; }
@@ -275,7 +287,22 @@ DIALOG_JS = """
 function closeMe() { if (window.parent && window.parent !== window && window.parent.closeDialog) { window.parent.closeDialog(); } else { window.close(); } }
 """
 
-MSGBOX_BODY = """<h3>Thông báo</h3><p class="err" id="msgText">%s</p><input type="button" class="b" id="btnOK" value="ĐỒNG Ý" onclick="closeMe()">"""
+DATA_BODY = """<h3>Báo nợ/có</h3><table class="g" id="tblAdvice">
+<tr><td>Tên khách hàng</td><td id="vName"></td><td>Số tài khoản</td><td id="vAcc"></td></tr>
+<tr><td>Loại tiền</td><td id="vCur"></td><td>Số tiền</td><td id="vAmt"></td></tr>
+<tr><td>Chi nhánh</td><td id="vBranch"></td><td>Bằng chữ</td><td id="vWords"></td></tr></table>
+<p><input type="button" class="b" id="btnClose" value="ĐÓNG" onclick="closeMe()"></p><div id="err" class="err"></div>"""
+
+DATA_JS = """
+function fillAdvice() {
+  var host = window.dialogArguments || window.parent, data = host && host.__advice;
+  if (!data) { $("err").innerHTML = "Không có dữ liệu"; return; }
+  $("vName").innerHTML = data[0]; $("vAcc").innerHTML = data[1]; $("vCur").innerHTML = data[2];
+  $("vAmt").innerHTML = money(data[3]); $("vBranch").innerHTML = data[4]; $("vWords").innerHTML = data[5];
+}
+"""
+
+MSGBOX_BODY ="""<h3>Thông báo</h3><p class="err" id="msgText">%s</p><input type="button" class="b" id="btnOK" value="ĐỒNG Ý" onclick="closeMe()">"""
 
 
 class TouchPoint:
@@ -329,6 +356,9 @@ class TouchPoint:
 
     def _gwt(self, values: list[Any]) -> tuple[int, list[tuple[str, str]], bytes]:
         return self._text("//OK" + self.encode(values), "text/x-gwt-rpc; charset=utf-8")
+
+    def encode_reply(self, values: list[Any], kind: str) -> tuple[int, list[tuple[str, str]], bytes]:
+        return self._text("//OK" + self.encode(values, kind), "text/x-gwt-rpc; charset=utf-8")
 
     def _gwt_error(self, message: str) -> tuple[int, list[tuple[str, str]], bytes]:
         return self._text("//EX" + self.encode([message], "com.google.gwt.user.client.rpc.StatusCodeException/3924434141"),
@@ -412,6 +442,8 @@ class TouchPoint:
             ids = [x for x in query.get("ids", "").split(",") if x]
             body_html = REPORT_BODY % (query.get("acct", ""), len(ids), query.get("acct", ""), query.get("ids", ""))
             return self._html(_doc(title + " – Báo nợ/có", body_html, DIALOG_JS, onload="document.getElementById('frmReport').submit()"))
+        if path == "/tp/viewData.jsp":
+            return self._html(_doc(title + " – Báo nợ/có", DATA_BODY, DIALOG_JS + DATA_JS, onload="fillAdvice()"))
         if path == "/tp/utilities/dlgMessageBox.jsp":
             text = query.get("msg", "")
             safe = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
@@ -455,6 +487,13 @@ class TouchPoint:
                 return self._gwt_error("Khoảng ngày không hợp lệ")
             rows = history_of(args[0], start, end)
             return self._gwt([len(rows)] + [v for r in rows for v in (r["id"], r["date"], r["desc"], r["debit"], r["credit"], r["balance"])])
+        if service == "ReportService" and name == "debitAdvice" and args:
+            account = account_of(args[0])
+            if account is None:
+                return self._gwt_error("Không tìm thấy tài khoản")
+            amount = 10_944 + 137 * len([i for i in (args[1] if len(args) > 1 else "").split(",") if i])
+            return self.encode_reply([account["name"], account["number"], "EUR", str(amount), account["branch"], f"So tien {amount} euro"],
+                                     "com.fis.tp.client.dto.DebitAdvice/1234567890")
         if service == "TransferService" and name == "create" and len(args) >= 3:
             if account_of(args[0]) is None or account_of(args[1]) is None:
                 return self._gwt_error("Tài khoản không hợp lệ")

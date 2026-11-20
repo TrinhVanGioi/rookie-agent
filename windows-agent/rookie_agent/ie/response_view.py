@@ -124,6 +124,16 @@ def summarize(text: str) -> dict[str, Any]:
         if text.lstrip().startswith("//EX"):
             view["lines"].insert(0, "Máy chủ báo lỗi (//EX)")
         return view
+    if kind == "xml":
+        # a SOAP or IFX answer: the values with the names of the elements that hold them (a Fault is said first)
+        from rookie_agent.ie import files, replay
+
+        rows = files.xml_rows(text.encode("utf-8"))
+        if rows:
+            fault = replay.soap_fault(text)
+            view["lines"] = [fault] if fault else []
+            view["pairs"] = [[name, _cut(value)] for _, name, value, leaf in rows if leaf and value][:MAX_LINES]
+            return view
     if kind in ("html", "xml"):
         cells = _Cells()
         try:

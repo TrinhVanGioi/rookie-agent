@@ -27,6 +27,7 @@ from urllib.parse import parse_qs, urlsplit
 
 POLLING = 3            # the same call this many times, with no later call needing its answer, is the page asking by itself
 _LONG_NUMBER = re.compile(r"\d{5,}")
+_SOAP_OPERATION = re.compile(r"<(?:[\w.\-]+:)?Body(?:\s[^>]*)?>\s*<(?:[\w.\-]+:)?([\w.\-]+)", re.IGNORECASE)
 _MESSAGE_BOX = re.compile(r"(messagebox|dlgmsg|dlgalert|dlgconfirm|dlgwarn|dlgerror|dlginfo)", re.IGNORECASE)   # = page_recorder.js isMessageBox
 
 
@@ -65,6 +66,9 @@ def _op(request: dict[str, Any]) -> str:
     fields = body.split("|")
     if len(fields) > 6 and fields[0] == "7":          # GWT-RPC: 7|0|n|base|strong name|service|method|…
         return f"{name} {fields[5].rsplit('.', 1)[-1]}.{fields[6]}"
+    soap = _SOAP_OPERATION.search(body[:4000]) if body.lstrip().startswith("<") else None
+    if soap:                                          # SOAP: one address, many operations; the first element of the Body is which
+        return f"{name} {soap.group(1)}"
     method = (parse_qs(parts.query).get("method") or [""])[0]
     return f"{name} {method}".strip()
 

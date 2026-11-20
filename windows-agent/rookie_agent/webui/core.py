@@ -364,6 +364,14 @@ class Core:
                 kept = len(found)
         except Exception:  # noqa: BLE001  the recording itself is saved whatever happens here
             pass
+        try:    # task 11.11: a screen the page fills from an answer, field by field: the labels and where each comes from (no value)
+            from rookie_agent.ie import report
+
+            maps = report.learn(list(getattr(session, "requests", []) or []), list(getattr(session, "seen", []) or []))
+            if maps:
+                self.store.update(session.session_id, report_maps=maps)
+        except Exception:  # noqa: BLE001
+            pass
         try:    # Gate 9: the case this recording is about (a keyed hash, never the id) and the role it was recorded in
             extra: dict[str, Any] = {"role": self._role()}
             key = self._case_key([str(r.get(k) or "") for r in getattr(session, "requests", []) or [] for k in ("url", "req", "res")])
@@ -621,8 +629,12 @@ class Core:
             except (OSError, ValueError):
                 continue
             if document.get("requests"):
-                return replay.build_api(workflow, document["events"], document["requests"],
-                                        describe=lambda s: friendly_step(s["action"], (s.get("target") or {}).get("label")))
+                from rookie_agent.ie import report
+
+                nodes = replay.build_api(workflow, document["events"], document["requests"],
+                                         describe=lambda s: friendly_step(s["action"], (s.get("target") or {}).get("label")))
+                report.attach(nodes, document.get("report_maps"))      # the printable page a node's answer makes (task 11.11)
+                return nodes
         return []
 
     def _traces_of(self, ids: list[str]) -> list[dict[str, Any]] | None:
@@ -1096,7 +1108,12 @@ class Core:
                             made["report"] = {"name": page.name, "path": str(page)}
                     return made
 
-                result = replay.run_api(workflow, api, inputs, send, controller, stop, peek=peek, peek_urls=peek_urls, read_rules=read_rules.load(),
+                def save_report(title: str, html: str) -> dict[str, Any]:
+                    # the printable page made from the data a call returned: on this PC, in the Rookie folder, like a file (docs/design.md 14)
+                    page = files.save(self._download_dir(), f"{files.clean_title(flow['title'])}-{time.strftime('%Y%m%d-%H%M%S')} (bản in).html", html.encode("utf-8"))
+                    return {"name": page.name, "path": str(page)}
+
+                result = replay.run_api(workflow, api, inputs, send, controller, stop, peek=peek, peek_urls=peek_urls, save_report=save_report, read_rules=read_rules.load(),
                                         confirmed=flow.get("read_confirmed") or {},
                                         remember=lambda step_id: self._read_confirm(flow["title"], step_id), save_file=save_file)
             except Exception as error:  # noqa: BLE001

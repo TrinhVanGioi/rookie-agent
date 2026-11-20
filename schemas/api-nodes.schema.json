@@ -38,6 +38,7 @@
             "json": {"type": "array", "items": {"type": ["string", "integer"]}},
             "gwt": {"type": "integer"},
             "whole": {"type": "boolean"},
+            "xml": {"type": "array", "items": {"type": "string", "pattern": "^[\\w.\\-]+(\\[\\d+\\])?$"}, "description": "Đường các phần tử XML (SOAP) dẫn tới giá trị; chỉ là tên phần tử, không có giá trị."},
             "text": {"const": true}
           }
         }

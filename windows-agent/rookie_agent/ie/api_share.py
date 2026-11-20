@@ -54,7 +54,7 @@ def mask_text(text: str) -> tuple[str, int]:
 def _link(rule: dict[str, Any]) -> dict[str, Any]:
     if "before" in rule or "after" in rule:
         return {"from": rule.get("from"), "text": True}
-    return {k: v for k, v in rule.items() if k in ("from", "json", "gwt", "whole")}
+    return {k: v for k, v in rule.items() if k in ("from", "json", "gwt", "whole", "xml")}
 
 
 _RANK = {"read": 0, "write": 1, "money": 2}

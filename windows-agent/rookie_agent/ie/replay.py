@@ -18,8 +18,11 @@ import re
 import threading
 import time
 import urllib.parse
+import xml.etree.ElementTree as ET
+from collections import Counter
 from datetime import datetime, timezone
 from typing import Any, Callable
+from xml.sax.saxutils import escape
 
 from rookie_agent.ie import files, response_view, shape as shaper
 
@@ -120,6 +123,58 @@ def _gwt_strings(text: str) -> list[str]:
     return [str(x) for x in table] if isinstance(table, list) else []
 
 
+def _xml_root(text: str) -> ET.Element | None:
+    raw = str(text or "").encode("utf-8")
+    if len(raw) > 2 * 1024 * 1024 or re.search(rb"<!\s*(DOCTYPE|ENTITY)", raw, re.IGNORECASE):
+        return None                                   # no expansion tricks, nothing huge
+    try:
+        return ET.fromstring(raw)
+    except (ET.ParseError, ValueError):
+        return None
+
+
+def _local(tag: Any) -> str:
+    return str(tag).rsplit("}", 1)[-1]
+
+
+def _xml_path(answer: str, value: str) -> list[str] | None:
+    """The elements that lead to the one that holds `value` (names without prefixes; `Name[2]` when siblings share the name)."""
+    root = _xml_root(answer)
+    if root is None:
+        return None
+
+    def walk(element: ET.Element, path: list[str]) -> list[str] | None:
+        children = list(element)
+        if not children:
+            return path if (element.text or "").strip() == value else None
+        count, seen = Counter(_local(c.tag) for c in children), Counter()
+        for child in children:
+            name = _local(child.tag)
+            seen[name] += 1
+            found = walk(child, path + [f"{name}[{seen[name]}]" if count[name] > 1 else name])
+            if found is not None:
+                return found
+        return None
+
+    return walk(root, [_local(root.tag)])
+
+
+def _xml_take(answer: str, path: list[str]) -> str | None:
+    root = _xml_root(answer)
+    if root is None or not path or _local(root.tag) != re.sub(r"\[\d+\]$", "", path[0]):
+        return None
+    element = root
+    for step in path[1:]:
+        match = re.fullmatch(r"(.+?)(?:\[(\d+)\])?", step)
+        name, number = match.group(1), int(match.group(2) or 1)
+        same = [c for c in element if _local(c.tag) == name]
+        if len(same) < number:
+            return None
+        element = same[number - 1]
+    text = (element.text or "").strip()
+    return text if text and not list(element) else None
+
+
 def locate_value(answer: str, value: str) -> dict[str, Any] | None:
     """Where `value` is in `answer`, as a rule that finds it again in another answer of the same kind (never the value itself)."""
     kind = response_view.kind_of(answer)
@@ -134,6 +189,10 @@ def locate_value(answer: str, value: str) -> dict[str, Any] | None:
         strings = _gwt_strings(answer)
         if value in strings:
             return {"gwt": strings.index(value)}
+    if kind == "xml":                                 # a SOAP answer: the value is found again by the elements that hold it, whatever the spaces around
+        path = _xml_path(answer, value)
+        if path is not None:
+            return {"xml": path}
     if answer.strip() == value:                       # the answer is the bare value (a token service answers just the token)
         return {"whole": True}
     found = re.search(r"(?<![A-Za-z0-9])" + re.escape(value) + r"(?![A-Za-z0-9])", answer)
@@ -162,6 +221,8 @@ def take_value(answer: str, rule: dict[str, Any]) -> str | None:
     if "gwt" in rule:
         strings = _gwt_strings(answer)
         return strings[rule["gwt"]] if 0 <= rule["gwt"] < len(strings) else None
+    if "xml" in rule:
+        return _xml_take(answer, [str(p) for p in rule["xml"]])
     if "whole" in rule:
         return answer.strip() or None
     start = answer.find(rule["before"])
@@ -405,14 +466,21 @@ def groups_of(nodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 # ---- 8.5: the run ----------------------------------------------------------------------------------------------------
 
-def fill_in(text: str, values: dict[str, str]) -> tuple[str, list[str]]:
-    """The marks of a template replaced by this run's values; the names that have no value are returned."""
+def is_xml_body(body: str, headers: str = "") -> bool:
+    """A SOAP or other XML request: its Content-Type says xml, or the body is an element."""
+    return bool(re.search(r"^content-type:[^\n]*xml", headers or "", re.IGNORECASE | re.MULTILINE)) or str(body or "").lstrip().startswith("<")
+
+
+def fill_in(text: str, values: dict[str, str], xml: bool = False) -> tuple[str, list[str]]:
+    """The marks of a template replaced by this run's values; the names that have no value are returned. In an XML body (`xml`) a value
+    is written as text: `&`, `<`, `>` and quotes are escaped, so a name or a sentence can neither break the message nor add an element."""
     missing: list[str] = []
 
     def put(match: re.Match[str]) -> str:
         name = match.group(1)
         if name in values and values[name] != "":
-            return str(values[name])
+            value = str(values[name])
+            return escape(value, {'"': "&quot;", "'": "&apos;"}) if xml else value
         missing.append(name)
         return match.group(0)
 
@@ -423,6 +491,30 @@ TWIN_BANNER = "BẢN SAO – không gửi hệ thống thật"
 REFUSED_WORDS = re.compile(r"<input[^>]+type=[\"']?password|đăng nhập lại|session (?:has )?expired|phiên làm việc đã hết", re.IGNORECASE)
 
 
+_FAULT = re.compile(r"<(?:[\w.\-]+:)?Fault[\s>/]", re.IGNORECASE)
+_FAULT_TEXT = re.compile(r"<(?:faultstring|(?:[\w.\-]+:)?Text)(?:\s[^>]*)?>([^<]{1,300})<", re.IGNORECASE)
+_IFX_ERROR = re.compile(r"<Severity>\s*Error\s*</Severity>", re.IGNORECASE)
+_IFX_DESC = re.compile(r"<StatusDesc>([^<]{1,300})</StatusDesc>", re.IGNORECASE)
+
+
+def soap_fault(text: str) -> str:
+    """A SOAP service says no with HTTP 200 as often as with 500: a `<Fault>` (SOAP 1.1 or 1.2), or an IFX status with `Severity` Error.
+    Plain words with what the service said (its own message, short); "" when the answer is not a fault."""
+    head = str(text or "")[:50000]
+    if not head.lstrip().startswith("<"):
+        return ""
+
+    def said(pattern: re.Pattern[str]) -> str:
+        found = pattern.search(head)
+        return (": " + " ".join(found.group(1).split())[:200]) if found else ""
+
+    if _FAULT.search(head):
+        return "dịch vụ (SOAP) báo lỗi" + said(_FAULT_TEXT)
+    if _IFX_ERROR.search(head):
+        return "dịch vụ báo lỗi (Severity=Error)" + said(_IFX_DESC)
+    return ""
+
+
 def refused(status: int, text: str) -> str:
     """Why the server did not take the request sent again, in plain words; "" when it did."""
     if status == 0:
@@ -431,6 +523,9 @@ def refused(status: int, text: str) -> str:
         return f"máy chủ trả mã {status}"
     if text.lstrip()[:4].startswith("//EX"):
         return "máy chủ GWT báo lỗi (//EX): có thể cần mã phiên hoặc mã chống giả mới"
+    fault = soap_fault(text)
+    if fault:
+        return fault
     if REFUSED_WORDS.search(text[:20000]):
         return "máy chủ trả về trang đăng nhập: phiên đã hết, hãy đăng nhập lại trên IE"
     return ""
@@ -521,7 +616,8 @@ def run_api(workflow: dict[str, Any], nodes: list[dict[str, Any]], values: dict[
             peek: Callable[[dict[str, Any]], list[str]] | None = None, read_rules: dict[str, Any] | None = None,
             confirmed: dict[str, Any] | None = None, remember: Callable[[str], None] | None = None,
             save_file: Callable[[bytes, str, str], dict[str, Any]] | None = None,
-            peek_urls: Callable[[], list[str]] | None = None) -> dict[str, Any]:
+            peek_urls: Callable[[], list[str]] | None = None,
+            save_report: Callable[[str, str], dict[str, Any]] | None = None) -> dict[str, Any]:
     """The nodes in order. Each node: its inputs (what the teller typed, values linked from the answers before), the request sent
     from the teller's page, the answer. A node of the sign-in is passed over (the open page's session is used); a node that writes
     or moves money stops the run; anything missing or refused stops it and asks. `send(node, url, headers, body)` sends one.
@@ -548,6 +644,7 @@ def run_api(workflow: dict[str, Any], nodes: list[dict[str, Any]], values: dict[
     started = time.monotonic()
     sign_in = _sign_in_steps(workflow)
     simulated_ms = 0
+    saved_files = 0                                    # documents this run saved: a flow that learned to fetch one must have got one
     last_id = next((g["id"] for g in reversed(groups) if g["step_id"] not in sign_in), None)
     asks = any(g["risk"] != "read" for g in groups if g["step_id"] not in sign_in)
 
@@ -651,7 +748,7 @@ def run_api(workflow: dict[str, Any], nodes: list[dict[str, Any]], values: dict[
             for name in sorted(set(_MARK.findall(node["url"] + node["body"] + node["headers"])) - set(node.get("links", {}))):
                 _add_input(shown, name, "GDV nhập")
             url, m1 = fill_in(node["url"], here)
-            body, m2 = fill_in(node["body"], here)
+            body, m2 = fill_in(node["body"], here, xml=is_xml_body(node["body"], node["headers"]))      # a SOAP body: values written as text
             headers, m3 = fill_in(node["headers"], here)
             if m1 or m2 or m3:
                 why = "còn thiếu: " + ", ".join(sorted(set(m1 + m2 + m3)))
@@ -673,6 +770,7 @@ def run_api(workflow: dict[str, Any], nodes: list[dict[str, Any]], values: dict[
                 note(group, "failed", f"{ref}: {sent['error']}", shown)
                 return end("failed", f"«{label}», lời gọi {ref}: {sent['error']}.")
             received = answer.get("file")
+            as_answer = False
             if received is None and node.get("kind") == "file" and not node.get("dialog") and not twin:
                 # a node learned as a file whose answer is XML with a page's headers (text/xml) is data the report is made from, taken as a
                 # file; a page that is XML too (a message box: a button and a line) holds no data, so it is not: three values at least
@@ -680,6 +778,17 @@ def run_api(workflow: dict[str, Any], nodes: list[dict[str, Any]], values: dict[
                 rows = files.xml_rows(guess) if files.sniff(guess) == "xml" else None
                 if rows and sum(1 for _, _, value, leaf in rows if leaf and value) >= 3:
                     received = {"data": guess, "ctype": "text/xml", "disposition": ""}
+            if not twin and not node.get("dialog"):
+                # a SOAP service that sends the report inside its XML, as base64: the document is what is saved (the answer, text or bytes, is XML)
+                carrier = (received.get("data") if files.sniff(received.get("data")) == "xml" else None) if received is not None else str(answer.get("text") or "")
+                document = files.embedded_document(carrier) if carrier else None
+                if document:
+                    received = {"data": document, "ctype": "", "disposition": ""}
+            if received is not None and not twin and files.sniff(received.get("data")) == "gwt":
+                # a call learned as a file whose answer is a GWT-RPC result (the key of a report, not the report): an answer like any other,
+                # kept for the calls that take a value from it; it is not saved as a file and does not count as one
+                answer = {**answer, "text": bytes(received["data"]).decode("utf-8", "replace")}
+                received, as_answer = None, True
             if received is not None:
                 # The answer is a file (a report as PDF): kept on this PC only, never read as text, never shown, never linked from.
                 size = len(received.get("data") or b"")
@@ -706,6 +815,7 @@ def run_api(workflow: dict[str, Any], nodes: list[dict[str, Any]], values: dict[
                         sent["error"] = sent.get("error") or "không có chỗ lưu file"
                         note(group, "failed", f"{ref}: {sent['error']}", shown)
                         return end("failed", f"«{label}», lời gọi {ref}: {sent['error']}.")
+                    saved_files += 1
                     sent["file"] = {"name": saved["name"], "path": saved["path"], "size": size, "size_text": files.size_text(size), "saved": True,
                                     "kind": kind, "kind_text": files.KIND_WORDS.get(kind, ""), "warn": files.warning_for(kind)}
                     if sent["file"]["warn"]:
@@ -727,12 +837,32 @@ def run_api(workflow: dict[str, Any], nodes: list[dict[str, Any]], values: dict[
                 sent["skipped"] = "hộp thoại của trang, không phải file: bỏ qua"
                 continue
             why = "" if twin else refused(int(answer.get("status") or 0), text)
-            if not why and node.get("kind") == "file":
+            if not why and node.get("kind") == "file" and not as_answer and not node.get("report"):
                 why = "máy chủ trả về trang hoặc chữ chứ không phải file (có thể sai tiêu chí, hoặc báo cáo chưa sẵn sàng)"
             if why:
                 sent["error"] = why
                 note(group, "needs_help", f"{ref}: {why}", shown)
                 return end("needs_help", f"«{label}», lời gọi {ref}: {why}. Agent dừng, không thử đoán.")
+            if node.get("report") and save_report is not None and not twin:
+                # the screen of the page is made of this answer: the agent makes the printable page itself, with the labels the screen had
+                from rookie_agent.ie import report as report_mod
+
+                title = str(node["report"].get("title") or label)
+                pairs = report_mod.fill(node["report"], text)
+                if pairs:
+                    html = files.pairs_report_html(title, pairs)
+                    try:
+                        page = save_report(title, html)
+                    except OSError as error:
+                        sent["error"] = f"không lưu được bản in: {error}"
+                        note(group, "failed", f"{ref}: {sent['error']}", shown)
+                        return end("failed", f"«{label}», lời gọi {ref}: {sent['error']}.")
+                    size = len(html.encode("utf-8"))
+                    saved_files += 1
+                    sent["file"] = {"name": page["name"], "path": page["path"], "size": size, "size_text": files.size_text(size), "saved": True,
+                                    "kind": "report", "kind_text": "bản in dựng từ dữ liệu hệ thống", "warn": ""}
+                    sent["view"] = {"kind": "report", "pairs": [[name, value[:200]] for name, value in pairs][:response_view.MAX_LINES],
+                                    "rows": [], "lines": [], "size": len(text)}
         if twin and shown.get("screen"):
             note(group, "done", f"màn hình · {group_ms} ms (mô phỏng)", shown)
         elif len(real_calls) == 1:
@@ -742,6 +872,11 @@ def run_api(workflow: dict[str, Any], nodes: list[dict[str, Any]], values: dict[
                                  else f"{only.get('status')} · {only.get('ms', 0)} ms"), shown)
         else:
             note(group, "done", f"{len(real_calls)} lời gọi · {group_ms} ms", shown)
+    if not twin and not saved_files and any(n.get("kind") == "file" and not n.get("dialog") for n in nodes):
+        # every call went well, yet no document came: the call that gives it was not recorded (a plugin or a viewer fetched it), or the system
+        # answered with a key only. Saying «xong» would hide that
+        return end("needs_help", "Các bước đã chạy nhưng chưa nhận được file báo cáo nào: hệ thống chỉ trả về một mã, còn bước tải báo cáo chưa "
+                                 "được ghi lại. Hãy Ghi lại: bấm in, chờ báo cáo hiện ra trên màn hình rồi mới Dừng ghi, sau đó Học lại.")
     return end("finished", "Chạy xong.")
 
 

@@ -990,7 +990,16 @@
           rec.file = true; rec.ctype = header(x, "Content-Type"); rec.disp = header(x, "Content-Disposition"); rec.len = parseInt(header(x, "Content-Length"), 10) || 0; rec.x = x;
           return;
         } } catch (eF) {}
-        try { rec.text = String(x.responseText).slice(0, SEND_MAX); } catch (e4) {}
+        try {
+          rec.text = String(x.responseText);
+          // an XML answer longer than the text limit (a SOAP report inside its XML as base64) is not cut: it is kept like a file and its
+          // bytes are read over COM (other long answers stay cut, as before: they are values to link from, not documents)
+          if (rec.text.length > SEND_MAX && /xml/i.test(String(header(x, "Content-Type")))) {
+            rec.file = true; rec.ctype = header(x, "Content-Type"); rec.disp = ""; rec.len = rec.text.length; rec.x = x; rec.text = "";
+            return;
+          }
+          rec.text = rec.text.slice(0, SEND_MAX);
+        } catch (e4) {}
       };
       x.send(method === "GET" || method === "HEAD" ? null : parts[4]);
     } catch (e) { rec.done = true; rec.error = String(e && e.message ? e.message : e).slice(0, 200); }
@@ -1119,7 +1128,7 @@
     return cellText(cell);
   }
   function readFields() {
-    var rows = doc.getElementsByTagName("tr"), out = [], i, tr, cells, label, v, p;
+    var rows = doc.getElementsByTagName("tr"), out = [], i, c, tr, cells, label, v, p, nested;
     for (i = 0; i < rows.length && out.length < 60; i++) {
       tr = rows[i];
       try {
@@ -1127,13 +1136,18 @@
         while (p && tag(p) !== "TABLE") { p = p.parentNode; }
         if (p && sget(p, "data")) { continue; }                                      // a row of a table of data is not a pair
         cells = tr.cells;
-        if (cells.length !== 2) { continue; }
-        if (cells[0].getElementsByTagName("table").length || cells[1].getElementsByTagName("table").length) { continue; }
-        label = cellText(cells[0]).replace(/\s*:\s*$/, "");
-        if (!label || label.length > 40) { continue; }
-        v = controlText(cells[1]);
-        if (v === null) { continue; }
-        out.push('{"label":' + str(label) + ',"value":' + str(v.length > READ_CELL ? v.slice(0, READ_CELL) : v) + "}");
+        // a row of label, value (a form) or of label, value, label, value… (a printed form puts two or three pairs on a line)
+        if (cells.length < 2 || cells.length > 8 || cells.length % 2 !== 0) { continue; }
+        nested = false;
+        for (c = 0; c < cells.length; c++) { if (cells[c].getElementsByTagName("table").length) { nested = true; } }
+        if (nested) { continue; }
+        for (c = 0; c + 1 < cells.length && out.length < 60; c += 2) {
+          label = cellText(cells[c]).replace(/\s*:\s*$/, "");
+          if (!label || label.length > 40) { continue; }
+          v = controlText(cells[c + 1]);
+          if (v === null) { continue; }
+          out.push('{"label":' + str(label) + ',"value":' + str(v.length > READ_CELL ? v.slice(0, READ_CELL) : v) + "}");
+        }
       } catch (e) {}
     }
     return "[" + out.join(",") + "]";

@@ -329,6 +329,31 @@ def _expect(ok, detail):
     assert ok, detail
 
 
+def view_data(start, end):
+    history(start, end)
+    drive("fr-click", frame="work", id="chkRow0")
+    drive("fr-click", frame="work", id="btnPrintData")
+    wait_for("work/dlg", "document.getElementById('vName') != null && document.getElementById('vName').innerHTML != ''")
+    time.sleep(3.0)
+    drive("fr-click", frame="work/dlg", id="btnClose")
+    time.sleep(0.5)
+
+
+def _printed_page(folder):
+    pages = list(folder.glob("*(bản in).html"))
+    _expect(len(pages) == 1, list(folder.glob("*")))
+    text = pages[0].read_text(encoding="utf-8")
+    _expect("Số tài khoản" in text and "9988776655" in text and "Tên khách hàng" in text, text[:600])
+
+
+def test_a_screen_the_page_fills_from_an_answer_is_learned_and_printed_again_with_its_labels(tmp_path):
+    learn_and_run(tmp_path, "In báo nợ có từ dữ liệu",
+                  [lambda: (find_account("0123456789"), view_data("01/11/2026", "15/11/2026")),
+                   lambda: (find_account("5566778899"), view_data("02/11/2026", "20/11/2026"))],
+                  {"acct": "9988776655", "from": "03/11/2026", "to": "18/11/2026"},
+                  lambda asked, folder: _printed_page(folder))
+
+
 def transfer(source, target, amount):
     drive("fr-click", frame="menu", id="mnuTransfer")
     wait_for("work", "document.getElementById('txtFromAcct') != null")

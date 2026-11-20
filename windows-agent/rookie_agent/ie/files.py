@@ -67,7 +67,8 @@ _MAGIC = ((b"%PDF-", "pdf"), (b"\x89PNG\r\n\x1a\n", "png"), (b"\xff\xd8\xff", "j
 OFFICE_ZIP = {"xl/": "xlsx", "word/": "docx"}
 DOCUMENT_KINDS = frozenset({"pdf", "png", "jpg", "gif", "tif", "zip", "xlsx", "docx", "rtf", "ole"})
 KIND_WORDS = {"pdf": "PDF", "png": "ảnh", "jpg": "ảnh", "gif": "ảnh", "tif": "ảnh", "zip": "file nén", "xlsx": "Excel", "docx": "Word", "rtf": "văn bản Word",
-              "ole": "file Office cũ", "html": "trang web", "xml": "văn bản XML", "json": "văn bản JSON", "text": "văn bản", "": "không nhận ra"}
+              "ole": "file Office cũ", "html": "trang web", "xml": "văn bản XML", "json": "văn bản JSON", "text": "văn bản", "gwt": "lời đáp của hệ thống",
+              "": "không nhận ra"}
 
 
 def sniff(data: bytes | None) -> str:
@@ -104,6 +105,8 @@ def sniff(data: bytes | None) -> str:
     if not text or sum(ch.isprintable() or ch in "\r\n\t" for ch in text[:2000]) < 0.95 * len(text[:2000]):
         return ""
     lead = text.lstrip().lower()
+    if lead.startswith(("//ok[", "//ex[")):
+        return "gwt"                                  # the answer of a GWT-RPC call (a key, a record): data of a call, never a document
     if lead.startswith(("<!doctype html", "<html", "<head", "<body", "<script", "<?php")):
         return "html"
     if lead.startswith("<?xml") or lead.startswith("<"):
@@ -123,7 +126,7 @@ def extension(ctype: str, disposition: str = "", data: bytes | None = None) -> s
     ext = name.rsplit(".", 1)[-1].lower() if "." in name else ""
     if kind == "xml":
         return "xml"                                  # data the server sent as XML (a statement as IFX): kept as it came, read through its report
-    if kind in ("json", "text", "html"):
+    if kind in ("json", "text", "html", "gwt"):
         return ext if ext in ("txt", "csv") else ("csv" if split_type(ctype) == "text/csv" else "txt")
     if ext in SAFE_EXT:
         return ext
@@ -140,6 +143,33 @@ def file_name(flow_title: str, ctype: str, disposition: str = "", now: datetime 
     """`<flow name>-<yyyyMMdd-HHmmss>.<ext>`; `data` (the bytes) lets the extension follow what the file really is."""
     moment = now or datetime.now()
     return f"{clean_title(flow_title)}-{moment.strftime('%Y%m%d-%H%M%S')}.{extension(ctype, disposition, data)}"
+
+
+_BASE64_RUN = re.compile(rb"[A-Za-z0-9+/\r\n]{256,}={0,2}")
+
+
+def embedded_document(data: bytes | str | None) -> bytes | None:
+    """A SOAP service often sends a report inside its XML, as base64 in one element (`<ReportData>JVBERi0…</ReportData>`). The bytes of the
+    first such run that really is a document (a PDF, Excel, Word, zip, picture: told by the first bytes after decoding), else None.
+    Nothing but a known document is taken, so ordinary text, a token or a long id is never mistaken for one."""
+    raw = data.encode("utf-8") if isinstance(data, str) else bytes(data or b"")
+    if len(raw) < 300 or not raw.lstrip().startswith(b"<"):
+        return None
+    import base64
+
+    for found in _BASE64_RUN.finditer(raw):
+        blob = re.sub(rb"[\r\n]", b"", found.group(0))
+        head = blob[:512 - (512 % 4)]
+        try:
+            kind = sniff(base64.b64decode(head, validate=True))
+        except ValueError:
+            continue
+        if kind in DOCUMENT_KINDS:
+            try:
+                return base64.b64decode(blob + b"=" * (-len(blob) % 4), validate=True)
+            except ValueError:
+                continue
+    return None
 
 
 def shape_of(data: bytes | None, limit: int = 160) -> str:
@@ -169,7 +199,7 @@ def shape_of(data: bytes | None, limit: int = 160) -> str:
 def warning_for(kind: str) -> str:
     """A plain sentence when what was saved is not a document the teller can print as a report; "" when it is (or when it is XML, which
     has a readable report of its own)."""
-    if kind in DOCUMENT_KINDS or kind in ("html", "xml"):
+    if kind in DOCUMENT_KINDS or kind in ("html", "xml", "gwt"):
         return ""
     if kind in ("json", "text"):
         return f"File này chỉ là {KIND_WORDS[kind]}, không phải PDF hay Excel nên không in được như báo cáo."
@@ -238,6 +268,21 @@ def xml_report_html(title: str, rows: list[tuple[int, str, str, bool]], when: da
             "tr.h th{background:#e8edf4}td:first-child{width:34%;color:#333}@media print{body{margin:8mm}}</style></head><body>\n"
             f"<h1>{esc(title)}</h1><p>Bản đọc từ dữ liệu XML, lập lúc {esc(moment)}. File gốc nằm cạnh file này.</p>\n"
             f"<table>\n{chr(10).join(body)}\n</table></body></html>\n")
+
+
+def pairs_report_html(title: str, pairs: list[tuple[str, str]], when: datetime | None = None) -> str:
+    """A printable page of `label: value` rows, made from the data a call returned (a screen the page fills in, not a file). A page of ours
+    like the XML report: every text escaped, no script, no link, REPORT_MARK on its first line."""
+    esc = html_lib.escape
+    moment = (when or datetime.now()).strftime("%d/%m/%Y %H:%M")
+    rows = "\n".join(f"<tr><td>{esc(label)}</td><td>{esc(value)}</td></tr>" for label, value in pairs)
+    return (f"{REPORT_MARK}\n<!DOCTYPE html>\n<html lang=\"vi\"><head><meta charset=\"utf-8\"><title>{esc(title)}</title>\n"
+            "<style>body{font:14px Arial,sans-serif;margin:24px;color:#111}h1{font-size:20px;margin:0 0 4px}p{margin:0 0 14px;color:#555}"
+            "table{border-collapse:collapse;width:100%}td{border:1px solid #bbb;padding:5px 9px;vertical-align:top}td:first-child{width:34%;"
+            "background:#f1f4f8;color:#333}@media print{body{margin:8mm}}</style></head><body>\n"
+            f"<h1>{esc(title)}</h1><p>Dựng từ dữ liệu hệ thống trả về lúc {esc(moment)}. Đây là bản trình bày của Rookie Agent, "
+            "không phải chứng từ chính thức của hệ thống.</p>\n"
+            f"<table>\n{rows}\n</table></body></html>\n")
 
 
 def is_report(path: Path) -> bool:

@@ -92,6 +92,9 @@ def check(document: dict[str, Any], notes: list[str] | None = None, requests_on:
         if "không với tới" in note or "unreadable" in note or "từ chối bộ ghi" in note:
             add("redo", "Có một phần của trang (khung hoặc hộp thoại) bộ ghi không đọc được.", "Bấm «Gửi chẩn đoán» để nhóm phát triển xem.")
             break
+    for one in document.get("report_maps") or []:
+        add("ok", f"Agent đã học cách dựng bản «{one.get('title')}» từ dữ liệu hệ thống trả về ({len(one.get('fields') or [])} trường có nhãn).",
+            "Chạy xong sẽ có file «… (bản in).html» để xem và in.")
     if not any(f["level"] == "redo" for f in found):
         calls = len([r for r in real if not clean.is_message_box(str(r.get("url") or ""))])
         add("ok", f"Bản ghi dùng được: {len(events)} thao tác, {calls} lời gọi hệ thống" + (f", {len(sure_files) + len(guessed)} file" if sure_files or guessed else "") + ".",

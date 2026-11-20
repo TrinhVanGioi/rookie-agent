@@ -242,6 +242,7 @@ Mỗi người thấy luồng của mình và luồng được chia sẻ cho mì
 | 11.7 | Dùng quy trình được chia sẻ ở máy khác | `GET /api/flows/shared`, `POST /api/flows/import`, «Làm mẫu một lần để dùng» (`POST /api/flows/bind`, `api_share.bind`: ghép theo tác dụng và thứ tự, mẫu đầy đủ của máy này, cấu trúc và Duyệt giữ nguyên, nút không khớp thì báo). **Xong** (chưa thử trên IE thật) |
 | 11.8 | Đo thời gian tiết kiệm | Trung vị làm tay (bản ghi) và trợ lý (lần chạy xong), dưới 3 lần mỗi bên thì không hiện số; thẻ quy trình và trang quản trị (`/runs/summary`). **Xong** |
 | 11.9 | MCP cho Genie Codie (`python -m rookie_agent mcp`) | 5 tool, không có tool Duyệt, không trả giá trị, `idempotency_key`, timeout tổng rồi Dừng khẩn, vai trò maker/checker, audit qua `/api/mcp/audit`, stdio hoặc HTTP có token và danh sách địa chỉ. `tests/test_mcp.py`. **Xong** |
+| 11.11 | Bản in dựng từ dữ liệu trả về (màn hình điền từ XML/GWT) | `ie/report.py`: học nhãn và luật lúc Ghi, dựng `(bản in).html` lúc Chạy; kèm SOAP, loại file theo byte. `tests/test_report.py`, `tests/test_soap.py`, ma trận IE 8/9 (`btnPrintData`). **Xong** (chưa thử trên TouchPoint thật) |
 | 11.10 | Slide, tài liệu, đóng gói | Slide: «Tình huống lạ» thay «Điều kiện», bỏ Java ở slide Bài toán, thêm trang «Gọi quy trình ở đâu». Còn lại: tài liệu, đóng gói |
 
 ## Phần để sau PoC
