@@ -606,3 +606,31 @@ Không sửa lỗi ghi hay học khi gặp từng cái trên TouchPoint. Thay v�
 
 Còn để sau: lắng nghe điều hướng của trình duyệt (`BeforeNavigate2`) từ cầu nối, để bắt form gửi trong hộp thoại modal có câu trả lời là file tải về.
 8. **Loại file theo nội dung, và dữ liệu XML** (`ie/files.py`). Server hay khai kiểu chung (`application/octet-stream`) và không kèm tên, nên đuôi file không tin vào kiểu khai báo mà theo vài byte đầu: PDF, ảnh, Excel, Word, nén; trang web (trang hết phiên, trang lỗi) bị từ chối, không lưu; chữ thuần, JSON thì lưu `.txt` và nói rõ đó không phải báo cáo in được. Dữ liệu **XML** (báo nợ/có của TouchPoint trả về dạng IFX) được nhận đúng: lưu nguyên vẹn `.xml`, và dựng cạnh nó một bản đọc `… (bản đọc).html` để xem và in. Bản đọc là trang của agent: mọi chữ được escape, không script, không liên kết ngoài, dòng đầu là dấu `<!--rookie-report-->` (chỉ trang có dấu này mới được mở và in từ giao diện). XML có DOCTYPE hoặc entity, quá 2 MB hoặc hỏng thì không dựng bản đọc (vẫn lưu file gốc). Các giá trị cũng hiện trong kết quả của lần chạy. Nút đã học là «file» mà server trả XML bằng kiểu `text/xml` vẫn được nhận nếu có ít nhất 3 giá trị (một hộp thông báo cũng là XML nhưng chỉ có một nút và một dòng nên không phải dữ liệu).
+## 15. Self-Adaptive Digital Process Twin (SADPT, Gate 12)
+
+Định hướng sản phẩm từ Gate 12 (`docs/Rookie_Agent_Adaptive_Digital_Process_Twin_Direction.md`): Rookie giữ một **bản sao số của mỗi quy trình nghiệp vụ, có khả năng tự thích nghi**. Một bước nghiệp vụ không phải một cú bấm hay một lời gọi: bước có ý nghĩa (`intent`), có điều phải thấy sau khi làm (`expect`) và có chính sách thích nghi (`adapt`).
+
+Hai loại thay đổi xử lý khác nhau:
+
+- **Kỹ thuật** (id, nhãn, vị trí, bố cục): agent tự tìm lại mục tiêu khi đủ bằng chứng, chỉ ở bước `read`, và luôn hậu kiểm. Kết quả thành bản nháp mới chỉ đổi `target`, không tự phát hành.
+- **Nghiệp vụ** (bước, hộp thoại, trường, điều kiện mới): agent dừng ở điểm an toàn và hỏi. GDV dạy lại đúng đoạn đổi; bản mới chạy thử trên bản sao, người khác Duyệt; bản cũ giữ để quay lui.
+
+### 15.1 Vòng MAPE-K và module
+
+| Phần | Việc | Đã có | Thêm ở Gate 12 |
+|---|---|---|---|
+| Monitor | Quan sát màn hình, lời gọi, file, hộp thoại | bộ ghi trong trang, `ie/session.py`, `driver.read_screen`, dấu vân tay màn hình (6.1.3) | đọc màn hình sau mỗi bước lúc chạy |
+| Analyze | Thấy lệch và xếp loại | `ie/locate.py` (điểm bằng chứng), `locate.screen_similarity` | `adaptive/verify.py` (so với `expect`), `adaptive/classify.py` (kỹ thuật hay nghiệp vụ) |
+| Plan | Chọn cách xử lý: tự tìm lại, hỏi GDV, hay đề xuất bản mới | `runner.repair` (GDV chọn trong tối đa 3 ứng viên, 6.1.2) | `locate.auto_pick` (tự chọn khi đủ bằng chứng), «Dạy lại đoạn này» |
+| Execute | Làm, rồi hậu kiểm | `runner.run_workflow`, `replay.run_api` | hậu kiểm bắt buộc sau mỗi bước có `expect`; nút API dừng khi trả lời đổi dạng (`ie/shape.py`) |
+| Knowledge | Hợp đồng bước, phiên bản, bằng chứng, nhật ký | workflow có `version`/`status`, bản nháp và Duyệt (`server/app/edit.py`), audit | `schema_version` 4 (`intent`, `expect`, `adapt`), nhật ký thích nghi, so sánh phiên bản, quay về bản trước |
+
+### 15.2 Quy tắc
+
+1. Tự thích nghi không bao giờ vượt quyền: bước `write`/`money` không tự chọn mục tiêu; quy tắc cứng 3 và 6 giữ nguyên.
+2. Mọi thích nghi phải hậu kiểm; không hậu kiểm được thì coi như chưa thích nghi và hỏi GDV.
+3. Mọi thay đổi thành **bản nháp** có so sánh với bản cũ; không tự phát hành; người sửa không tự Duyệt.
+4. Mỗi quyết định thích nghi ghi một dòng: thấy gì, xếp loại gì, làm gì, hậu kiểm ra sao. Không có giá trị nhập (mục 4.2).
+5. Hộp thoại hoặc thông báo chưa từng thấy luôn là điểm dừng (quy tắc cứng 9).
+
+Chi tiết từng task: `docs/tasks.md` Gate 12.

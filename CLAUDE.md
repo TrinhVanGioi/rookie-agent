@@ -2,6 +2,8 @@
 
 Hệ thống để agent học thao tác của giao dịch viên (GDV) qua vài lần làm mẫu, rồi chạy lại có kiểm soát từng bước. Recorder và Runner chạy trên từng máy PC theo hai hướng: **hướng A** là extension cho hệ thống chạy trên Chromium; **hướng B** là Windows agent dùng Java Access Bridge cho hệ thống chạy IE mode với Java applet (JDK 1.8). Máy chủ nội bộ giữ LLM, kho agent, chính sách và audit.
 
+Định hướng từ Gate 12: **Self-Adaptive Digital Process Twin (SADPT)**, bản sao số quy trình nghiệp vụ có khả năng tự thích nghi (`docs/Rookie_Agent_Adaptive_Digital_Process_Twin_Direction.md`, `docs/design.md` mục 15). Mỗi tính năng mới nói rõ thuộc phần nào của vòng MAPE-K.
+
 Đọc `docs/design.md` trước khi viết code. Làm việc theo `docs/tasks.md`, mỗi lần một cổng (Gate), mỗi task một commit nhỏ.
 
 ## Cấu trúc repo

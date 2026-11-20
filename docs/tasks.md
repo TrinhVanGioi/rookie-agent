@@ -245,6 +245,26 @@ Mỗi người thấy luồng của mình và luồng được chia sẻ cho mì
 | 11.11 | Bản in dựng từ dữ liệu trả về (màn hình điền từ XML/GWT) | `ie/report.py`: học nhãn và luật lúc Ghi, dựng `(bản in).html` lúc Chạy; kèm SOAP, loại file theo byte. `tests/test_report.py`, `tests/test_soap.py`, ma trận IE 8/9 (`btnPrintData`). **Xong** (chưa thử trên TouchPoint thật) |
 | 11.10 | Slide, tài liệu, đóng gói | Slide: «Tình huống lạ» thay «Điều kiện», bỏ Java ở slide Bài toán, thêm trang «Gọi quy trình ở đâu». Còn lại: tài liệu, đóng gói |
 
+11.5 (sắp lại màn hình chính) và 11.6 (gợi ý theo màn hình) hoãn sau Gate 12. Ngày chọn bằng lịch (định làm là 11.12) gộp vào 12.6.
+
+## Gate 12: Self-Adaptive Digital Process Twin (SADPT)
+
+Định hướng mới của sản phẩm (`docs/Rookie_Agent_Adaptive_Digital_Process_Twin_Direction.md`, `docs/design.md` mục 15): bản sao số của quy trình nghiệp vụ, tự thích nghi theo vòng MAPE-K. Thay đổi kỹ thuật (id, nhãn, vị trí) thì agent tự tìm lại trong phạm vi an toàn và luôn hậu kiểm; thay đổi nghiệp vụ (bước, hộp thoại, trường mới) thì dừng ở điểm an toàn, hỏi, GDV dạy lại đúng đoạn đổi, bản mới chạy thử trên bản sao rồi người khác Duyệt, bản cũ giữ để quay lui.
+
+| Task | Nội dung | Tiêu chí nghiệm thu |
+| --- | --- | --- |
+| 12.0 | Định hướng và tài liệu | `CLAUDE.md`, `docs/design.md` mục 15 (MAPE-K và module), Gate 12. **Xong** |
+| 12.1 | Hợp đồng ngữ nghĩa của bước (Knowledge) | Workflow `schema_version` 4: mỗi bước có `intent`, `expect` (những gì phải hiện sau bước: khung, loại, tên; không giá trị), `adapt.reresolve` (chỉ bước `read` được `true`, schema cấm với `write`/`money`). Learner lấy phần chung của những gì màn hình đổi sau mỗi thao tác giữa các lần ghi. Bản 1–3 vẫn hợp lệ. Test schema, learner, mẫu sai |
+| 12.2 | Hậu kiểm và phân loại lệch (Monitor, Analyze) | `rookie_agent/adaptive/`: sau mỗi bước so màn hình với `expect`: đạt thì đi tiếp; hộp thoại hoặc thông báo chưa từng thấy là thay đổi nghiệp vụ: dừng, hiện nội dung đã che, hỏi, không tự bấm; không có gì đổi thì chờ rồi dừng hỏi. Mỗi lệch ghi một dòng «quyết định thích nghi» vào audit, không có giá trị |
+| 12.3 | Tự phục hồi có giới hạn (Plan, Execute) | Bước `read` có `adapt.reresolve`: khi không tìm thấy hoặc không chắc, agent tự chọn khi đúng một ứng viên có ít nhất 2 dấu hiệu độc lập và cách xa ứng viên thứ hai, rồi bắt buộc hậu kiểm; sai thì quay về hỏi GDV chọn (6.2). Phục hồi được thì thành bản nháp v+1 chỉ đổi `target`, không tự phát hành. Bước `write`/`money` không bao giờ tự chọn |
+| 12.4 | Nút API nhận ra server đổi dạng trả lời | Lúc Học lưu hình dạng trả lời (không giá trị); lúc chạy khác loại hoặc thiếu chỗ mà nút sau cần thì không gửi tiếp, nút «cần xác minh», đề nghị chạy trên màn hình |
+| 12.5 | Dạy lại một đoạn (Delta Learning), phiên bản và quay lui | «Dạy lại đoạn này» ở điểm dừng hoặc thẻ quy trình: ghi đúng đoạn đổi, ghép giữa hai mốc còn khớp, bước khác giữ nguyên; bản nháp v+1 có so sánh, chạy thử trên bản sao, người khác Duyệt. Trang quản trị: tab Phiên bản, nhật ký thích nghi, «Quay về bản trước» (cũng phải Duyệt) |
+| 12.6 | Ngày chọn bằng lịch là đầu vào | Bấm biểu tượng lịch rồi bấm số ngày gộp thành điền ô ngày `{tu_ngay}`/`{den_ngay}` kiểu `date`; chạy thì điền ô rồi hậu kiểm, ô chỉ đọc thì dừng hỏi |
+| 12.7 | Cảnh demo SADPT trên TouchPoint giả lập, vào ma trận IE thật | `?ui=2` (đổi id, nhãn, vị trí) và `?biz=2` (hộp thoại hoặc trường mới). Ma trận: (a) học trên bản 1, chạy trên `ui=2` tự phục hồi không ghi lại, có nhật ký, có bản nháp v2; (b) `biz=2` dừng đúng chỗ, dạy lại đoạn, v2 được Duyệt rồi chạy xong, v1 còn để quay lui; (c) bước tiền đổi id thì không tự chọn. Qua ở chế độ 8 và 9 |
+| 12.8 | Số đo của SADPT | Từ audit: tỷ lệ tự phục hồi khi chỉ đổi giao diện, số bước phải ghi lại, số lần dừng đúng ở thay đổi nghiệp vụ, số hành động vượt quyền (phải bằng 0); hiện ở trang quản trị; slide theo SADPT |
+
+Để sau (cần môi trường thật, P0/P1 của tài liệu định hướng): quan sát cửa sổ và hộp thoại bằng UIA/WinEvent, Print Spooler, quan sát SOAP phía JVM, Selenium IEDriver cho Edge IE mode, OCR làm phương án cuối.
+
 ## Phần để sau PoC
 
 - Lắng nghe điều hướng của trình duyệt (`BeforeNavigate2`) từ cầu nối, để bắt mọi form và tải file kể cả trong hộp thoại modal; cần một luồng có vòng thông điệp riêng.
