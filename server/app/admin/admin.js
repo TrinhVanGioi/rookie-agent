@@ -152,6 +152,7 @@ async function openFlow(id, version) {
     ops: [], selected: null, adding: false };
   $("empty").hidden = true; $("flowView").hidden = false;
   $("flowTitle").textContent = reply.workflow.title || id;
+  $("deleteFlow").hidden = !canChange(f.latest);
   $("flowMeta").textContent = "Chủ luồng: " + f.latest.owner_display + (f.latest.unit ? " · " + f.latest.unit : "") + " · " + VIS[f.latest.visibility]
     + (f.latest.cloned_from ? " · sao từ " + f.latest.cloned_from : "") + " · " + (reply.workflow.engine === "ie" ? "Internet Explorer" : reply.workflow.engine);
   const sel = $("versionSel"); sel.textContent = "";
@@ -160,6 +161,17 @@ async function openFlow(id, version) {
   drawList(); drawFlow(); showTab(currentTab());
 }
 $("versionSel").onchange = () => { if (confirmDrop()) openFlow(state.flow.id, Number($("versionSel").value)); else $("versionSel").value = String(state.flow.version); };
+$("deleteFlow").onclick = async () => {
+  const fl = state.flow;
+  if (!fl) return;
+  const name = $("flowTitle").textContent;
+  if (!window.confirm("Xóa luồng «" + name + "» trên máy chủ? Bản ghi dùng để học vẫn còn. Nhật ký lần chạy vẫn còn. Không hoàn tác được.")) return;
+  try {
+    await api("POST", `/workflows/${enc(fl.id)}/delete`, { confirm: true });
+    state.flow = null; $("flowView").hidden = true; $("empty").hidden = false;
+    await loadList();
+  } catch (e) { say("editMsg", e.message, "bad"); }
+};
 function confirmDrop() { return !state.flow || !state.flow.ops.length || window.confirm("Bỏ các thay đổi chưa lưu?"); }
 
 function editable() {

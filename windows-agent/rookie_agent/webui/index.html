@@ -296,9 +296,10 @@
   <div id="paneFlow" hidden>
     <section>
       <h2>Luồng đã học</h2>
-      <p class="sub">Mỗi ô là một bước agent đã học, nối theo thứ tự chạy. Bấm vào ô để xem chi tiết. Màu viền: xanh là chỉ xem, vàng là ghi dữ liệu, đỏ là tiền. Trang này chỉ để xem, chưa sửa được.</p>
+      <p class="sub">Mỗi ô là một bước agent đã học, nối theo thứ tự chạy. Bấm vào ô để xem chi tiết. Màu viền: xanh là chỉ xem, vàng là ghi dữ liệu, đỏ là tiền. «Xóa luồng này» bỏ luồng khỏi máy này; bản ghi vẫn còn.</p>
       <div class="row"><select id="flowPick" class="grow"></select><button id="flowRefresh">Làm mới</button>
-        <button id="flowEdit" title="Mở trang quản trị trên máy chủ, đúng quy trình này">Sửa trên sơ đồ</button><button id="flowShare">Chia sẻ</button></div>
+        <button id="flowEdit" title="Mở trang quản trị trên máy chủ, đúng quy trình này">Sửa trên sơ đồ</button><button id="flowShare">Chia sẻ</button>
+        <button id="flowDelete">Xóa luồng này</button></div>
       <div id="flowAdminMsg"></div>
       <div id="flowEmpty" class="msg bad" hidden>Chưa có luồng nào. Hãy Ghi 3 lần rồi bấm Học ở tab «Ghi và Học».</div>
       <div class="canvas" id="canvas" hidden><div class="flowrow" id="flowrow"></div></div>
@@ -869,6 +870,7 @@ async function loadFlows() {
   const pick = $("flowPick"); pick.textContent = "";
   flows.forEach((flow, i) => { const o = el("option", flow.title + " — " + flow.learned_at); o.value = i; pick.append(o); });
   $("flowEmpty").hidden = flows.length > 0; $("canvas").hidden = flows.length === 0; $("flowPick").hidden = flows.length === 0;
+  $("flowDelete").hidden = flows.length === 0;
   if (flows.length) drawFlow(flows[pick.value || 0]);
 }
 let currentFlow = null;
@@ -1331,6 +1333,16 @@ async function openAdmin() {
 }
 $("flowEdit").onclick = openAdmin;
 $("flowShare").onclick = openAdmin;
+$("flowDelete").onclick = async () => {
+  const flow = flows[$("flowPick").value || 0];
+  if (!flow) return;
+  if (!window.confirm("Xóa luồng «" + flow.title + "» khỏi Rookie Agent trên máy này? Bản ghi vẫn còn. Không hoàn tác được.")) return;
+  try {
+    const r = await api("POST", "/api/flow/delete", { title: flow.title });
+    say("flowAdminMsg", r.server || "Đã xoá luồng.", r.server ? "bad" : "ok");
+    await loadFlows();
+  } catch (e) { say("flowAdminMsg", e.message, "bad"); }
+};
 
 // task 10.7: versions edited on the admin page; this PC keeps running its own copy until the teller takes a new one
 const UPD_STATUS = { draft: "bản nháp", tested: "đã chạy thử, chờ Duyệt trên trang quản trị", approved: "đã Duyệt" };

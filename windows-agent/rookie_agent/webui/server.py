@@ -107,14 +107,22 @@ def make_handler(core: Core, port: int, on_shutdown: Any):
         def _json(self, status: int, data: dict[str, Any]) -> None:
             self._send(status, json.dumps(data, ensure_ascii=False).encode("utf-8"))
 
+        def _discard(self) -> None:
+            """A refused POST still has to read its body, or the next request on the same connection is that body."""
+            length = int(self.headers.get("Content-Length") or 0)
+            if length > 0:
+                self.rfile.read(length)
+
         def _guarded(self) -> bool:
             """Only this PC's own page may talk to the agent: another site in the browser must not."""
             if self.headers.get("Host", "") not in allowed_hosts:
+                self._discard()
                 self._json(403, {"error": "Chỉ dùng được từ chính máy này."})
                 return False
             if self.command == "POST":
                 origin = self.headers.get("Origin")
                 if (origin and origin.split("//")[-1] not in allowed_hosts) or self.headers.get("X-Rookie") != "1":
+                    self._discard()
                     self._json(403, {"error": "Yêu cầu không hợp lệ."})
                     return False
             return True

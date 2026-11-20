@@ -793,6 +793,30 @@ class Core:
         return {"version": draft.get("version"), "added": [friendly_step(by_id[s]["action"], (by_id[s].get("target") or {}).get("label")) for s in added if s in by_id],
                 "warnings": list(reply.get("warnings") or [])}
 
+    def flow_delete(self, body: dict[str, Any]) -> dict[str, Any]:
+        """Remove a learned flow from this PC (the Luồng list of Rookie Agent). Recordings stay. If the server also has it, that copy
+        is removed when this PC is allowed to; a server that cannot be reached does not keep the flow on this PC."""
+        title = str(body.get("title") or "").strip()
+        flows = self.store.get("flows", [])
+        flow = next((item for item in flows if item.get("title") == title), None)
+        if flow is None:
+            raise UserError("Không thấy luồng này.")
+        if self._run is not None and self._run.get("thread") is not None and self._run["thread"].is_alive() and self._run.get("title") == title:
+            raise UserError("Luồng này đang chạy. Bấm Dừng khẩn rồi xoá.")
+        workflow_id = (flow.get("workflow") or {}).get("id")
+        note = ""
+        if workflow_id and self.store.get("server_url"):
+            try:
+                self._server().delete_workflow(workflow_id)
+            except ServerError as error:
+                if error.status == 403:
+                    note = "Đã xoá trên máy này. Bản trên máy chủ vẫn còn: chỉ chủ luồng hoặc quản trị xoá được."
+                elif error.status != 404:
+                    note = "Đã xoá trên máy này. Máy chủ chưa xoá được."
+        self.store.put("flows", [item for item in flows if item.get("title") != title])
+        self._cache_clear()
+        return {"deleted": title, "server": note}
+
     def flow_restore(self, body: dict[str, Any]) -> dict[str, Any]:
         """«Quay về bản trước»: the version before comes back as a new draft; it is approved again before it is used."""
         title = str(body.get("title") or "")
@@ -1986,7 +2010,7 @@ class Core:
         "GET /api/flows/shared": "flows_shared", "POST /api/flows/import": "flow_import", "POST /api/flows/bind": "flow_bind",
         "GET /api/flows/updates": "flow_updates", "POST /api/flows/update/take": "flow_update_take", "POST /api/flows/update/try": "flow_update_try", "POST /api/learn": "learn",
         "POST /api/diagnostics": "diagnostics", "GET /api/flows": "flows",
-        "GET /api/codie": "codie_status", "POST /api/codie/test": "codie_test", "GET /api/calls": "calls", "GET /api/seen": "seen", "GET /api/requests": "requests", "GET /api/live": "live", "GET /api/screen": "screen", "POST /api/ie/inspect": "ie_inspect", "POST /api/flow/approve": "flow_approve", "POST /api/flow/restore": "flow_restore", "POST /api/teach/start": "teach_start", "POST /api/teach/stop": "teach_stop","POST /api/flow/read-withdraw": "flow_read_withdraw","POST /api/run/start": "run_start", "GET /api/run/status": "run_status", "POST /api/run/decide": "run_decide", "POST /api/run/stop": "run_stop", "POST /api/assistant/plan": "assistant_plan", "POST /api/assistant/answer": "assistant_answer", "POST /api/assistant/run": "assistant_run", "GET /api/assistant/habits": "assistant_habits", "GET /api/library": "library", "POST /api/library/n8n": "library_n8n", "GET /api/trace/last": "last_trace",
+        "GET /api/codie": "codie_status", "POST /api/codie/test": "codie_test", "GET /api/calls": "calls", "GET /api/seen": "seen", "GET /api/requests": "requests", "GET /api/live": "live", "GET /api/screen": "screen", "POST /api/ie/inspect": "ie_inspect", "POST /api/flow/approve": "flow_approve", "POST /api/flow/restore": "flow_restore", "POST /api/flow/delete": "flow_delete", "POST /api/teach/start": "teach_start", "POST /api/teach/stop": "teach_stop","POST /api/flow/read-withdraw": "flow_read_withdraw","POST /api/run/start": "run_start", "GET /api/run/status": "run_status", "POST /api/run/decide": "run_decide", "POST /api/run/stop": "run_stop", "POST /api/assistant/plan": "assistant_plan", "POST /api/assistant/answer": "assistant_answer", "POST /api/assistant/run": "assistant_run", "GET /api/assistant/habits": "assistant_habits", "GET /api/library": "library", "POST /api/library/n8n": "library_n8n", "GET /api/trace/last": "last_trace",
         "POST /api/voucher/read": "voucher_read", "POST /api/voucher/confirm": "voucher_confirm", "POST /api/voucher/run": "voucher_run",
         "GET /api/twin/settings": "twin_settings", "POST /api/twin/settings": "twin_settings_save",
         "GET /api/twin/processes": "twin_processes", "POST /api/twin/processes": "twin_process_save",

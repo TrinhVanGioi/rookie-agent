@@ -12,6 +12,7 @@ def test_the_page_is_served_without_a_login_and_is_in_vietnamese(client):
     assert script.status_code == 200 and client.get("/admin/admin.css").status_code == 200
     assert "Hành động vượt quyền" in script.text and "Tự phục hồi khi chỉ đổi giao diện" in script.text
     assert "Quay về bản này" in script.text and "Nhật ký thích nghi" in page.text
+    assert "Xóa luồng" in page.text
     assert "cdn" not in page.text.lower() and "http://" not in page.text and "https://" not in page.text      # offline network
 
 

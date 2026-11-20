@@ -533,6 +533,7 @@ Quy tắc:
 ### 13.3 Ai thấy, ai sửa (`app/auth/access.py`)
 
 - Chủ luồng là người bấm Học. Luồng mặc định riêng tư.
+- Chủ luồng hoặc quản trị xoá được luồng đã học (`POST /workflows/{id}/delete`, phải xác nhận). Bản ghi dùng để học vẫn còn, nhật ký lần chạy đã gửi lên vẫn còn; luồng không còn trong danh sách.
 - Chỉ chủ luồng chia sẻ được, cho đơn vị hoặc toàn ngân hàng, sau khi xem trước đúng nội dung sẽ chia sẻ: bước, nhãn, tên ô nhập.
 - Quản trị thấy và sửa mọi luồng nhưng không chia sẻ thay chủ.
 - Luồng không xem được thì trả «không tìm thấy», không lộ là luồng đó có tồn tại.

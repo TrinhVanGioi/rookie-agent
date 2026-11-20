@@ -106,6 +106,25 @@ def test_a_flow_from_before_owners_shows_no_owner_and_only_the_admin_gives_it_on
     assert flow in seen(api, "gdv1")
 
 
+def test_the_owner_or_an_admin_deletes_a_learned_flow_and_the_recordings_and_the_run_log_stay(api):
+    flow = learn(api, "gdv1", "Chuyển tiền của An", "a")
+    run = {"run_id": "r1", "time": "2026-11-20 10:00:00", "workflow_id": flow, "version": 1, "title": "Chuyển tiền của An",
+           "mode": "screen", "status": "finished", "seconds": 4, "steps": [{"id": "s1", "status": "done"}]}
+    assert api.post("/runs", json={"runs": [run]}, headers=api.as_["gdv1"]).status_code == 200
+    assert api.post(f"/workflows/{flow}/delete", json={}, headers=api.as_["gdv1"]).status_code == 422
+    api.post(f"/workflows/{flow}/share", json={"visibility": "unit", "confirm": True}, headers=api.as_["gdv1"])
+    assert api.post(f"/workflows/{flow}/delete", json={"confirm": True}, headers=api.as_["gdv2"]).status_code == 403
+    assert api.post(f"/workflows/{flow}/delete", json={"confirm": True}, headers=api.as_["gdv3"]).status_code == 404
+    assert api.post(f"/workflows/{flow}/delete", json={"confirm": True}, headers=api.as_["gdv1"]).status_code == 200
+    assert api.get(f"/workflows/{flow}", headers=api.as_["quantri"]).status_code == 404
+    assert flow not in {row["id"] for row in api.get("/runs/summary", headers=api.as_["quantri"]).json()["flows"]}
+    assert api.app.state.storage.runs_of(flow)[0]["run_id"] == "r1"
+    assert len(api.get("/sessions", headers=api.as_["gdv1"]).json()["sessions"]) == 3
+    other = learn(api, "gdv2", "Việc của Hai", "b")
+    assert api.post(f"/workflows/{other}/delete", json={"confirm": True}, headers=api.as_["quantri"]).status_code == 200
+    assert api.get(f"/workflows/{other}", headers=api.as_["gdv2"]).status_code == 404
+
+
 def test_with_login_off_this_pc_owns_and_sees_everything_as_before(client):
     ids = []
     for i in range(3):

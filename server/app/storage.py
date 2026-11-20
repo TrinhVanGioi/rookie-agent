@@ -181,6 +181,15 @@ class Storage:
             row = self._db.execute("SELECT MAX(version) AS v FROM workflows WHERE id = ?", (workflow_id,)).fetchone()
         return (row["v"] or 0) + 1
 
+    def delete_workflow(self, workflow_id: str) -> None:
+        """The learned flow and everything that is part of it. Recordings and the run log stay: a recording can be learned again,
+        and a run already sent up is an audit row."""
+        with self._lock, self._db:
+            for table in ("workflows", "workflow_api", "workflow_edits", "workflow_layout", "workflow_meta"):
+                self._db.execute(f"DELETE FROM {table} WHERE id = ?", (workflow_id,))
+            for table in ("learn_sources", "test_runs"):
+                self._db.execute(f"DELETE FROM {table} WHERE workflow_id = ?", (workflow_id,))
+
     def add_workflow(self, workflow: dict[str, Any], warnings: list[str]) -> None:
         with self._lock, self._db:
             self._db.execute(

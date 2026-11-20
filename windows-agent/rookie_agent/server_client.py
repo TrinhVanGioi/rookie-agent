@@ -201,6 +201,10 @@ class ServerClient:
         return self._call("POST", f"/workflows/{urllib.parse.quote(workflow_id, safe='')}/versions/{int(version)}/teach",
                           {"after_step": after_step, "session_id": session_id})
 
+    def delete_workflow(self, workflow_id: str) -> dict[str, Any]:
+        """The owner or an admin removes the learned flow on the server. The page has already asked the teller."""
+        return self._call("POST", f"/workflows/{urllib.parse.quote(workflow_id, safe='')}/delete", {"confirm": True})
+
     def restore(self, workflow_id: str, version: int) -> dict[str, Any]:
         """Task 12.5: an older version back, as a new draft to approve."""
         return self._call("POST", f"/workflows/{urllib.parse.quote(workflow_id, safe='')}/versions/{int(version)}/restore", {})

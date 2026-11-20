@@ -143,6 +143,10 @@ class ApiIn(BaseModel):
     api: list[dict[str, Any]] = Field(max_length=2000)
 
 
+class DeleteIn(BaseModel):
+    confirm: bool = False      # the person confirmed on the page; a request without it does not delete
+
+
 class ShareIn(BaseModel):
     visibility: Literal["private", "unit", "all"]
     confirm: bool = False      # the owner saw the preview (GET /workflows/{id}/share-preview)
@@ -564,7 +568,8 @@ def create_app(db_path: str | Path | None = None, auth_mode: str | None = None, 
     def run_summary(request: Request) -> dict[str, Any]:
         who = caller(request)
         return {"flows": {wid: {**row, **_savings(wid), "sadpt": _sadpt(wid)}
-                          for wid, row in storage.run_summary().items() if can_see(who, storage.meta(wid))}}
+                          for wid, row in storage.run_summary().items()
+                          if storage.get_workflow(wid) is not None and can_see(who, storage.meta(wid))}}
 
     # ---- sharing, cloning, owners (task 10.2) ---------------------------------------------------------------------
 
@@ -603,6 +608,17 @@ def create_app(db_path: str | Path | None = None, auth_mode: str | None = None, 
         who = caller(request)
         storage.set_owner(new_id, who.name, who.display, who.unit, cloned_from=f"{workflow_id}@{source['version']}")
         return workflow_reply(copied, warnings)
+
+    @app.post("/workflows/{workflow_id}/delete")
+    def delete_workflow(workflow_id: str, body: DeleteIn, request: Request) -> dict[str, str]:
+        """The owner or an admin removes a learned flow. Recordings stay, and runs already sent up stay (they are the audit)."""
+        meta = visible(request, workflow_id)
+        if not can_change(caller(request), meta):
+            raise HTTPException(403, "Chỉ chủ luồng hoặc quản trị được xoá luồng này.")
+        if not body.confirm:
+            raise HTTPException(422, "Xác nhận xoá luồng này.")
+        storage.delete_workflow(workflow_id)
+        return {"deleted": workflow_id}
 
     @app.post("/workflows/{workflow_id}/owner")
     def give_owner(workflow_id: str, body: OwnerIn, request: Request) -> dict[str, Any]:
