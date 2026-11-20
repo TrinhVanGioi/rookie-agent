@@ -850,7 +850,7 @@ def run_api(workflow: dict[str, Any], nodes: list[dict[str, Any]], values: dict[
             text = str(answer.get("text") or "")
             answers[node["id"]] = text
             sent["view"] = response_view.summarize(text)
-            if files.view_has_report(sent["view"]):
+            if _view_has_report(sent["view"]):
                 sections.append({"title": label, "view": sent["view"]})
             if as_answer and node.get("kind") == "file":
                 carriers.append({"shown": shown, "sent": sent, "group": group, "label": label})
@@ -927,10 +927,81 @@ def run_api(workflow: dict[str, Any], nodes: list[dict[str, Any]], values: dict[
     return end("finished", "Chạy xong.")
 
 
+def _view_has_report(view: dict[str, Any]) -> bool:
+    """Enough to print: a table with a data row, three labelled values, or three lines. Lives here so a step after sign-in still runs when
+    the loaded `files` module is older than this replay and has no `view_has_report`."""
+    fn = getattr(files, "view_has_report", None)
+    if fn is not None:
+        return bool(fn(view))
+    rows = view.get("rows") or []
+    if len(rows) >= 2 and any(any(str(cell).strip() for cell in row) for row in rows[1:]):
+        return True
+    pairs = [pair for pair in (view.get("pairs") or []) if len(pair) >= 2 and str(pair[1]).strip()]
+    if len(pairs) >= 3:
+        return True
+    lines = [str(line) for line in (view.get("lines") or []) if str(line).strip() and not str(line).startswith("Máy chủ báo lỗi")]
+    return len(lines) >= 3
+
+
+_DOC_IN_TEXT = re.compile(r"https?://[^\s\"'<>\\]{8,400}|/[A-Za-z0-9_./~:-]{2,200}(?:\?[^\s\"'<>\\]{0,500})?")
+_DOC_HINT = re.compile(r"(?:pdf|xlsx?|csv|export|print|report|download|statement)", re.IGNORECASE)
+
+
+def _document_target(node_url: str, text: str) -> str | None:
+    """A document address inside an answer, on the same site as the call. The copy in `files` is used when that module has it."""
+    fn = getattr(files, "document_target", None)
+    if fn is not None:
+        return fn(node_url, text)
+    base = str(node_url or "")
+    base_parts = urllib.parse.urlsplit(base if "://" in base else "")
+    own = urllib.parse.urlsplit(base).path
+    for raw in _DOC_IN_TEXT.findall(str(text or "")):
+        raw = raw.rstrip(".,);]'\"")
+        if not _DOC_HINT.search(raw.split("?", 1)[0]):
+            continue
+        if raw.startswith("/"):
+            if raw.split("?", 1)[0] == own:
+                continue
+            if base_parts.scheme and base_parts.netloc:
+                path, _, query = raw.partition("?")
+                return urllib.parse.urlunsplit((base_parts.scheme, base_parts.netloc, path, query, ""))
+            return raw
+        parts = urllib.parse.urlsplit(raw)
+        if parts.scheme not in ("http", "https") or not base_parts.netloc or parts.netloc.lower() != base_parts.netloc.lower():
+            continue
+        if parts.path == own and (parts.query or "") == (urllib.parse.urlsplit(base).query or ""):
+            continue
+        return urllib.parse.urlunsplit((parts.scheme, parts.netloc, parts.path, parts.query, ""))
+    return None
+
+
+def _views_report_html(title: str, sections: list[dict[str, Any]]) -> str:
+    """The printable page of the answers. The copy in `files` is used when that module has it."""
+    fn = getattr(files, "views_report_html", None)
+    if fn is not None:
+        return fn(title, sections)
+    mark = getattr(files, "REPORT_MARK", "<!--rookie-report-->")
+    moment = datetime.now().strftime("%d/%m/%Y %H:%M")
+    blocks: list[str] = []
+    for section in sections:
+        view = section.get("view") or {}
+        blocks.append(f"<h2>{escape(str(section.get('title') or 'Dữ liệu'))}</h2>")
+        if view.get("pairs"):
+            rows = "\n".join(f"<tr><td>{escape(str(pair[0]))}</td><td>{escape(str(pair[1]))}</td></tr>" for pair in view["pairs"] if len(pair) >= 2)
+            blocks.append(f"<table>\n{rows}\n</table>")
+        if view.get("lines"):
+            items = "\n".join(f"<li>{escape(str(line))}</li>" for line in view["lines"])
+            blocks.append(f"<ul>\n{items}\n</ul>")
+    return (f"{mark}\n<!DOCTYPE html>\n<html lang=\"vi\"><head><meta charset=\"utf-8\"><title>{escape(title)}</title></head><body>\n"
+            f"<h1>{escape(title)}</h1><p>Dựng từ dữ liệu hệ thống trả về lúc {escape(moment)}. "
+            "Đây là bản trình bày của Rookie Agent, không phải chứng từ chính thức của hệ thống.</p>\n"
+            + "\n".join(blocks) + "\n</body></html>\n")
+
+
 def _document_from_key(node: dict[str, Any], text: str, send: Callable[..., dict[str, Any]]) -> dict[str, Any] | None:
     """The file a report key points at, when the key's text names an address on the same site. One GET, through the page's own session.
     A key that names nothing, or an answer that is not a document, is left as the key it is."""
-    target = files.document_target(str(node.get("url") or ""), text)
+    target = _document_target(str(node.get("url") or ""), text)
     if not target:
         return None
     try:
@@ -938,7 +1009,7 @@ def _document_from_key(node: dict[str, Any], text: str, send: Callable[..., dict
     except Exception:  # noqa: BLE001  the key is still the answer; the run says so instead of failing on this extra call
         return None
     received = answer.get("file") if isinstance(answer, dict) and answer.get("ok") else None
-    if not received or files.sniff(received.get("data")) not in files.DOCUMENT_KINDS:
+    if not received or files.sniff(received.get("data")) not in getattr(files, "DOCUMENT_KINDS", frozenset()):
         return None
     return received
 
@@ -951,7 +1022,7 @@ def _page_from_answers(sections: list[dict[str, Any]], carriers: list[dict[str, 
         return None
     held = carriers[-1]
     title = str(held["label"])
-    html = files.views_report_html(title, sections)
+    html = _views_report_html(title, sections)
     try:
         page = save_report(title, html)
     except OSError:
