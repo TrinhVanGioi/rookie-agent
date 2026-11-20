@@ -1650,6 +1650,30 @@ def test_a_pdf_answer_is_recorded_as_a_file_learned_and_run_by_request_and_the_s
     assert shown["file"]["saved"] is True and shown["file"]["size"] == len(PDF_BYTES) and "view" not in shown
 
 
+DATEPICK = b"""<html><head><title>RookieE2E Datepick</title></head><body>
+<input type="text" id="txtFrom"><img id="imgdtFrom" src="about:blank" width="16" height="16" alt="" onclick="openPicker()">
+<div id="cal"></div>
+<script>function pick() { document.getElementById('txtFrom').value = '17/11/2026'; }
+function openPicker() {   // the picker is built when its icon is pressed, with the frame it always has (an IE trick for covering a select)
+  document.getElementById('cal').innerHTML = '<iframe name="calFrame" id="calFrame" src="javascript:false;" style="width:200px;height:120px"></iframe>' +
+    '<div id="d17" onclick="pick()">17</div>'; }</script></body></html>"""
+PAGES["/datepick"] = DATEPICK
+
+
+def test_a_date_picker_frame_at_a_script_address_is_not_recorded_as_a_request():
+    with real_ie("/datepick") as bridge:
+        session = start_session(bridge, requests=True)
+        time.sleep(1.0)
+        os.environ["RK_ID"] = "imgdtFrom"
+        drive("e-click", "RookieE2E Datepick")
+        time.sleep(1.5)
+        os.environ["RK_ID"] = "d17"
+        drive("e-click", "RookieE2E Datepick")
+        time.sleep(1.0)
+        session.stop()
+    assert not any(str(r.get("url")).lower().startswith("javascript:") for r in session.requests), [r.get("url") for r in session.requests]
+
+
 SESSLINK = b"""<html><head><title>RookieE2E Sesslink</title></head><body>
 <a id="lnkAcct" href="/touchpoint/locate/accountLocatePRF.jsp?sessionId=LIVE777&lang=vi" target="work">Tai khoan</a>
 <form id="frmX" method="post" action="/touchpoint/other.jsp?sessionId=LIVE777"><input type="hidden" name="a" value="1"></form>

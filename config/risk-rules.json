@@ -131,6 +131,14 @@
       {
         "risk": "read",
         "types": [
+          "click"
+        ],
+        "screen": "^(?!.*(chuyển tiền|thanh toán|rút tiền|nộp tiền|transfer|payment))",
+        "label": "^(img|btn|lnk)?(dt|date|cal|calendar)(from|to|start|end|picker|icon|btn)?$|^\\d{1,2}$|^(‹|›|«|»|<|>|<<|>>)$"
+      },
+      {
+        "risk": "read",
+        "types": [
           "submit"
         ],
         "label": "mã khách hàng|customer id"

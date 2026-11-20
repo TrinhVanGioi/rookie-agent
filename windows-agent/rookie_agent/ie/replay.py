@@ -323,6 +323,8 @@ def build_api(workflow: dict[str, Any], events: list[dict[str, Any]], found: lis
             continue                                   # failed when recorded: not part of the flow
         if item["index"] in asking:
             continue                                   # the page polling by itself
+        if not clean.is_address(item.get("url")):
+            continue                                   # a frame at `javascript:false;` (a date picker) is no request
         step = step_of.get(item["after_seq"]) if item.get("after_seq") is not None else None
         url, body, headers = (_MARK.sub(value_of, item[k]) for k in ("url", "body", "headers"))
         path = url.split("?", 1)[0]
@@ -533,6 +535,10 @@ def run_api(workflow: dict[str, Any], nodes: list[dict[str, Any]], values: dict[
     a step an explicit rule matched, no rules, no `confirm_read`, any other answer: refused, nothing remembered.
     An answer that is a file (`answer["file"] = {data, ctype, disposition}`) is written by `save_file(data, ctype, disposition)` -> {name, path} on
     this PC and shown only as its name and size; a twin run saves nothing. A node that was a file and now answers a page or text stops."""
+    from rookie_agent.ie import clean
+
+    # a flow learned before this rule may hold a «request» that is no address (`javascript:false;`): it is left out, never sent
+    nodes = [n for n in nodes if n.get("kind") == "screen" or clean.is_address(n.get("url"))]
     groups = groups_of(nodes)
     steps_by_id = {s["id"]: s for s in workflow.get("steps", [])}
     confirmed = dict(confirmed or {})

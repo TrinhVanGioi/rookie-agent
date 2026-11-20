@@ -116,6 +116,22 @@ def test_ie_export_and_print_buttons_are_read_except_on_a_money_screen(label, sc
     assert risk_of(ie_event("click", label, screen)) == expected
 
 
+@pytest.mark.parametrize(
+    "label, screen, expected",
+    [
+        ("imgdtFrom", "TouchPoint/Customer", Risk("read")),      # the date picker's icon
+        ("imgdtTo", "TouchPoint/Customer", Risk("read")),
+        ("17", "TouchPoint/Customer", Risk("read")),              # a day of the picker's calendar
+        ("<<", "TouchPoint/Customer", Risk("read")),
+        ("17", "TouchPoint/Chuyển tiền", Risk("write")),           # on a money screen the old rule stays
+        ("btnCalSave", "TouchPoint/Customer", Risk("write")),     # not a picker: not classified, write
+        ("Lưu 5", "TouchPoint/Customer", Risk("write")),
+    ],
+)
+def test_ie_date_picker_clicks_are_read(label, screen, expected):
+    assert risk_of(ie_event("click", label, screen)) == expected
+
+
 def test_ie_typing_and_links_that_are_not_buttons_change_nothing():
     assert risk_of(ie_event("input", "Mã khách hàng", tag="input")) == Risk("read")
     assert risk_of(ie_event("click", "Một ô bất kỳ", tag="div")) == Risk("read")

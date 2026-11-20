@@ -95,7 +95,7 @@
   // (its onload or its own script calls .submit() and the form has no button for a person to send it): an answer that is a download
   // leaves the frame where it was, so only the second sign shows it. Only read: the page's script text, never run, nothing written.
   var sentChecked = false;
-  function pathOf(u) { return String(u || "").split("?")[0].replace(/^[a-z]+:\/\/[^\/]+/i, ""); }
+  function urlPath(u) { return String(u || "").split("?")[0].replace(/^[a-z]+:\/\/[^\/]+/i, ""); }
   function postsItself(f) {
     var onload = "", scripts = "", s, i, el, ty;
     try { onload = String(doc.body.getAttribute("onload") || ""); } catch (eOl) {}
@@ -111,11 +111,11 @@
     for (i = 0; i < forms.length; i++) {
       f = forms[i];
       try {
-        t = String(f.target || ""); act = pathOf(f.action);
+        t = String(f.target || ""); act = urlPath(f.action);
         if (!t || !act) { continue; }
         w = window.frames[t]; if (!w) { continue; }
         here = "";
-        try { here = pathOf(w.location.href); } catch (eHere) {}
+        try { here = urlPath(w.location.href); } catch (eHere) {}
         if ((here && here === act) || postsItself(f)) { window.__rkq += formLineOf(f, "load"); }
       } catch (eSf) {}
     }
@@ -535,7 +535,9 @@
   }
   function rememberReq(rec) {
     var map, key, list, n = 0, k;
-    try { rememberUrl(rec.url); } catch (eU) {}
+    // only in a run: while the teller records, this is not run at all, so the page is touched exactly as before (the addresses are
+    // read when a run needs them, from a page the agent watches since the run began)
+    try { if (window.__rkRunMode) { rememberUrl(rec.url); } } catch (eU) {}
     if (!rec.req) { return; }
     map = window.__rkLastReq;
     if (!map) { map = window.__rkLastReq = {}; window.__rkLastReqN = 0; }

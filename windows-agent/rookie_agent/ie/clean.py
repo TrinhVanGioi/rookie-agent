@@ -34,6 +34,16 @@ def is_message_box(url: str) -> bool:
     return bool(_MESSAGE_BOX.search(str(url or "").split("?", 1)[0]))
 
 
+_NOT_AN_ADDRESS = ("javascript:", "about:", "data:", "vbscript:", "blob:", "#")
+
+
+def is_address(url: Any) -> bool:
+    """False for what is no request to a server: a script address (a date picker opens a frame at `javascript:false;`), an empty page,
+    a data address, a bare anchor. Such a document is never a call of the flow: sending it only fails («Access is denied»)."""
+    text = str(url or "").strip().lower()
+    return bool(text) and not text.startswith(_NOT_AN_ADDRESS)
+
+
 def poll_key(request: dict[str, Any]) -> tuple[str, str, str]:
     return (str(request.get("method") or "GET").upper(), _LONG_NUMBER.sub("#", str(request.get("url") or "")),
             _LONG_NUMBER.sub("#", str(request.get("body") or "")))

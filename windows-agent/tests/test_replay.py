@@ -99,6 +99,34 @@ def test_a_run_with_the_session_only_in_the_address_takes_it_from_the_live_page_
     assert stuck["status"] == "needs_help" and "mở màn hình cần dùng một lần" in stuck["message"] and "l1" not in stuck["message"]   # plain words
 
 
+def test_a_frame_at_a_script_address_is_no_node_when_learning_and_is_not_sent_when_running():
+    # the date picker of TouchPoint opens a frame at `javascript:false;`: a «page» line of the recording, never a request
+    raw, events, requests = recorded()
+    requests.append({"kind": "page", "frame": "main", "method": "GET", "url": "javascript:false;", "status": 200, "req": "", "res": "", "after": {"t": T_OPEN}})
+    nodes_ = replay.build_api(flow(), events, replay.templates(raw, events, requests))
+    assert not any("javascript" in n["url"] for n in nodes_)
+
+    stored = [{**n} for n in nodes()]                    # a flow learned before the rule: its node is still there
+    stored.append({**stored[-1], "id": "a99", "url": "javascript:false;", "label": "Bấm → GET javascript:false;", "links": {}, "body": ""})
+    sent = []
+
+    class Person:
+        def progress(self, *a):
+            pass
+
+        def show(self, *a):
+            pass
+
+        def approve(self, *a):
+            return True
+
+        confirm_read = None
+
+    replay.run_api(flow(), stored, {"cif": "1"}, lambda node, url, headers, body: sent.append(url) or {"ok": True, "status": 200, "text": "{}"},
+                   Person(), threading.Event(), twin=True)
+    assert not any("javascript" in u for u in sent), sent
+
+
 def test_a_typed_value_inside_a_longer_constant_is_left_alone():
     # task 11.2 (found on the TouchPoint look-alike): the account typed was part of the GWT strong name
     raw, events, requests = recorded()

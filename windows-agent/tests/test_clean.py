@@ -79,6 +79,13 @@ def test_a_press_without_a_service_call_that_is_not_made_again_stays():
     assert len(clean.clean([doc])[0]["events"]) == 1
 
 
+def test_a_script_address_a_data_address_and_an_empty_one_are_no_request():
+    for url in ("javascript:false;", " JavaScript:void(0)", "about:blank", "data:text/html,x", "vbscript:x", "#top", "", None):
+        assert clean.is_address(url) is False, url
+    for url in ("/tp/TPClassLoader", "http://tp/x?a=javascript:1", "touchpoint/locate/a.jsp"):
+        assert clean.is_address(url) is True, url
+
+
 def test_the_effect_names_what_a_call_does_never_a_value():
     assert clean.effect(BUTTON, 1) == ("POST /tp/postAuthentication.fisglobal getToken", "POST /tp/TPClassLoader AcctService.find")
     failed = {"requests": [{**gwt(1, "AcctService", "find"), "status": 500}]}

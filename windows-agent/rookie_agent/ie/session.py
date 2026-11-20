@@ -9,6 +9,7 @@ from typing import Any
 
 from rookie_agent.ie import read
 from rookie_agent.ie.bridge import IeBridge, IeBridgeError
+from rookie_agent.ie.clean import is_address
 from rookie_agent.ie.recorder import IeRecorder
 
 
@@ -176,13 +177,14 @@ class IeSession:
                 form, self._form = self._form, None
                 self._form_go = False
                 posted = form if form and int(line.get("t") or 0) - int(form.get("t") or 0) < 15000 else None
-                self.requests.append({
-                    "t": line.get("t"), "frame": line.get("frame"), "kind": "form" if posted else "page",
-                    "method": str((posted or {}).get("method") or "GET").upper(), "url": (posted or line).get("url"),
-                    "status": 200, "ms": 0, "req": (posted or {}).get("req") or "", "res": "", "cut": bool((posted or {}).get("cut")),
-                    "hdr": "Content-Type:application/x-www-form-urlencoded\n" if posted and str(posted.get("method")).upper() == "POST" else "",
-                    "after": self._last_action})
-                del self.requests[:-MAX_REQUESTS]
+                if is_address((posted or line).get("url")):      # a frame at `javascript:false;` (a date picker) is no request of the teller's
+                    self.requests.append({
+                        "t": line.get("t"), "frame": line.get("frame"), "kind": "form" if posted else "page",
+                        "method": str((posted or {}).get("method") or "GET").upper(), "url": (posted or line).get("url"),
+                        "status": 200, "ms": 0, "req": (posted or {}).get("req") or "", "res": "", "cut": bool((posted or {}).get("cut")),
+                        "hdr": "Content-Type:application/x-www-form-urlencoded\n" if posted and str(posted.get("method")).upper() == "POST" else "",
+                        "after": self._last_action})
+                    del self.requests[:-MAX_REQUESTS]
             if line.get("kind") in ACTION_KINDS:
                 acted = True
                 self._last_action = {"kind": line.get("kind"), "id": line.get("id") or line.get("name") or "",
