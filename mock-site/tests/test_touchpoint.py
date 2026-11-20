@@ -84,6 +84,57 @@ def test_the_three_ways_a_file_comes_back(tp):
     assert tp.seen[-3:] == ["exportPdf(0123456789,2)", "statement(0123456789,01/11/2026,15/11/2026)", "excel(0123456789,01/11/2026,15/11/2026)"]
 
 
+def test_an_export_returns_a_code_and_the_file_is_at_the_address_inside_that_code(tp):
+    """The report is not the answer of the service. The answer is a code (a document type, so a recording keeps it as a file) and one
+    string of it is the address of the PDF on this same site. A wrong code is not a file."""
+    auth = signed_in(tp)
+    status, headers, data = service(tp, auth, "ReportService", "export", "0123456789", "01/11/2026", "15/11/2026")
+    assert status == 200 and dict(headers)["Content-Type"] == "application/octet-stream" and data.startswith(b"//OK")
+    path = next(part for part in decode(data) if str(part).startswith("/tp/rpt/"))
+    assert path.startswith("/tp/rpt/file.pdf?key=") and "0123456789" not in path
+    status, headers, pdf = tp.handle("GET", path, auth, b"")
+    assert status == 200 and dict(headers)["Content-Type"] == "application/pdf" and pdf.startswith(b"%PDF") and b"0123456789" in pdf
+    assert tp.handle("GET", "/tp/rpt/file.pdf?key=nope", auth, b"")[0] == 404
+    assert service(tp, auth, "ReportService", "export", "0123456000", "01/11/2026", "15/11/2026")[2].startswith(b"//EX")
+    assert service(tp, auth, "ReportService", "export", "0123456789", "15/11/2026", "01/11/2026")[2].startswith(b"//EX")
+    page = tp.handle("GET", "/tp/report", auth, b"")[2].decode()
+    assert 'id="btnExport" value="XUẤT BÁO CÁO"' in page and 'id="txtAcct"' in page and "calD15" in page
+    assert "id='mnuReport'" in tp.handle("GET", "/tp/menu", auth, b"")[2].decode()
+
+
+def test_printing_a_statement_returns_a_code_and_the_pdf_is_at_that_address(tp):
+    """Fee, then the transactions, then a report code. The code is a path on this site. The PDF is only that path, in this session."""
+    auth = signed_in(tp)
+    page = tp.handle("GET", "/tp/stmt", auth, b"")[2].decode()
+    assert 'id="btnOpen" value="IN SAO KÊ ĐỘT XUẤT"' in page
+    dialog = tp.handle("GET", "/tp/print/dlgStatement.jsp?acct=0123456789", auth, b"")[2].decode()
+    assert 'id="btnPrint" value="IN SAO KÊ"' in dialog and 'id="chkAcct0"' in dialog and 'id="txtFeeAmt"' in dialog
+    assert "id='mnuStmt'" in tp.handle("GET", "/tp/menu", auth, b"")[2].decode()
+
+    def post(xml: str):
+        return tp.handle("POST", "/tp/facade", {**auth, "Content-Type": "text/xml"}, xml.encode())
+
+    fee = post('<REMOTE><CALLS><SERVICE name="StmtFeeRq"><PARAM name="ACCT_NBR">0123456789</PARAM></SERVICE></CALLS></REMOTE>')
+    assert b"<FEE_AMT>20000</FEE_AMT>" in fee[2] and b"<VAT_AMT>2000</VAT_AMT>" in fee[2]
+    rows = post('<REMOTE><CALLS><SERVICE name="StmtHistoryRq"><PARAM name="ACCT_NBR">0123456789</PARAM>'
+                '<PARAM name="START_DATE">01/11/2026</PARAM><PARAM name="END_DATE">15/11/2026</PARAM></SERVICE></CALLS></REMOTE>')
+    assert b"<StatusCode>0</StatusCode>" in rows[2] and b"<TRANSACTION>" in rows[2]
+    made = post("<REMOTE><FORM_DETAILS><FORM_DETAIL><FORM_TEMPLATE>saoKe</FORM_TEMPLATE>"
+                "<ACCT_NUM>0123456789</ACCT_NUM><TRN_FROM_DATE>01/11/2026</TRN_FROM_DATE><TRN_TO_DATE>15/11/2026</TRN_TO_DATE>"
+                "</FORM_DETAIL></FORM_DETAILS></REMOTE>")
+    text = made[2].decode()
+    assert "<FILE_PATH>/tp/rpt/saoKe" in text and ".pdf</FILE_PATH>" in text
+    path = text.split("<FILE_PATH>")[1].split("</FILE_PATH>")[0]
+    assert "0123456789" not in path and path.endswith(".pdf")
+    status, headers, pdf = tp.handle("GET", path, auth, b"")
+    assert status == 200 and dict(headers)["Content-Type"] == "application/pdf" and pdf.startswith(b"%PDF") and b"0123456789" in pdf
+    assert tp.handle("GET", "/tp/rpt/saoKenope.pdf", auth, b"")[0] == 404
+    bad = post('<REMOTE><CALLS><SERVICE name="StmtHistoryRq"><PARAM name="ACCT_NBR">0123456789</PARAM>'
+               '<PARAM name="START_DATE">15/11/2026</PARAM><PARAM name="END_DATE">01/11/2026</PARAM></SERVICE></CALLS></REMOTE>')
+    assert b"<Message>" in bad[2]
+    assert "Yêu cầu không hợp lệ".encode() in post("<!DOCTYPE foo [<!ENTITY x 'y'>]><REMOTE/>")[2]
+
+
 def test_the_message_box_and_the_report_dialog_are_pages_of_their_own(tp):
     auth = signed_in(tp)
     box = tp.handle("GET", "/tp/utilities/dlgMessageBox.jsp?msg=Sai%20%3Cngay%3E", auth, b"")[2].decode()

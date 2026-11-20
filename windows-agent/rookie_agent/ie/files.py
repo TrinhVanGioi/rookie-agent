@@ -71,6 +71,37 @@ KIND_WORDS = {"pdf": "PDF", "png": "ảnh", "jpg": "ảnh", "gif": "ảnh", "tif
               "": "không nhận ra"}
 
 
+_DOC_IN_TEXT = re.compile(r"https?://[^\s\"'<>\\]{8,400}|/[A-Za-z0-9_./~:-]{2,200}(?:\?[^\s\"'<>\\]{0,500})?")
+_DOC_HINT = re.compile(r"(?:pdf|xlsx?|csv|export|print|report|download|statement)", re.IGNORECASE)
+
+
+def document_target(node_url: str, text: str) -> str | None:
+    """A document address written inside an answer (a report key that also says where the file is). Only an address of the same
+    site as the call: a path from the root, or an http(s) address of the call's own host. Anything else is left alone."""
+    base = str(node_url or "")
+    base_parts = urllib.parse.urlsplit(base if "://" in base else "")
+    own = urllib.parse.urlsplit(base).path
+    for raw in _DOC_IN_TEXT.findall(str(text or "")):
+        raw = raw.rstrip(".,);]'\"")
+        hinted = raw.split("?", 1)[0]
+        if not _DOC_HINT.search(hinted):
+            continue
+        if raw.startswith("/"):
+            if raw.split("?", 1)[0] == own:
+                continue
+            if base_parts.scheme and base_parts.netloc:
+                path, _, query = raw.partition("?")
+                return urllib.parse.urlunsplit((base_parts.scheme, base_parts.netloc, path, query, ""))
+            return raw
+        parts = urllib.parse.urlsplit(raw)
+        if parts.scheme not in ("http", "https") or not base_parts.netloc or parts.netloc.lower() != base_parts.netloc.lower():
+            continue
+        if parts.path == own and (parts.query or "") == (urllib.parse.urlsplit(base).query or ""):
+            continue
+        return urllib.parse.urlunsplit((parts.scheme, parts.netloc, parts.path, parts.query, ""))
+    return None
+
+
 def sniff(data: bytes | None) -> str:
     """What the bytes really are, from their first bytes (a server may call a PDF `application/octet-stream` and give no name):
     one of the keys of KIND_WORDS. Reads at most the first 64 KB; nothing of it is kept or shown."""
@@ -268,6 +299,49 @@ def xml_report_html(title: str, rows: list[tuple[int, str, str, bool]], when: da
             "tr.h th{background:#e8edf4}td:first-child{width:34%;color:#333}@media print{body{margin:8mm}}</style></head><body>\n"
             f"<h1>{esc(title)}</h1><p>Bản đọc từ dữ liệu XML, lập lúc {esc(moment)}. File gốc nằm cạnh file này.</p>\n"
             f"<table>\n{chr(10).join(body)}\n</table></body></html>\n")
+
+
+def view_has_report(view: dict[str, Any]) -> bool:
+    """Whether one answer holds enough to print: a table with a data row, three labelled values, or three lines. A report key
+    (one or two strings) does not."""
+    rows = view.get("rows") or []
+    if len(rows) >= 2 and any(any(str(cell).strip() for cell in row) for row in rows[1:]):
+        return True
+    pairs = [pair for pair in (view.get("pairs") or []) if len(pair) >= 2 and str(pair[1]).strip()]
+    if len(pairs) >= 3:
+        return True
+    lines = [str(line) for line in (view.get("lines") or []) if str(line).strip() and not str(line).startswith("Máy chủ báo lỗi")]
+    return len(lines) >= 3
+
+
+def views_report_html(title: str, sections: list[dict[str, Any]], when: datetime | None = None) -> str:
+    """A printable page of what this run was answered, when the system returned a key and no file. Every text is escaped, no script,
+    no link, REPORT_MARK on the first line: the page of this agent, not the bank's own form."""
+    esc = html_lib.escape
+    moment = (when or datetime.now()).strftime("%d/%m/%Y %H:%M")
+    blocks: list[str] = []
+    for section in sections:
+        view = section.get("view") or {}
+        blocks.append(f"<h2>{esc(str(section.get('title') or 'Dữ liệu'))}</h2>")
+        if view.get("pairs"):
+            rows = "\n".join(f"<tr><td>{esc(str(pair[0]))}</td><td>{esc(str(pair[1]))}</td></tr>" for pair in view["pairs"] if len(pair) >= 2)
+            blocks.append(f"<table>\n{rows}\n</table>")
+        if view.get("rows"):
+            body = []
+            for row in view["rows"]:
+                cells = "".join(f"<td>{esc(str(cell))}</td>" for cell in row)
+                body.append(f"<tr>{cells}</tr>")
+            blocks.append("<table>\n" + "\n".join(body) + "\n</table>")
+        if view.get("lines"):
+            items = "\n".join(f"<li>{esc(str(line))}</li>" for line in view["lines"])
+            blocks.append(f"<ul>\n{items}\n</ul>")
+    return (f"{REPORT_MARK}\n<!DOCTYPE html>\n<html lang=\"vi\"><head><meta charset=\"utf-8\"><title>{esc(title)}</title>\n"
+            "<style>body{font:14px Arial,sans-serif;margin:24px;color:#111}h1{font-size:20px;margin:0 0 4px}h2{font-size:16px;margin:16px 0 6px}"
+            "p{margin:0 0 14px;color:#555}table{border-collapse:collapse;width:100%;margin:0 0 8px}td{border:1px solid #bbb;padding:5px 9px;"
+            "vertical-align:top}td:first-child{width:34%;background:#f1f4f8;color:#333}ul{margin:0 0 8px}@media print{body{margin:8mm}}</style></head><body>\n"
+            f"<h1>{esc(title)}</h1><p>Dựng từ dữ liệu hệ thống trả về lúc {esc(moment)}. Hệ thống chỉ trả về một mã, chưa có file tải về. "
+            "Đây là bản trình bày của Rookie Agent, không phải chứng từ chính thức của hệ thống.</p>\n"
+            + "\n".join(blocks) + "\n</body></html>\n")
 
 
 def pairs_report_html(title: str, pairs: list[tuple[str, str]], when: datetime | None = None) -> str:

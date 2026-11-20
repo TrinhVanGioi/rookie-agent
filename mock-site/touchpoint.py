@@ -9,6 +9,10 @@ Standard library only, so the same pages are served by the mock site (FastAPI, f
 - an account looked up with Enter or with the button; the transaction history between two dates; rows ticked with check boxes;
 - «IN BÁO NỢ/CÓ» opens a dialog (`showModalDialog`) whose form posts into a frame and gets a PDF; «XUẤT SAO KÊ» opens a PDF with
   `window.open`; «TẢI EXCEL» posts a form into a hidden frame and gets a file (attachment);
+- «XUẤT BÁO CÁO» (`/tp/report`) answers with a code only (`application/octet-stream`, a GWT string table). The code names the file
+  on this same site (`/tp/rpt/file.pdf?key=…`); the page then opens that address. A wrong or missing key is not a file;
+- «IN SAO KÊ ĐỘT XUẤT» (`/tp/stmt`, `statement_flow.py`) is the print flow: a dialog, an XML post per step (fee, transactions,
+  build the report, a local note), and the answer names a PDF on this site which the page then opens;
 - a date is chosen the way TouchPoint's `monthCalendar` does it: the icon beside the field, then a day number in the month grid
   (the two presses are one date; `?ro=1` makes «Từ ngày» read-only so a run stops and asks);
 - the page's own message box (`/tp/utilities/dlgMessageBox.jsp`) after a mistaken press (a date in the wrong format, nothing ticked);
@@ -286,6 +290,51 @@ function submitTransfer() {
 }
 """
 
+EXPORT_BODY = """<h3>Xuất báo cáo giao dịch</h3>
+<table><tr><td>Số tài khoản</td><td><input type="text" id="txtAcct" name="txtAcct"></td></tr>
+<tr><td>Từ ngày</td><td><input type="text" id="txtFrom" name="txtFrom" size="10"> <input type="button" class="cal" id="btnCalFrom" name="cal-txtFrom" value="Lịch" title="Chọn ngày" onclick="openCal('txtFrom')"></td>
+<td>Đến ngày</td><td><input type="text" id="txtTo" name="txtTo" size="10"> <input type="button" class="cal" id="btnCalTo" name="cal-txtTo" value="Lịch" title="Chọn ngày" onclick="openCal('txtTo')"></td></tr></table>
+<div id="calBox" style="display:none;margin-top:6px;padding:4px;border:1px solid #234;background:#fff"><div>Tháng 11 năm 2026</div>%s
+<input type="button" id="calClose" value="Đóng" onclick="closeCal()"></div>
+<p><input type="button" class="b" id="btnExport" value="XUẤT BÁO CÁO" onclick="exportReport()"> <span id="rptStatus"></span></p>
+<p class="err">Hệ thống trả về một mã. File báo cáo mở ở địa chỉ nằm trong mã đó.</p>"""
+
+EXPORT_JS = """
+var calFor = "";
+function openCal(id) {
+  var input = $(id);
+  if (!input) { return; }
+  calFor = id;
+  $("calBox").style.display = "block";
+}
+function closeCal() { $("calBox").style.display = "none"; calFor = ""; }
+function pickDay(btn) {
+  var input = $(calFor);
+  if (!input) { return; }
+  input.value = btn.name;
+  try { input.fireEvent("onchange"); } catch (e) {}
+  try {
+    if (input.dispatchEvent && document.createEvent) {
+      var ev = document.createEvent("HTMLEvents"); ev.initEvent("change", true, true); input.dispatchEvent(ev);
+    }
+  } catch (e2) {}
+  closeCal();
+}
+function exportReport() {
+  var acct = $("txtAcct").value.replace(/\\s/g, ""), a = $("txtFrom").value, b = $("txtTo").value, i, url;
+  if (!isDay(a) || !isDay(b)) { msgBox("Sai định dạng ngày. Nhập theo dd/mm/yyyy."); return; }
+  $("rptStatus").innerHTML = "Đang xuất...";
+  call("ReportService", "export", [acct, a, b], function (data, err) {
+    if (err) { $("rptStatus").innerHTML = '<span class="err">' + err + '</span>'; return; }
+    url = "";
+    for (i = 0; i < data.length; i++) { if (String(data[i]).indexOf("/tp/rpt/") === 0) { url = String(data[i]); } }
+    if (!url) { $("rptStatus").innerHTML = '<span class="err">Không có địa chỉ file</span>'; return; }
+    $("rptStatus").innerHTML = "Đã nhận mã. Đang mở báo cáo...";
+    window.open(url, "_blank");
+  });
+}
+"""
+
 APPROVE_BODY = """<h3>Phê duyệt lệnh</h3><input type="button" class="b" id="btnLoad" value="TẢI DANH SÁCH" onclick="load()"><div id="list"></div>"""
 
 APPROVE_JS = """
@@ -474,6 +523,12 @@ class TouchPoint:
             return self._text('{"status":"ok"}', "application/json")
 
         session = self._session(headers)
+        if session is not None:
+            import statement_flow
+
+            answered = statement_flow.dispatch(self, method, path, query, body, session)
+            if answered is not None:
+                return answered
         if session is None:
             if path.startswith(("/tp/TPClassLoader", "/tp/postAuthentication", "/tp/keepalive")):
                 return self._text("Phiên đã hết hạn", status=401)
@@ -488,7 +543,8 @@ class TouchPoint:
             return self._html(_doc("toolbar", f"<b>Quầy mẫu</b> · {session['name']} · "
                                               "<a id='lnkLogout' href='/tp/logout' target='_top'>Đăng xuất</a>"))
         if path == "/tp/menu":
-            links = [("mnuAcct", "/tp/acct", "Tra cứu tài khoản"), ("mnuTransfer", "/tp/transfer", "Lập lệnh chuyển tiền")]
+            links = [("mnuAcct", "/tp/acct", "Tra cứu tài khoản"), ("mnuStmt", "/tp/stmt", "In sao kê đột xuất"),
+                     ("mnuReport", "/tp/report", "Xuất báo cáo"), ("mnuTransfer", "/tp/transfer", "Lập lệnh chuyển tiền")]
             if session["role"] == "checker":
                 links.append(("mnuApprove", "/tp/approve", "Phê duyệt lệnh"))
             items = "".join(f"<p><a id='{i}' href='{h}' target='work'>{t}</a></p>" for i, h, t in links)
@@ -501,6 +557,8 @@ class TouchPoint:
             if self._readonly_dates(headers):
                 body_html = body_html.replace('id="txtFrom" name="txtFrom"', 'id="txtFrom" name="txtFrom" readonly', 1)
             return self._html(_doc("Tra cứu tài khoản", body_html, acct_js(ui, biz)))
+        if path == "/tp/report":
+            return self._html(_doc("Xuất báo cáo", EXPORT_BODY % _month_days(), EXPORT_JS))
         if path == "/tp/transfer":
             body_html = TRANSFER_BODY
             if self._variant(headers)[0] >= 2:   # look 2: the money button renamed, with a new button before it (same words)
@@ -538,6 +596,17 @@ class TouchPoint:
             text = query.get("msg", "")
             safe = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
             return self._html(_doc(title + " – Thông báo", MSGBOX_BODY % safe, DIALOG_JS))
+        if path == "/tp/rpt/file.pdf":
+            held = (session.get("reports") or {}).get(query.get("key", ""))
+            if not held:
+                return self._text("Mã báo cáo không còn hoặc không đúng", status=404)
+            start, end = parse_day(held["from"]), parse_day(held["to"])
+            rows = history_of(held["acct"], start, end) if start and end else []
+            lines = ["BAO CAO GIAO DICH (gia lap)", f"Tai khoan: {held['acct']}", f"Chu TK: {plain(held['name'])}",
+                     f"Tu {held['from']} den {held['to']}"]
+            lines += [f"{r['id']} {r['date']} {plain(r['desc'])} No {r['debit']} Co {r['credit']}" for r in rows[:12]]
+            self.seen.append(f"reportFile({held['acct']})")
+            return self._pdf(pdf(lines), "BaoCao.pdf")
         if path == "/tp/exportPdf" and method == "POST":
             ids = [x for x in form.get("ids", "").split(",") if x]
             self.seen.append(f"exportPdf({form.get('acct', '')},{len(ids)})")
@@ -577,6 +646,20 @@ class TouchPoint:
                 return self._gwt_error("Khoảng ngày không hợp lệ")
             rows = history_of(args[0], start, end)
             return self._gwt([len(rows)] + [v for r in rows for v in (r["id"], r["date"], r["desc"], r["debit"], r["credit"], r["balance"])])
+        if service == "ReportService" and name == "export" and len(args) >= 3:
+            account = account_of(args[0])
+            start, end = parse_day(args[1]), parse_day(args[2])
+            if account is None:
+                return self._gwt_error("Không tìm thấy tài khoản")
+            if start is None or end is None or start > end:
+                return self._gwt_error("Khoảng ngày không hợp lệ")
+            key = secrets.token_hex(8)
+            with self.lock:
+                session.setdefault("reports", {})[key] = {"acct": account["number"], "name": account["name"], "from": args[1], "to": args[2]}
+            # a code, not the file: the address of the file is one string of the answer, and the type is a document type so a
+            # recording keeps it as a file. The bytes are the code; the PDF is the address it names.
+            return self._text("//OK" + self.encode([f"/tp/rpt/file.pdf?key={key}"], "lab.counter.report.ReportKey/1000000001"),
+                              "application/octet-stream")
         if service == "ReportService" and name == "debitAdvice" and args:
             account = account_of(args[0])
             if account is None:

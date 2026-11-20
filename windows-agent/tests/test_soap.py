@@ -11,7 +11,7 @@ from datetime import datetime
 import pytest
 
 from rookie_agent.ie import clean, files, replay, response_view, shape
-from test_files import PDF_BYTES, run_export
+from test_files import PDF_BYTES, file_nodes, run_export
 
 ENVELOPE = ('<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"><soap:Header/><soap:Body>'
             '<ns2:LoginRs xmlns:ns2="http://svc.example/"><SessionId>SID-0001-XYZ</SessionId><User>gdv01</User></ns2:LoginRs></soap:Body></soap:Envelope>')
@@ -112,6 +112,55 @@ def test_a_soap_fault_with_http_200_stops_the_run_and_says_what_the_service_said
 
 
 GWT_KEY = '//OK[1234567,12345678,0,0,["com.fis.tp.client.report.ReportKey/1234567890","1ABC2dEfGHIjk3lMno4pqr5"],0,0]'
+
+
+def test_a_report_key_that_names_a_file_on_the_same_site_is_fetched_and_saved(tmp_path):
+    key = '//OK[1,["/rpt/export.pdf?key=abc","https://evil.example/export.pdf"],0,7]'
+    seen: list[tuple[str, str]] = []
+
+    def send(node, url, headers, body):
+        seen.append((node["method"], url))
+        if url == "/rpt/export.pdf?key=abc":
+            return {"ok": True, "status": 200, "ms": 4, "text": "", "file": {"data": PDF_BYTES, "ctype": "application/pdf", "disposition": ""}}
+        if node["kind"] == "file":
+            return {"ok": True, "status": 200, "ms": 7, "text": "", "file": {"data": key.encode("utf-8"), "ctype": "application/octet-stream", "disposition": ""}}
+        return {"ok": True, "status": 200, "ms": 1, "text": "{}"}
+
+    result, _, made = run_export(tmp_path, send)
+    assert result["status"] == "finished" and len(made) == 1 and made[0].read_bytes() == PDF_BYTES and made[0].suffix == ".pdf"
+    assert ("GET", "/rpt/export.pdf?key=abc") in seen and all("evil.example" not in url for _, url in seen)
+
+
+def test_a_key_with_no_file_address_but_data_from_the_other_calls_becomes_a_printable_page(tmp_path):
+    data = '{"so_tk":"123456","chu_tk":"An","so_du":"10"}'
+    file_node = [n for n in file_nodes() if n["kind"] == "file"][0]
+    find = {**file_node, "id": "a9", "kind": "xhr", "group": "g1", "url": "/rpt/find", "body": "", "label": "Tra cứu → POST /rpt/find",
+            "links": {}, "unresolved": [], "complete": True}
+    export = {**file_node, "group": "g2"}
+
+    def send(node, url, headers, body):
+        if url.endswith("/find"):
+            return {"ok": True, "status": 200, "ms": 2, "text": data}
+        return {"ok": True, "status": 200, "ms": 7, "text": "", "file": {"data": GWT_KEY.encode("utf-8"), "ctype": "application/octet-stream", "disposition": ""}}
+
+    pages: list[str] = []
+
+    def save_report(title, html):
+        pages.append(html)
+        return {"name": "tra-cuu (bản in).html", "path": str(tmp_path / "tra-cuu (bản in).html")}
+
+    result, shown, made = run_export(tmp_path, send, nodes=[find, export], save_report=save_report)
+    assert result["status"] == "finished" and made == [] and pages and pages[0].startswith("<!--rookie-report-->")
+    assert "123456" in pages[0] and "123456" not in result["message"] and "tra-cuu (bản in).html" in result["message"]
+    saved = shown.details["g2"]["requests"][-1]["file"]
+    assert saved["saved"] is True and saved["kind"] == "report" and saved["path"].endswith("tra-cuu (bản in).html")
+
+
+def test_a_key_alone_is_still_not_a_report_even_when_a_page_could_be_saved(tmp_path):
+    send = lambda node, url, headers, body: ({"ok": True, "status": 200, "ms": 7, "text": "", "file": {"data": GWT_KEY.encode("utf-8"), "ctype": "application/octet-stream", "disposition": ""}}  # noqa: E731
+                                              if node["kind"] == "file" else {"ok": True, "status": 200, "ms": 1, "text": "{}"})
+    result, _, made = run_export(tmp_path, send, save_report=lambda title, html: {"name": "x.html", "path": "x.html"})
+    assert result["status"] == "needs_help" and "chưa nhận được file báo cáo" in result["message"] and made == []
 
 
 def test_a_gwt_answer_that_arrives_as_a_file_is_an_answer_not_a_document_and_a_run_without_a_document_says_so(tmp_path):

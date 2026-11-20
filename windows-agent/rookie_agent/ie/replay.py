@@ -645,6 +645,8 @@ def run_api(workflow: dict[str, Any], nodes: list[dict[str, Any]], values: dict[
     sign_in = _sign_in_steps(workflow)
     simulated_ms = 0
     saved_files = 0                                    # documents this run saved: a flow that learned to fetch one must have got one
+    sections: list[dict[str, Any]] = []               # answers that hold enough to print, if the run never receives the file itself
+    carriers: list[dict[str, Any]] = []               # a file node whose answer was only a key: where the made page is shown
     last_id = next((g["id"] for g in reversed(groups) if g["step_id"] not in sign_in), None)
     asks = any(g["risk"] != "read" for g in groups if g["step_id"] not in sign_in)
 
@@ -798,9 +800,14 @@ def run_api(workflow: dict[str, Any], nodes: list[dict[str, Any]], values: dict[
                     received = {"data": document, "ctype": "", "disposition": ""}
             if received is not None and not twin and files.sniff(received.get("data")) == "gwt":
                 # a call learned as a file whose answer is a GWT-RPC result (the key of a report, not the report): an answer like any other,
-                # kept for the calls that take a value from it; it is not saved as a file and does not count as one
-                answer = {**answer, "text": bytes(received["data"]).decode("utf-8", "replace")}
+                # kept for the calls that take a value from it; it is not saved as a file and does not count as one.
+                # When that answer names the file's own address on this same site, that address is fetched and the document is what is saved.
+                key_text = bytes(received["data"]).decode("utf-8", "replace")
+                answer = {**answer, "text": key_text}
                 received, as_answer = None, True
+                fetched = _document_from_key(node, key_text, send)
+                if fetched is not None:
+                    received, as_answer = fetched, False
             if received is not None:
                 # The answer is a file (a report as PDF): kept on this PC only, never read as text, never shown, never linked from.
                 size = len(received.get("data") or b"")
@@ -843,6 +850,10 @@ def run_api(workflow: dict[str, Any], nodes: list[dict[str, Any]], values: dict[
             text = str(answer.get("text") or "")
             answers[node["id"]] = text
             sent["view"] = response_view.summarize(text)
+            if files.view_has_report(sent["view"]):
+                sections.append({"title": label, "view": sent["view"]})
+            if as_answer and node.get("kind") == "file":
+                carriers.append({"shown": shown, "sent": sent, "group": group, "label": label})
             if node.get("dialog"):
                 # a dialog the page opened that shows a page (TouchPoint's own message box: Đồng ý, Hủy) is not a file this flow must get: skipped, nothing of it shown
                 sent.pop("view", None)
@@ -898,11 +909,57 @@ def run_api(workflow: dict[str, Any], nodes: list[dict[str, Any]], values: dict[
         else:
             note(group, "done", f"{len(real_calls)} lời gọi · {group_ms} ms", shown)
     if not twin and not saved_files and any(n.get("kind") == "file" and not n.get("dialog") for n in nodes):
-        # every call went well, yet no document came: the call that gives it was not recorded (a plugin or a viewer fetched it), or the system
-        # answered with a key only. Saying «xong» would hide that
+        # every call went well, yet no document came. The answer was a key, and it named no file on this site. When the other calls of this
+        # run did return the data, a printable page is made from that data (on this PC only). With nothing to print, the teller is told that
+        # the download itself was never recorded.
+        page = _page_from_answers(sections, carriers, save_report) if save_report is not None else None
+        if page is not None:
+            detail = f"đã dựng bản in · {page['name']}"
+            group = carriers[-1]["group"]
+            controller.progress(group["id"], "done", detail)
+            for step in done:
+                if step["id"] == group["id"]:
+                    step["detail"] = detail
+            return end("finished", "Chạy xong. Hệ thống chỉ trả về một mã và phần đã ghi không có bước tải file, nên đã dựng bản in từ dữ liệu "
+                                   f"trả về: {page['name']}. Đây không phải chứng từ chính thức của hệ thống.")
         return end("needs_help", "Các bước đã chạy nhưng chưa nhận được file báo cáo nào: hệ thống chỉ trả về một mã, còn bước tải báo cáo chưa "
                                  "được ghi lại. Hãy Ghi lại: bấm in, chờ báo cáo hiện ra trên màn hình rồi mới Dừng ghi, sau đó Học lại.")
     return end("finished", "Chạy xong.")
+
+
+def _document_from_key(node: dict[str, Any], text: str, send: Callable[..., dict[str, Any]]) -> dict[str, Any] | None:
+    """The file a report key points at, when the key's text names an address on the same site. One GET, through the page's own session.
+    A key that names nothing, or an answer that is not a document, is left as the key it is."""
+    target = files.document_target(str(node.get("url") or ""), text)
+    if not target:
+        return None
+    try:
+        answer = send({**node, "method": "GET", "kind": "xhr"}, target, "", "")
+    except Exception:  # noqa: BLE001  the key is still the answer; the run says so instead of failing on this extra call
+        return None
+    received = answer.get("file") if isinstance(answer, dict) and answer.get("ok") else None
+    if not received or files.sniff(received.get("data")) not in files.DOCUMENT_KINDS:
+        return None
+    return received
+
+
+def _page_from_answers(sections: list[dict[str, Any]], carriers: list[dict[str, Any]],
+                       save_report: Callable[[str, str], dict[str, Any]]) -> dict[str, Any] | None:
+    """Write the printable page of the answers that hold data, and show it on the call that returned only a key. None when there is
+    nothing to print or the page cannot be written."""
+    if not sections or not carriers:
+        return None
+    held = carriers[-1]
+    title = str(held["label"])
+    html = files.views_report_html(title, sections)
+    try:
+        page = save_report(title, html)
+    except OSError:
+        return None
+    size = len(html.encode("utf-8"))
+    held["sent"]["file"] = {"name": page["name"], "path": page["path"], "size": size, "size_text": files.size_text(size), "saved": True,
+                            "kind": "report", "kind_text": "bản in dựng từ dữ liệu hệ thống", "warn": ""}
+    return page
 
 
 NOT_SENT = "chưa gửi"
