@@ -186,6 +186,23 @@ IFX = ('<?xml version="1.0" encoding="UTF-8"?><IFX xmlns="http://ifx.example/x">
        '<Memo>Một nghìn euro &lt;script&gt;alert(1)&lt;/script&gt;</Memo></DepAcctTrnRs></IFX>').encode("utf-8")
 
 
+def test_the_look_of_a_file_masks_every_letter_and_digit_and_keeps_only_the_structure():
+    secret = "NGUYỄN VĂN A 0123456789 – Tài khoản"
+    shape = files.shape_of(f'﻿<?xml v="1"?>\r\n<a n="{secret}">//OK[1,2]</a>'.encode("utf-8"))
+    assert "đầu: BOM <?aaa a=\"0\"?>⏎<a a=" in shape and "//AA[0,0]" in shape
+    assert "NGUY" not in shape and "0123" not in shape and "Tài" not in shape and "khoản" not in shape          # nothing readable is left
+    assert files.shape_of(b"").startswith("0 byte, 0 dòng")
+
+
+def test_a_text_file_says_the_look_of_its_start_and_a_document_does_not(tmp_path):
+    result, shown, made = run_export(tmp_path, file_send(data=b"Success 12345\nCustomer Title 1\n", ctype="application/octet-stream", disposition=""))
+    sent = shown.details["g3"]["requests"][0]["file"]
+    assert sent["kind"] == "text" and sent["shape"] == "31 byte, 2 dòng, đầu: Aaaaaaa 00000⏎Aaaaaaaa Aaaaa 0⏎"
+    assert "Success" not in json.dumps(sent) and "12345" not in json.dumps(sent)
+    pdf = run_export(tmp_path / "b", file_send())[1].details["g3"]["requests"][0]["file"]
+    assert "shape" not in pdf
+
+
 def test_xml_rows_read_the_tree_number_repeated_names_and_refuse_what_is_unsafe():
     rows = files.xml_rows(IFX)
     names = [(depth, name, leaf) for depth, name, _, leaf in rows]

@@ -1090,7 +1090,10 @@ function fileRow(r, onError) {
       catch (e) { onError(e.message); }
     };
     row.append(file, print, dir, note);
-    if (r.file.warn) row.append(el("div", "⚠ " + r.file.warn, "msg bad"));      // a file that is not a document: said in words, never its content
+    if (r.file.warn) {      // a file that is not a document: said in words and by the look of its start (letters and digits masked), never its content
+      row.append(el("div", "⚠ " + r.file.warn, "msg bad"));
+      if (r.file.shape) row.append(el("div", "Dạng nội dung (đã che chữ và số, gửi cho nhóm phát triển được): " + r.file.shape, "detail"));
+    }
     else if (r.file.kind_text) row.append(el("span", " Loại: " + r.file.kind_text + ".", "detail"));
   } else row.append(el("span", r.file.name + " (" + r.file.size_text + ")"));
   return row;

@@ -708,6 +708,8 @@ def run_api(workflow: dict[str, Any], nodes: list[dict[str, Any]], values: dict[
                         return end("failed", f"«{label}», lời gọi {ref}: {sent['error']}.")
                     sent["file"] = {"name": saved["name"], "path": saved["path"], "size": size, "size_text": files.size_text(size), "saved": True,
                                     "kind": kind, "kind_text": files.KIND_WORDS.get(kind, ""), "warn": files.warning_for(kind)}
+                    if sent["file"]["warn"]:
+                        sent["file"]["shape"] = files.shape_of(received["data"])       # the look of its start, letters and digits masked: never the content
                     if saved.get("report"):
                         sent["file"]["report"] = saved["report"]            # the readable page made from the XML: «Mở» and «In» use it
                     if kind == "xml":

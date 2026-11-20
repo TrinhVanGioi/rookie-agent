@@ -142,6 +142,30 @@ def file_name(flow_title: str, ctype: str, disposition: str = "", now: datetime 
     return f"{clean_title(flow_title)}-{moment.strftime('%Y%m%d-%H%M%S')}.{extension(ctype, disposition, data)}"
 
 
+def shape_of(data: bytes | None, limit: int = 160) -> str:
+    """The look of the first bytes of a file with every letter and digit masked (A a 0), for a teller to tell the team what a file that is not
+    a document looks like without showing a name or a number: `size, lines, the start`. Punctuation, tags and line breaks stay (they are
+    the structure: `<?xml`, `//OK[`, a BOM, base64's `=`)."""
+    raw = bytes(data or b"")
+    head = raw[:limit]
+    prefix = "BOM " if head.startswith((b"\xef\xbb\xbf", b"\xff\xfe", b"\xfe\xff")) else ""
+    text = head.decode("utf-8", "replace").lstrip("﻿￾").replace("\r\n", "\n")
+    out = []
+    for ch in text:
+        if ch.isdigit():
+            out.append("0")
+        elif ch.isalpha():
+            out.append("A" if ch.isupper() else "a")
+        elif ch in "\r\n":
+            out.append("⏎")
+        elif ch == "�" or ord(ch) < 32:
+            out.append("·")
+        else:
+            out.append(ch)
+    lines = raw.count(b"\n") + (1 if raw and not raw.endswith(b"\n") else 0)
+    return f"{len(raw)} byte, {lines} dòng, đầu: {prefix}{''.join(out)}"
+
+
 def warning_for(kind: str) -> str:
     """A plain sentence when what was saved is not a document the teller can print as a report; "" when it is (or when it is XML, which
     has a readable report of its own)."""
