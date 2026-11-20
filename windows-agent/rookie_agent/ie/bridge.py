@@ -200,6 +200,15 @@ class IeBridge:
                 bodies += [b for b in (answer.get("bodies") or []) if isinstance(b, str)]
         return bodies
 
+    def live_urls(self, timeout: float = 30.0) -> list[str]:
+        """The addresses with a query that the live page shows or used lately, in every frame (its own address, its links, its form actions,
+        the requests it made): where a session value that rides in a query can be read. Memory only; [] when the page was not watching."""
+        urls: list[str] = []
+        for answer in self.frame_op("lasturls", [], ""):
+            if isinstance(answer, dict):
+                urls += [u for u in (answer.get("urls") or []) if isinstance(u, str)]
+        return urls
+
     def read(self) -> list[str]:
         """What every frame being recorded shows now (tables, label-value pairs, messages), one JSON text per frame."""
         reply = self.request({"cmd": "read"}, timeout=30)

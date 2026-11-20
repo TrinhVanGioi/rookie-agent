@@ -598,6 +598,7 @@ Không sửa lỗi ghi hay học khi gặp từng cái trên TouchPoint. Thay v�
    - Một lời gọi thuộc về thao tác cuối cùng xảy ra trước lúc nó được gửi, theo đồng hồ (mỗi khung có hàng đợi riêng nên thứ tự đọc không phải thứ tự thật); gửi chỉ vài trăm mili giây trước một cú bấm thì thuộc cú bấm đó.
    - Form do script của trang gửi vào một khung được ghi lúc khung đó bắt đầu rời đi, hoặc lúc bộ ghi vào trang nếu trang tự gửi khi vừa mở (`onload` có `.submit(` và form không có nút gửi cho người bấm). Khung rời đi vì cả trang cha rời đi thì không tính.
 5. **Bản ghi tự kiểm tra** (`ie/check.py`) sau Dừng ghi: dùng được, đáng biết, hay cần ghi lại và ở bước nào, bằng chữ dễ hiểu.
+7. **Mã phiên nằm trong địa chỉ** (`…?sessionId=ABC`, như `accountLocatePRF.jsp` của TouchPoint): lúc chạy agent không đăng nhập lại, nên lấy giá trị của đúng tham số đó từ địa chỉ mới nhất mà trang đang mở có (địa chỉ các khung, link, form, request gần đây; `lasturls` ở bộ ghi, `IeBridge.live_urls`, `replay._live_query_value`). Chỉ đọc trong bộ nhớ, không ghi đâu. Không thấy thì dừng và nói bằng lời dễ hiểu: mở màn hình cần dùng một lần rồi Chạy lại.
 6. Lúc chạy, file mà khung con lấy về không đọc được byte qua COM thì cùng lời gọi chỉ xem đó được gửi lại từ khung gốc (cùng trang, cùng phiên, địa chỉ tuyệt đối).
 
 Còn để sau: lắng nghe điều hướng của trình duyệt (`BeforeNavigate2`) từ cầu nối, để bắt form gửi trong hộp thoại modal có câu trả lời là file tải về.

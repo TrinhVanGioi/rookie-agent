@@ -412,7 +412,7 @@ def test_a_real_run_that_needs_the_sign_in_answer_stops_and_says_to_record_after
     send = lambda *a: sent.append(a) or {"ok": True, "status": 200, "ms": 1, "text": "{}"}   # noqa: E731
     result = replay.run_api(flow(), _login_first(nodes()[:3]), {"cif": "9988776655"}, send, controller, stop)
     assert result["status"] == "needs_help" and sent == []
-    assert "lúc đăng nhập" in result["message"] and "bấm Ghi" in result["message"] and "bản sao" in result["message"]
+    assert "phiên làm việc" in result["message"] and "bấm Ghi" in result["message"] and "bản sao" in result["message"]      # plain words, with the ways out
 
 
 # ---- the sign-in value taken from the live page (Gate 8, 6.4) ----------------------------------------------------------------------
@@ -458,7 +458,7 @@ def test_a_form_body_and_a_template_with_two_marks_take_the_right_group(monkeypa
 def test_a_body_that_does_not_fit_the_template_stops_with_the_way_out_and_sends_nothing(monkeypatch):
     result, controller, sent, _ = _real_run("sid=⟦l1⟧&tab=1", ["other=1"], monkeypatch)
     assert result["status"] == "needs_help" and sent == []
-    assert "Ghi rồi Dừng ngay một lần" in result["message"] and "lúc đăng nhập" in result["message"]
+    assert "Ghi rồi Dừng ngay một lần" in result["message"] and "phiên làm việc" in result["message"]
     result, _, sent, _ = _real_run("sid=⟦l1⟧&tab=1", [], monkeypatch)
     assert result["status"] == "needs_help" and sent == []
 

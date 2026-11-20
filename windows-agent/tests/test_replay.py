@@ -60,6 +60,45 @@ def test_typed_values_are_marks_values_from_earlier_answers_are_links_and_none_i
     assert found[3]["complete"] is False
 
 
+def test_a_session_value_that_rides_in_the_address_is_read_from_an_address_the_live_page_shows():
+    node = {"url": "/touchpoint/locate/accountLocatePRF.jsp?sessionId=⟦l1⟧&lang=vi", "body": ""}
+    live = ["http://tp/touchpoint/menu.jsp?lang=vi", "http://tp/touchpoint/home.jsp?sessionId=OLD111&lang=vi",
+            "http://tp/touchpoint/customer.jsp?x=1&sessionId=NEW222%3D&y=2"]
+    assert replay._live_query_value(node, "l1", live) == "NEW222="            # the newest address that carries the parameter, decoded
+    assert replay._live_query_value(node, "l1", ["http://tp/other?lang=vi"]) is None
+    assert replay._live_query_value({"url": "/x?a=1", "body": ""}, "l1", live) is None
+
+
+def test_a_run_with_the_session_only_in_the_address_takes_it_from_the_live_page_and_never_asks_to_record_again():
+    api = [{"id": "a1", "step_id": "login", "group": "g1", "group_label": "Đăng nhập", "label": "Đăng nhập → POST /login", "kind": "xhr", "via": "xhr", "frame": "top",
+            "method": "POST", "url": "/touchpoint/login", "headers": "", "body": "", "links": {}, "risk": "read", "complete": True, "unresolved": [], "ms": 1,
+            "answer": "", "shape": None},
+           {"id": "a2", "step_id": "home", "group": "g2", "group_label": "Màn hình chính", "label": "Mở màn hình chính → GET /touchpoint/home.jsp", "kind": "xhr",
+            "via": "xhr", "frame": "top", "method": "GET", "url": "/touchpoint/home.jsp", "headers": "", "body": "", "links": {}, "risk": "read", "complete": True,
+            "unresolved": [], "ms": 1, "answer": "", "shape": None},
+           {"id": "a3", "step_id": "acct", "group": "g3", "group_label": "Tài khoản", "label": "Bấm «Tài khoản» → GET /touchpoint/locate/accountLocatePRF.jsp", "kind": "xhr",
+            "via": "xhr", "frame": "top", "method": "GET", "url": "/touchpoint/locate/accountLocatePRF.jsp?sessionId=⟦l1⟧", "headers": "", "body": "",
+            "links": {"l1": {"from": "a1", "json": ["sid"]}}, "risk": "read", "complete": True, "unresolved": [], "ms": 1, "answer": "", "shape": None}]
+    workflow = {"steps": [{"id": "login", "action": "submit", "risk": "read", "mode": "auto", "target": {"label": "Password", "selectors": ["frame=top|id=txtPassword"]}},
+                          {"id": "home", "action": "click", "risk": "read", "mode": "auto", "target": {"label": "Màn hình chính", "selectors": ["#h"]}},
+                          {"id": "acct", "action": "click", "risk": "read", "mode": "auto", "target": {"label": "Tài khoản", "selectors": ["#b"]}}], "inputs": []}
+    sent = []
+
+    class Person:
+        def progress(self, *a):
+            pass
+
+        def show(self, *a):
+            pass
+
+    result = replay.run_api(workflow, api, {}, lambda node, url, headers, body: sent.append(url) or {"ok": True, "status": 200, "text": "{}"}, Person(),
+                            threading.Event(), peek=lambda node: [], peek_urls=lambda: ["http://tp/touchpoint/home.jsp?sessionId=LIVE777"])
+    assert result["status"] == "finished" and sent == ["/touchpoint/locate/accountLocatePRF.jsp?sessionId=LIVE777"], (result, sent)
+    stuck = replay.run_api(workflow, api, {}, lambda *a: {"ok": True, "status": 200, "text": "{}"}, Person(), threading.Event(), peek=lambda node: [],
+                           peek_urls=lambda: [])
+    assert stuck["status"] == "needs_help" and "mở màn hình cần dùng một lần" in stuck["message"] and "l1" not in stuck["message"]   # plain words
+
+
 def test_a_typed_value_inside_a_longer_constant_is_left_alone():
     # task 11.2 (found on the TouchPoint look-alike): the account typed was part of the GWT strong name
     raw, events, requests = recorded()

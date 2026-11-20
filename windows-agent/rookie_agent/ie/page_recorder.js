@@ -516,8 +516,26 @@
     if (u.charAt(0) !== "/") { dir = String(window.location.pathname); u = dir.slice(0, dir.lastIndexOf("/") + 1) + u; }
     return u;
   }
+  // Task 11.2: the addresses the page used lately (memory only, 40 at most): a session value that rides in a query (`?sid=...`) is found in
+  // them when no body carries it. Read with `lasturls`, together with the address of this frame, its links and the actions of its forms.
+  function rememberUrl(url) {
+    var u = String(url || ""), list = window.__rkUrls || (window.__rkUrls = []);
+    if (u.indexOf("?") < 0) { return; }
+    list.push(u.slice(0, 600));
+    if (list.length > 40) { list.shift(); }
+  }
+  function lastUrls() {
+    var out = [], seen = window.__rkUrls || [], i, links, forms;
+    try { out.push(String(window.location.href)); } catch (e0) {}
+    for (i = 0; i < seen.length; i++) { out.push(seen[i]); }
+    try { links = doc.links; for (i = 0; i < links.length && i < 200; i++) { if (String(links[i].href).indexOf("?") >= 0) { out.push(String(links[i].href).slice(0, 600)); } } } catch (e1) {}
+    try { forms = doc.forms; for (i = 0; i < forms.length && i < 50; i++) { if (String(forms[i].action).indexOf("?") >= 0) { out.push(String(forms[i].action).slice(0, 600)); } } } catch (e2) {}
+    for (i = 0; i < out.length; i++) { out[i] = str(out[i]); }
+    return '{"frame":' + str(framePath(window)) + ',"urls":[' + out.join(",") + "]}";
+  }
   function rememberReq(rec) {
     var map, key, list, n = 0, k;
+    try { rememberUrl(rec.url); } catch (eU) {}
     if (!rec.req) { return; }
     map = window.__rkLastReq;
     if (!map) { map = window.__rkLastReq = {}; window.__rkLastReqN = 0; }
@@ -1002,6 +1020,7 @@
     if (op === "send") { return sendNow(own, value); }
     if (op === "sendres") { return sendResult(value); }
     if (op === "lastreq") { return lastReq(value); }
+    if (op === "lasturls") { return lastUrls(); }
     if (op === "probe") { return probeAll(sels, own); }
     if (op === "suggest") { return suggest(sels, own, String(value || "any")); }
     if (op === "fingerprint") { return fingerprint(own); }

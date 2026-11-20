@@ -1069,6 +1069,9 @@ class Core:
                     path = re.sub(r"^[A-Za-z][A-Za-z0-9+.\-]*://[^/]*", "", path)
                     return bridge.last_requests(node.get("frame") or "*", path) or bridge.last_requests("*", path)
 
+                def peek_urls() -> list[str]:
+                    return bridge.live_urls()
+
                 def send(node: dict[str, Any], url: str, headers: str, body_text: str) -> dict[str, Any]:
                     answer = bridge.send(node["frame"], node["method"], url, headers, body_text)
                     if answer.get("error") == "no_frame" and node["frame"] != "top":
@@ -1087,7 +1090,7 @@ class Core:
                     path = files.save(folder, files.file_name(flow["title"], ctype, disposition), data)
                     return {"name": path.name, "path": str(path)}
 
-                result = replay.run_api(workflow, api, inputs, send, controller, stop, peek=peek, read_rules=read_rules.load(),
+                result = replay.run_api(workflow, api, inputs, send, controller, stop, peek=peek, peek_urls=peek_urls, read_rules=read_rules.load(),
                                         confirmed=flow.get("read_confirmed") or {},
                                         remember=lambda step_id: self._read_confirm(flow["title"], step_id), save_file=save_file)
             except Exception as error:  # noqa: BLE001

@@ -1650,6 +1650,36 @@ def test_a_pdf_answer_is_recorded_as_a_file_learned_and_run_by_request_and_the_s
     assert shown["file"]["saved"] is True and shown["file"]["size"] == len(PDF_BYTES) and "view" not in shown
 
 
+SESSLINK = b"""<html><head><title>RookieE2E Sesslink</title></head><body>
+<a id="lnkAcct" href="/touchpoint/locate/accountLocatePRF.jsp?sessionId=LIVE777&lang=vi" target="work">Tai khoan</a>
+<form id="frmX" method="post" action="/touchpoint/other.jsp?sessionId=LIVE777"><input type="hidden" name="a" value="1"></form>
+<input type="button" id="btnAjax" value="ajax" onclick="var x = new XMLHttpRequest(); x.open('GET', '/api/ping?sessionId=LIVE777&t=1', true); x.send(null);">
+<iframe name="work" src="/blank?sessionId=LIVE777" style="width:200px;height:50px"></iframe></body></html>"""
+PAGES["/sesslink"] = SESSLINK
+
+
+def test_the_addresses_with_a_session_value_that_the_live_page_shows_or_used_are_readable_by_the_run():
+    from rookie_agent.ie import replay
+
+    with real_ie("/sesslink") as bridge:
+        tab = None
+        for _ in range(25):
+            tab = next((t for t in bridge.tabs() if "RookieE2E" in t["title"]), None)
+            if tab:
+                break
+            time.sleep(0.4)
+        assert tab
+        bridge.bind(tab["id"], peek=True)
+        os.environ["RK_ID"] = "btnAjax"
+        drive("e-click", "RookieE2E Sesslink")
+        time.sleep(1.5)
+        urls = bridge.live_urls()
+    text = "\n".join(urls)
+    assert "accountLocatePRF.jsp?sessionId=LIVE777" in text and "other.jsp?sessionId=LIVE777" in text and "/api/ping?sessionId=LIVE777" in text, urls
+    node = {"url": "/touchpoint/locate/accountLocatePRF.jsp?sessionId=⟦l1⟧&lang=vi", "body": ""}
+    assert replay._live_query_value(node, "l1", urls) == "LIVE777"
+
+
 def test_a_press_is_in_the_recorders_queue_before_the_page_script_that_it_started_waits():
     """Tick a row, press «In báo nợ/có» whose own script waits (a dialog): the press must already be recorded when the wait begins, and once only."""
     Handler.seen.clear()

@@ -466,8 +466,32 @@ def align_template(template: str, live: str, name: str) -> str | None:
     return value if value else None
 
 
-def _live_value(node: dict[str, Any], name: str, peek: Callable[[dict[str, Any]], list[str]] | None) -> str | None:
-    """The value of link `name` as the live page sends it now: the newest of its last bodies for this node's path that fits the template."""
+def _live_query_value(node: dict[str, Any], name: str, urls: list[str]) -> str | None:
+    """The value of link `name` when it rides in the node's address (`?sid=⟦l1⟧`): the value of the same parameter in the newest address the
+    live page shows or used (its frames, links, forms, requests). Taken only when every address that carries it agrees on the newest one
+    (a page is signed in as one person): the last address wins, as the session is the page's newest."""
+    own = urllib.parse.urlsplit(str(node.get("url") or "")).query
+    names = re.findall(r"(?:^|[&;])([A-Za-z0-9_.\-]+)=" + re.escape(OPEN + name + CLOSE), own)
+    if not names:
+        return None
+    for param in names:
+        for url in reversed(urls):
+            query = urllib.parse.urlsplit(url).query
+            found = re.search(r"(?:^|[&;])" + re.escape(param) + r"=([^&;#]*)", query)
+            if found and found.group(1):
+                return urllib.parse.unquote_plus(found.group(1))
+    return None
+
+
+def _live_value(node: dict[str, Any], name: str, peek: Callable[[dict[str, Any]], list[str]] | None,
+                peek_urls: Callable[[], list[str]] | None = None) -> str | None:
+    """The value of link `name` as the live page sends it now: the newest of its last bodies for this node's path that fits the template, or,
+    when it rides in the node's address, the same parameter of an address the live page shows."""
+    if peek_urls is not None and OPEN + name + CLOSE in str(node.get("url") or ""):
+        try:
+            return _live_query_value(node, name, list(peek_urls() or []))
+        except Exception:  # noqa: BLE001
+            return None
     if peek is None or OPEN + name + CLOSE not in node.get("body", ""):
         return None
     try:
@@ -484,6 +508,9 @@ def _live_value(node: dict[str, Any], name: str, peek: Callable[[dict[str, Any]]
 LIVE_SESSION = "phiên đang mở của trang IE"
 NEED_LIVE = ("Hãy bấm Ghi rồi Dừng ngay một lần trên màn hình này (bật «Ghi yêu cầu»), hoặc thao tác mở màn hình một lần, "
              "để agent thấy mã phiên đang dùng; rồi Chạy lại.")
+NEED_SESSION = ("Agent chưa thấy phiên làm việc của trang này. Trên TouchPoint, mở màn hình cần dùng một lần "
+                "(ví dụ bấm vào «Tài khoản») rồi Chạy lại. Vẫn không được: bấm Ghi rồi Dừng ngay một lần (bật «Ghi yêu cầu»), "
+                "hoặc dùng «Chạy thử trên bản sao».")
 
 
 def run_api(workflow: dict[str, Any], nodes: list[dict[str, Any]], values: dict[str, str],
@@ -491,7 +518,8 @@ def run_api(workflow: dict[str, Any], nodes: list[dict[str, Any]], values: dict[
             twin: bool = False, role: str = "maker",
             peek: Callable[[dict[str, Any]], list[str]] | None = None, read_rules: dict[str, Any] | None = None,
             confirmed: dict[str, Any] | None = None, remember: Callable[[str], None] | None = None,
-            save_file: Callable[[bytes, str, str], dict[str, Any]] | None = None) -> dict[str, Any]:
+            save_file: Callable[[bytes, str, str], dict[str, Any]] | None = None,
+            peek_urls: Callable[[], list[str]] | None = None) -> dict[str, Any]:
     """The nodes in order. Each node: its inputs (what the teller typed, values linked from the answers before), the request sent
     from the teller's page, the answer. A node of the sign-in is passed over (the open page's session is used); a node that writes
     or moves money stops the run; anything missing or refused stops it and asks. `send(node, url, headers, body)` sends one.
@@ -598,17 +626,16 @@ def run_api(workflow: dict[str, Any], nodes: list[dict[str, Any]], values: dict[
                 source = by_id.get(rule["from"])
                 where = source["label"] if source is not None else rule["from"]
                 from_sign_in = value is None and source is not None and source.get("step_id") in sign_in and not twin
-                live = _live_value(node, name, peek) if from_sign_in else None
+                live = _live_value(node, name, peek, peek_urls) if from_sign_in else None
                 if live is not None:
                     here[name] = live
                     _add_input(shown, name, LIVE_SESSION)
                     continue
                 if from_sign_in:
-                    why = (f"giá trị «{name}» lấy từ trả lời lúc đăng nhập («{where}»), mà lần chạy thật không đăng nhập lại "
-                           "(dùng phiên đang mở, không gửi mật khẩu). Hãy Ghi lại khi đã đăng nhập sẵn: đăng nhập trước, mở màn hình cần làm, "
-                           "rồi mới bấm Ghi; sau đó Học lại. Hoặc dùng «Chạy thử trên bản sao». " + NEED_LIVE.rstrip("."))
-                    note(group, "needs_help", f"{ref}: {why}", shown)
-                    return end("needs_help", f"«{label}», lời gọi {ref}: {why}.")
+                    # plain words for the teller; the technical name of the value stays in the detail line
+                    why = NEED_SESSION
+                    note(group, "needs_help", f"{ref}: {why} (giá trị «{name}»)", shown)
+                    return end("needs_help", f"«{label}»: {why}")
                 if value is None:
                     why = f"không lấy được giá trị từ trả lời của «{where}»"
                     note(group, "needs_help", f"{ref}: {why}", shown)
