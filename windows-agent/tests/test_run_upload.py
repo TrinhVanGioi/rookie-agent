@@ -72,6 +72,20 @@ def test_a_run_of_a_flow_learned_without_the_server_stays_on_this_pc(tmp_path):
     assert Server.sent == []
 
 
+def test_an_adaptation_goes_up_as_names_and_states_and_where_it_was_stays_on_this_pc(tmp_path):
+    Server.sent, Server.down = [], False
+    core, _ = make_core(tmp_path, server_client=Server)
+    core.store.put("flows", [{"title": "Tra cứu", "workflow": {"id": "tra-cuu", "version": 3}}])
+    state = {"title": "Tra cứu", "mode": "screen", "controller": Controller(), "started": 0}
+    core._audit(state, {"status": "needs_help", "decisions": [
+        {"step_id": "s2", "saw": "unexpected", "change": "business", "action": "ask", "outcome": "stopped", "risk": "read",
+         "where": {"frame": "work/dlg", "kind": "frame", "name": "0123456789"}},
+    ]})
+    (run,) = Server.sent[0]
+    assert run["adaptations"] == [{"step_id": "s2", "saw": "unexpected", "change": "business", "action": "ask", "outcome": "stopped", "risk": "read"}]
+    assert "0123456789" not in json.dumps(Server.sent)
+
+
 def test_a_server_without_runs_does_not_stop_a_run(tmp_path):
     core, _ = make_core(tmp_path)        # the plain fake server has no post_runs
     core.store.put("flows", [{"title": "Tra cứu", "workflow": {"id": "tra-cuu", "version": 3}}])

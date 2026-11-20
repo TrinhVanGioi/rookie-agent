@@ -23,9 +23,10 @@
       "enum": [
         1,
         2,
-        3
+        3,
+        4
       ],
-      "description": "1: web và java. 2: thêm engine ie. 3: api_calls cũng có ở engine ie, mỗi mục có thể kèm ms (độ trễ), path không có query. Bản 1 và 2 vẫn hợp lệ."
+      "description": "1: web và java. 2: thêm engine ie. 3: api_calls cũng có ở engine ie, mỗi mục có thể kèm ms (độ trễ), path không có query. Bản 1 và 2 vẫn hợp lệ. 4: engine ie có thể kèm shows (màn hình hiện gì sau thao tác, chỉ tên)."
     },
     "engine": {
       "enum": [
@@ -139,6 +140,39 @@
         "string",
         "null"
       ]
+    },
+    "shows": {
+      "type": "array",
+      "maxItems": 20,
+      "items": {
+        "type": "object",
+        "required": [
+          "frame",
+          "kind",
+          "name"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "frame": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "kind": {
+            "enum": [
+              "field",
+              "table",
+              "message"
+            ]
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 60,
+            "description": "Nhãn ô hoặc id bảng, đã che số; thông báo không giữ chữ (rỗng)."
+          }
+        }
+      },
+      "description": "Từ schema_version 4, chỉ engine ie: những gì màn hình hiện hoặc đổi ngay sau thao tác (khung, loại, tên). Không có giá trị. Learner dùng để sinh expect (docs/design.md mục 15)."
     }
   },
   "allOf": [
@@ -224,7 +258,8 @@
           "schema_version": {
             "enum": [
               2,
-              3
+              3,
+              4
             ]
           }
         }
@@ -282,6 +317,47 @@
               }
             }
           }
+        }
+      }
+    },
+    {
+      "description": "shows chỉ có từ schema_version 4, chỉ engine ie.",
+      "if": {
+        "anyOf": [
+          {
+            "required": [
+              "schema_version"
+            ],
+            "properties": {
+              "schema_version": {
+                "enum": [
+                  1,
+                  2,
+                  3
+                ]
+              }
+            }
+          },
+          {
+            "required": [
+              "engine"
+            ],
+            "properties": {
+              "engine": {
+                "enum": [
+                  "web",
+                  "java"
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "then": {
+        "not": {
+          "required": [
+            "shows"
+          ]
         }
       }
     }

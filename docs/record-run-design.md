@@ -41,7 +41,7 @@ Nguyên tắc cứng áp dụng cho cả hai: che dữ liệu nhạy cảm ngay 
 | Gọi từ ngoài | MCP (`mcp/`, stdio hoặc HTTP có token) | Cho Genie Codie gọi quy trình; không có tool Duyệt |
 | Hướng A | Extension Manifest V3 (TypeScript) | Ghi/chạy web trên Chromium, side panel |
 | Hướng B (Java) | Java Access Bridge (`jab/`) | Ghi/chạy ứng dụng Java applet |
-| Kiểm thử | pytest; TouchPoint giả lập (`mock-site/touchpoint.py`); ma trận IE thật chế độ 8 và 9 (`tests/test_ie_matrix.py`) | Cổng chất lượng khi sửa phần Ghi hoặc Học |
+| Kiểm thử | pytest; Quầy mẫu (`mock-site/touchpoint.py`); ma trận IE thật chế độ 8 và 9 (`tests/test_ie_matrix.py`) | Cổng chất lượng khi sửa phần Ghi hoặc Học |
 
 ## 3. Luồng Ghi
 

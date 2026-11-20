@@ -653,12 +653,24 @@ def run_api(workflow: dict[str, Any], nodes: list[dict[str, Any]], values: dict[
         controller.progress(group["id"], status, detail)
         controller.show(group["id"], shown)
 
+    decisions: list[dict[str, Any]] = []               # task 12.4: adaptation decisions of this run (names only)
+    contract_changed: list[str] = []                   # the nodes whose answer came in another form than when learned: to be checked
+
     def end(status: str, message: str) -> dict[str, Any]:
         result = {"status": status, "message": message, "steps": done, "seconds": round(time.monotonic() - started, 1)}
         if twin:
             result.update(twin=True, simulated_ms=simulated_ms)
+        if decisions:
+            result["decisions"] = decisions
+        if contract_changed:
+            result["contract_changed"] = contract_changed
         return result
 
+    marked = [n for n in nodes if n.get("needs_check")]
+    if marked and not twin:
+        # task 12.4: a call marked «cần xác minh» (its answer came in another form) is not sent again by request, nor anything of the flow
+        return end("needs_help", f"Lời gọi {call_name(marked[0])} đang chờ xác minh vì lần trước máy chủ trả lời dạng khác lúc học. "
+                                 "Hãy chạy trên màn hình, hoặc Ghi và Học lại việc này.")
     for group in groups:
         label = group["label"]
         if stop.is_set():
@@ -843,6 +855,19 @@ def run_api(workflow: dict[str, Any], nodes: list[dict[str, Any]], values: dict[
                 sent["error"] = why
                 note(group, "needs_help", f"{ref}: {why}", shown)
                 return end("needs_help", f"«{label}», lời gọi {ref}: {why}. Agent dừng, không thử đoán.")
+            drift = "" if twin else contract_drift(node, text)
+            if drift:
+                # task 12.4 (SADPT): the service answers in another form than when learned: what the later calls take from it cannot be
+                # trusted; nothing more is sent by request, the call is marked to be checked, the screen is the way on
+                from rookie_agent.adaptive import classify
+
+                sent["error"] = CONTRACT_WORDS
+                sent["contract_changed"] = drift
+                contract_changed.append(node["id"])
+                decisions.append(classify.decision(group["step_id"], "contract_changed", "ask", "stopped", {"name": ref, "kind": drift}, risk=group.get("risk")))
+                note(group, "needs_help", f"{ref}: {CONTRACT_WORDS}", shown)
+                return end("needs_help", f"«{label}», lời gọi {ref}: {CONTRACT_WORDS}. Agent không gửi tiếp bằng request; "
+                                         "hãy chạy trên màn hình, và báo người phụ trách kiểm tra lại cách gọi này.")
             if node.get("report") and save_report is not None and not twin:
                 # the screen of the page is made of this answer: the agent makes the printable page itself, with the labels the screen had
                 from rookie_agent.ie import report as report_mod
@@ -881,6 +906,18 @@ def run_api(workflow: dict[str, Any], nodes: list[dict[str, Any]], values: dict[
 
 
 NOT_SENT = "chưa gửi"
+CONTRACT_WORDS = "máy chủ trả lời dạng khác lúc học (cách gọi này có thể đã đổi)"
+STRUCTURED = frozenset({"json", "gwt", "xml"})
+
+
+def contract_drift(node: dict[str, Any], text: str) -> str:
+    """Task 12.4: `learned>now` when a call learned with a structured answer (JSON, GWT-RPC, XML) now answers in another form; "" when it
+    is the same form, when nothing was learned, or when the answer is empty (what later calls need from it is checked when they take it)."""
+    learned = str((node.get("shape") or {}).get("kind") or "")
+    if learned not in STRUCTURED:
+        return ""
+    now = shaper.shape(text)["kind"]
+    return "" if now in (learned, "empty") else f"{learned}>{now}"
 
 
 def _by_default(group: dict[str, Any], steps: dict[str, dict[str, Any]], rules: dict[str, Any] | None) -> bool:

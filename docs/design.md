@@ -586,7 +586,7 @@ Mỗi lần chạy, dòng audit có `run_id`, `workflow_id`, `version` và đư�
 
 Không sửa lỗi ghi hay học khi gặp từng cái trên TouchPoint. Thay vào đó:
 
-1. **TouchPoint giả lập** (`mock-site/touchpoint.py`, `/tp/`) có đủ các mẫu khó đã gặp: khung trang, getToken rồi TPClassLoader có Bearer (chỉ token mới nhất), thân và trả lời GWT-RPC đúng dạng, Enter hay nút, tick dòng, hộp thoại In tự gửi form lấy PDF, `window.open` ra PDF, form vào khung ẩn ra file đính kèm, hộp thông báo khi bấm sai, trang tự hỏi định kỳ, lập lệnh tiền và duyệt của KSV. Dữ liệu tự sinh. Dùng chung cho test, demo và sandbox.
+1. **Quầy mẫu** (`mock-site/touchpoint.py`, `/tp/`) có đủ các mẫu khó đã gặp: khung trang, getToken rồi TPClassLoader có Bearer (chỉ token mới nhất), thân và trả lời GWT-RPC đúng dạng, Enter hay nút, tick dòng, hộp thoại In tự gửi form lấy PDF, `window.open` ra PDF, form vào khung ẩn ra file đính kèm, hộp thông báo khi bấm sai, trang tự hỏi định kỳ, lập lệnh tiền và duyệt của KSV. Dữ liệu tự sinh. Dùng chung cho test, demo và sandbox.
 2. **Ma trận trên IE thật** (`tests/test_ie_matrix.py`, `scripts/run-ie-matrix.ps1`, chế độ 8 và 9): mỗi kịch bản ghi hai lần với dữ liệu khác và có nhiễu, Học, chạy với dữ liệu mới, so lời gọi máy chủ giả lập nhận được. Sửa phần ghi hoặc học thì phải qua ma trận.
 3. **Làm sạch có luật** (`ie/clean.py`), một chỗ, theo thứ tự:
    - Luật 0, trang tự hỏi: cùng một lời gọi từ 3 lần (số dài trong địa chỉ coi như một), không lời gọi sau nào cần trả lời của nó.
@@ -623,7 +623,7 @@ Hai loại thay đổi xử lý khác nhau:
 | Analyze | Thấy lệch và xếp loại | `ie/locate.py` (điểm bằng chứng), `locate.screen_similarity` | `adaptive/verify.py` (so với `expect`), `adaptive/classify.py` (kỹ thuật hay nghiệp vụ) |
 | Plan | Chọn cách xử lý: tự tìm lại, hỏi GDV, hay đề xuất bản mới | `runner.repair` (GDV chọn trong tối đa 3 ứng viên, 6.1.2) | `locate.auto_pick` (tự chọn khi đủ bằng chứng), «Dạy lại đoạn này» |
 | Execute | Làm, rồi hậu kiểm | `runner.run_workflow`, `replay.run_api` | hậu kiểm bắt buộc sau mỗi bước có `expect`; nút API dừng khi trả lời đổi dạng (`ie/shape.py`) |
-| Knowledge | Hợp đồng bước, phiên bản, bằng chứng, nhật ký | workflow có `version`/`status`, bản nháp và Duyệt (`server/app/edit.py`), audit | `schema_version` 4 (`intent`, `expect`, `adapt`), nhật ký thích nghi, so sánh phiên bản, quay về bản trước |
+| Knowledge | Hợp đồng bước, phiên bản, bằng chứng, nhật ký | workflow có `version`/`status`, bản nháp và Duyệt (`server/app/edit.py`), audit | `schema_version` 4 (`intent`, `expect`, `adapt`), nhật ký thích nghi, so sánh phiên bản, quay về bản trước, số đo SADPT (`server/app/sadpt.py`) |
 
 ### 15.2 Quy tắc
 
@@ -632,5 +632,18 @@ Hai loại thay đổi xử lý khác nhau:
 3. Mọi thay đổi thành **bản nháp** có so sánh với bản cũ; không tự phát hành; người sửa không tự Duyệt.
 4. Mỗi quyết định thích nghi ghi một dòng: thấy gì, xếp loại gì, làm gì, hậu kiểm ra sao. Không có giá trị nhập (mục 4.2).
 5. Hộp thoại hoặc thông báo chưa từng thấy luôn là điểm dừng (quy tắc cứng 9).
+
+### 15.3 Số đo (task 12.8, Knowledge)
+
+Máy GDV gửi mỗi quyết định thích nghi kèm lần chạy (thấy gì, xếp loại gì, làm gì, kết quả, mức rủi ro của bước). Phần «ở đâu» ở lại trên máy, vì tên khung có thể lẫn giá trị. Máy chủ đếm, không quyết định lại. Bốn số hiện ở tab Lần chạy của trang quản trị, và trên thẻ luồng khi đã có lần chỉ đổi giao diện:
+
+| Số | Cách đếm |
+|---|---|
+| Tự phục hồi khi chỉ đổi giao diện | Trong các lần không thấy, chưa chắc, hoặc nhiều ứng viên giống nhau: tỷ lệ agent tự tìm lại và hậu kiểm đạt. Đổi dạng trả lời của nút API không tính vào tỷ lệ này |
+| Bước phải ghi lại | Số bước trong các đoạn GDV dạy lại (`teach`) |
+| Dừng đúng ở thay đổi nghiệp vụ | Số lần xếp loại nghiệp vụ và dừng để hỏi |
+| Hành động vượt quyền | Phải bằng 0. Tự tìm lại trên bước `write`/`money`, tự tìm lại khi lệch không phải kỹ thuật, hoặc không dừng khi lệch nghiệp vụ. Mức rủi ro lấy từ bản quy trình đã lưu, không lấy từ lời máy gửi nếu hai bên khác nhau |
+
+Chưa có lần chỉ đổi giao diện thì tỷ lệ để trống, không hiện 0% hay 100%.
 
 Chi tiết từng task: `docs/tasks.md` Gate 12.

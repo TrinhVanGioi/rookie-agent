@@ -184,5 +184,11 @@ class IeDriver:
 
         return read.paths(read.model(read.parse(self._bridge.read())))
 
+    def look(self) -> list[dict[str, Any]]:
+        """Task 12.2: the screen as frames (tables, fields, messages), to check a step's postcondition. The values stay in this process."""
+        from rookie_agent.ie import read
+
+        return read.parse(self._bridge.read())
+
     def read_value(self, selectors: list[str]) -> str:
         return str(self._act("read", selectors).get("value") or "")

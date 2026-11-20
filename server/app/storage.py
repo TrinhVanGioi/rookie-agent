@@ -237,6 +237,11 @@ class Storage:
             return None
         return {"base_version": row["base_version"], "edited_by": row["edited_by"], "ops": json.loads(row["ops"]), "at": row["created_at"]}
 
+    def edits_of(self, workflow_id: str) -> list[dict[str, Any]]:
+        with self._lock:
+            rows = self._db.execute("SELECT ops FROM workflow_edits WHERE id = ?", (workflow_id,)).fetchall()
+        return [{"ops": json.loads(row["ops"])} for row in rows]
+
     def set_layout(self, workflow_id: str, layout: dict[str, Any]) -> None:
         with self._lock, self._db:
             self._db.execute("INSERT OR REPLACE INTO workflow_layout VALUES (?, ?, ?)", (workflow_id, _dump(layout), _now()))

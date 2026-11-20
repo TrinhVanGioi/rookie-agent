@@ -131,6 +131,9 @@ function drawList() {
     badges.append(el("span", RISK[l.max_risk], "chip " + l.max_risk));
     if (runs) badges.append(el("span", runs.runs + " lần chạy" + (runs.failed ? " · " + Math.round(100 * runs.failed / runs.runs) + "% lỗi" : ""), "chip"));
     if (runs && runs.saved_s !== undefined) badges.append(el("span", "tiết kiệm ~" + (runs.saved_s >= 90 ? (runs.saved_s / 60).toFixed(1).replace(".", ",") + " phút" : Math.round(runs.saved_s) + " giây") + "/lần", "chip read"));
+    const sadpt = runs && runs.sadpt;
+    if (sadpt && sadpt.ui_changes) badges.append(el("span", "tự phục hồi " + Math.round(100 * sadpt.ui_recovered / sadpt.ui_changes) + "%", "chip read"));
+    if (sadpt && sadpt.overreach) badges.append(el("span", "vượt quyền " + sadpt.overreach, "chip money"));
     li.append(badges);
     li.onclick = () => openFlow(f.id);
     box.append(li);
@@ -443,6 +446,18 @@ async function drawVersions() {
     }).catch(() => { who.textContent = "?"; });
     if (row.status === "draft") actions.append(el("span", "Chờ chạy thử trên bản sao ở máy GDV ", "sub"));
     if (row.version > 1) { const cmp = el("button", "So với v" + (row.version - 1)); cmp.onclick = () => diff(row.version - 1, row.version); actions.append(cmp); }
+    if (row.version < fl.f.latest.version && canChange(fl.meta)) {
+      const back = el("button", "Quay về bản này");
+      back.onclick = async () => {
+        try {
+          const from = row.version;
+          const made = await api("POST", `/workflows/${enc(fl.id)}/versions/${from}/restore`, {});
+          await loadList(); await openFlow(fl.id, made.workflow.version); showTab("versions");
+          say("versionMsg", "Đã tạo bản " + made.workflow.version + " giống v" + from + ". Bản này chờ Duyệt rồi mới được dùng.", "ok");
+        } catch (e) { say("versionMsg", e.message, "bad"); }
+      };
+      actions.append(back);
+    }
   }
 }
 async function diff(a, b) {
@@ -470,11 +485,32 @@ async function diff(a, b) {
   for (const line of lines.length ? lines : ["Không khác gì về các nút (có thể chỉ đổi trạng thái)."]) box.append(el("li", line));
 }
 
+function drawSadpt(s) {
+  const box = $("sadpt");
+  box.textContent = "";
+  if (!s) { box.hidden = true; return; }
+  box.hidden = false;
+  const rate = s.ui_changes ? Math.round(100 * s.ui_recovered / s.ui_changes) + "% (" + s.ui_recovered + "/" + s.ui_changes + ")" : "chưa có";
+  const cards = [
+    ["Tự phục hồi khi chỉ đổi giao diện", rate, false],
+    ["Bước phải ghi lại", String(s.steps_retaught), false],
+    ["Dừng đúng ở thay đổi nghiệp vụ", String(s.business_stops) + " lần", false],
+    ["Hành động vượt quyền", String(s.overreach), s.overreach > 0],
+  ];
+  for (const [label, value, bad] of cards) {
+    const card = el("div", undefined, bad ? "card bad" : "card");
+    card.append(el("div", label, "k"), el("div", value, "n"));
+    box.append(card);
+  }
+}
+
 async function drawRuns() {
   const fl = state.flow, body = $("runs");
   body.textContent = ""; $("runsEmpty").textContent = "";
   try {
-    const { runs } = await api("GET", `/workflows/${enc(fl.id)}/runs`);
+    const reply = await api("GET", `/workflows/${enc(fl.id)}/runs`);
+    drawSadpt(reply.sadpt);
+    const runs = reply.runs;
     for (const r of runs) {
       const approvals = (r.decisions || []).filter((d) => d.approved).length;
       const tr = el("tr");
@@ -484,7 +520,27 @@ async function drawRuns() {
       body.append(tr);
     }
     if (!runs.length) $("runsEmpty").textContent = "Chưa có lần chạy nào được gửi lên.";
-  } catch (e) { $("runsEmpty").textContent = e.message; }
+    drawAdapt(runs);
+  } catch (e) { drawSadpt(null); $("runsEmpty").textContent = e.message; }
+}
+
+const SAW_WORD = { not_found: "không thấy", low_confidence: "chưa chắc", ambiguous: "nhiều ô giống nhau", unexpected: "chưa từng thấy", missing: "chưa hiện", contract_changed: "đổi dạng trả lời" };
+const CHANGE_WORD = { technical: "kỹ thuật", business: "nghiệp vụ", unknown: "chưa rõ" };
+const ACTION_WORD = { reresolve: "tự tìm lại", ask: "hỏi" };
+const OUTCOME_WORD = { done: "xong", postcheck_failed: "hậu kiểm không đạt", stopped: "đã dừng", asked: "đã hỏi" };
+
+function drawAdapt(runs) {
+  const body = $("adaptLog");
+  body.textContent = ""; $("adaptEmpty").textContent = "";
+  const rows = [];
+  for (const r of runs) for (const a of r.adaptations || []) rows.push({ time: r.time, row: a });
+  if (!rows.length) { $("adaptEmpty").textContent = "Chưa có quyết định thích nghi nào."; return; }
+  for (const item of rows) {
+    const a = item.row, tr = el("tr");
+    tr.append(el("td", item.time), el("td", a.step_id), el("td", SAW_WORD[a.saw] || a.saw), el("td", CHANGE_WORD[a.change] || a.change),
+      el("td", ACTION_WORD[a.action] || a.action), el("td", OUTCOME_WORD[a.outcome] || a.outcome));
+    body.append(tr);
+  }
 }
 
 async function drawShare() {

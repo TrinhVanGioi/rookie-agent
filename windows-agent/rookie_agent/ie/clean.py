@@ -124,9 +124,67 @@ def renumber(document: dict[str, Any]) -> dict[str, Any]:
     return {**document, "events": events, "requests": requests}
 
 
+_CAL_FIELD = re.compile(r"(?:^|\|)name=cal-([A-Za-z0-9_]+)$")
+_CAL_DAY = re.compile(r"(?:^|\|)name=(\d{2}/\d{2}/\d{4}|\d{2}-\d{2}-\d{4})$")
+
+
+def _selector(event: dict[str, Any], pattern: re.Pattern[str]) -> re.Match[str] | None:
+    for selector in (event.get("target") or {}).get("selectors") or []:
+        found = pattern.search(str(selector))
+        if found:
+            return found
+    return None
+
+
+def _mentions_field(event: dict[str, Any], field: str) -> bool:
+    for selector in (event.get("target") or {}).get("selectors") or []:
+        part = str(selector).split("|")[-1]
+        if part in (f"id={field}", f"name={field}"):
+            return True
+    return False
+
+
+def _date_input(opener: dict[str, Any], field: str, day: str) -> dict[str, Any]:
+    """The calendar clicks, written as the date that landed in the field (the frame of the icon, the field's id and name)."""
+    frame = "top"
+    for selector in (opener.get("target") or {}).get("selectors") or []:
+        if str(selector).startswith("frame="):
+            frame = str(selector).split("|", 1)[0][len("frame="):]
+            break
+    made = copy.deepcopy(opener)
+    made["type"] = "input"
+    made["value"] = day
+    made["value_class"] = None
+    made["target"] = {"selectors": [f"frame={frame}|id={field}", f"frame={frame}|name={field}"], "label": field, "tag": "input"}
+    return made
+
+
+def fold_calendar(document: dict[str, Any]) -> dict[str, Any]:
+    """Task 12.6: the icon of a calendar and the day number pressed in it are one date typed into the field the icon belongs to.
+
+    The icon's name is `cal-<field id>` (as `monthCalendar` sits beside the field). The day carries the date in its name. When the
+    recorder already heard the field change, that input is kept (it has the field's own label). Otherwise the two presses become one."""
+    events = list(document.get("events") or [])
+    out: list[dict[str, Any]] = []
+    index = 0
+    while index < len(events):
+        field = _selector(events[index], _CAL_FIELD)
+        day = _selector(events[index + 1], _CAL_DAY) if field and index + 1 < len(events) else None
+        if field and day:
+            name = field.group(1)
+            later = next((event for event in events[index + 2:index + 6] if event.get("type") == "input" and _mentions_field(event, name)), None)
+            if later is None:
+                out.append(_date_input(events[index], name, day.group(1)))
+            index += 2
+            continue
+        out.append(events[index])
+        index += 1
+    return {**document, "events": out}
+
+
 def clean(documents: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Every rule, in order, on the recordings of one task: copies; the stored recordings are not changed."""
-    copies = [renumber(drop_mistakes(copy.deepcopy(d))) for d in documents]
+    copies = [renumber(drop_mistakes(fold_calendar(copy.deepcopy(d)))) for d in documents]
     unified = unify_triggers(copies, move_requests=True)
     return [{**d, "events": events} for d, events in zip(copies, unified)]
 

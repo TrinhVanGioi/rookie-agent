@@ -19,9 +19,10 @@
       "enum": [
         1,
         2,
-        3
+        3,
+        4
       ],
-      "description": "1: web và java. 2: thêm engine ie (trang web trong Internet Explorer, đọc bằng COM). 3: thêm bước tuỳ chọn (step.optional) và đầu vào không bắt buộc (input.required). Bản 1 và 2 vẫn hợp lệ."
+      "description": "1: web và java. 2: thêm engine ie (trang web trong Internet Explorer, đọc bằng COM). 3: thêm bước tuỳ chọn (step.optional) và đầu vào không bắt buộc (input.required). Bản 1 và 2 vẫn hợp lệ. 4 (chỉ engine ie): bước có intent, expect (hậu kiểm) và adapt (tự tìm lại mục tiêu), xem docs/design.md mục 15."
     },
     "engine": {
       "enum": [
@@ -212,6 +213,67 @@
                 "maximum": 5000
               }
             }
+          },
+          "intent": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80,
+            "description": "Từ schema_version 4: việc nghiệp vụ của bước, bằng lời của màn hình."
+          },
+          "expect": {
+            "type": "object",
+            "required": [
+              "appears"
+            ],
+            "additionalProperties": false,
+            "description": "Từ schema_version 4: hậu kiểm. Những gì phải hiện sau bước (khung, loại, tên), không có giá trị.",
+            "properties": {
+              "appears": {
+                "type": "array",
+                "maxItems": 20,
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "frame",
+                    "kind",
+                    "name"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "frame": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 120
+                    },
+                    "kind": {
+                      "enum": [
+                        "field",
+                        "table",
+                        "message"
+                      ]
+                    },
+                    "name": {
+                      "type": "string",
+                      "maxLength": 60,
+                      "description": "Nhãn ô hoặc id bảng, đã che số; thông báo không giữ chữ (rỗng)."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "adapt": {
+            "type": "object",
+            "required": [
+              "reresolve"
+            ],
+            "additionalProperties": false,
+            "description": "Từ schema_version 4: chính sách thích nghi. reresolve: agent được tự tìm lại mục tiêu khi giao diện đổi (chỉ bước read, luôn hậu kiểm).",
+            "properties": {
+              "reresolve": {
+                "type": "boolean"
+              }
+            }
           }
         },
         "allOf": [
@@ -373,6 +435,36 @@
                 "save_as"
               ]
             }
+          },
+          {
+            "description": "Chỉ bước read mới được tự tìm lại mục tiêu.",
+            "if": {
+              "required": [
+                "adapt"
+              ],
+              "properties": {
+                "adapt": {
+                  "properties": {
+                    "reresolve": {
+                      "const": true
+                    }
+                  },
+                  "required": [
+                    "reresolve"
+                  ]
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "risk": {
+                  "const": "read"
+                }
+              },
+              "required": [
+                "risk"
+              ]
+            }
           }
         ]
       }
@@ -401,8 +493,29 @@
           "schema_version": {
             "enum": [
               2,
-              3
+              3,
+              4
             ]
+          }
+        }
+      }
+    },
+    {
+      "description": "schema_version 4 chỉ có ở engine ie.",
+      "if": {
+        "required": [
+          "schema_version"
+        ],
+        "properties": {
+          "schema_version": {
+            "const": 4
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "engine": {
+            "const": "ie"
           }
         }
       }

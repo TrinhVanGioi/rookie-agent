@@ -22,7 +22,7 @@ from typing import Any, Protocol
 SUPPORTED_ACTIONS = frozenset({"click", "fill", "select", "submit", "read_value", "wait_for", "read_fields"})
 RISKS = frozenset({"read", "write", "money"})
 MODES = frozenset({"auto", "review", "approve"})
-MOCK_WINDOW_MARKERS = ("Mock TPSS", "TouchPoint (giả lập)")   # the TouchPoint look-alike (mock-site/touchpoint.py) is a mock too
+MOCK_WINDOW_MARKERS = ("Mock TPSS", "Quầy mẫu")   # the lab counter (mock-site/touchpoint.py) is a mock too
 LOGIN_CHECK_SECONDS = 3.0   # how long to look for the sign-in page before taking the teller as signed in already
 _PLACEHOLDER = re.compile(r"\{([a-z][a-z0-9_]*(?:\.[a-z0-9_]+)*)\}")   # {acct}, or {kq.grid.1.so_tk}: a value read from the screen
 # A step that works on a password or OTP field is the teller's own: the agent never types there, so it never sends there either.
@@ -49,6 +49,9 @@ class NeedsHelp(Exception):
 
 
 REPAIRABLE = frozenset({"ambiguous", "low_confidence"})   # the element is unclear: the teller may point at it (task 6.2)
+POST_TIMEOUT = 8.0   # task 12.2: how long the screen may take to show what a step of a version 4 flow is expected to show
+POST_POLL = 0.3
+KIND_WORDS = {"table": "bảng", "field": "ô", "message": "thông báo"}
 
 
 class WorkflowRefused(ValueError):
@@ -187,6 +190,7 @@ def run_workflow(
     settle: float = 0.15,
     sleep: Callable[[float], None] = time.sleep,
     download_steps: dict[str, str] | None = None,
+    post_timeout: float = POST_TIMEOUT,
 ) -> dict[str, Any]:
     """Execute the workflow. Returns `{"status", "message", "steps": [{"id", "status", "detail"}]}`.
 
@@ -199,12 +203,47 @@ def run_workflow(
     stop = stop or threading.Event()
     done: list[dict[str, str]] = []
     repairs: list[dict[str, Any]] = []   # task 6.2: the element the teller pointed at for a step the agent could not find (selectors only)
+    decisions: list[dict[str, Any]] = []  # task 12.2: every adaptation decision (what was seen, how sorted, what done); names only
+    # Task 12.2 (SADPT): a version 4 flow is checked step by step against its postconditions, when the driver can read the screen.
+    adaptive = engine == "ie" and int(workflow.get("schema_version") or 0) >= 4 and callable(getattr(driver, "look", None))
+    known_frames = _known_frames(workflow) if adaptive else set()
 
     def result(status: str, message: str) -> dict[str, Any]:
         out = {"status": status, "message": message, "steps": done}
         if repairs:
             out["repairs"] = repairs
+        if decisions:
+            out["decisions"] = decisions
         return out
+
+    def postcheck(step: dict[str, Any], before: list[dict[str, Any]]) -> dict[str, Any]:
+        """Look at the screen until it shows what the step is expected to show, or until something never seen comes up (twice in a row:
+        a page still drawing is not taken for news), or until the time is up."""
+        from rookie_agent.adaptive import verify
+        from rookie_agent.ie import read
+
+        appears = (step.get("expect") or {}).get("appears") or []
+        place = next((i for i, s in enumerate(steps) if s is step), -1)
+        following = steps[place + 1] if 0 <= place < len(steps) - 1 else {}
+        answered_in = {sel[len("frame="):].split("|", 1)[0] for sel in (following.get("target") or {}).get("selectors") or []
+                       if sel.startswith("frame=") and "|" in sel}
+        deadline = time.monotonic() + post_timeout
+        previous: list[dict[str, Any]] | None = None
+        volatile: set[Any] = set()
+        last = ""
+        while True:
+            if stop.is_set():
+                raise _Stopped()
+            now = _look(driver)
+            if now is None:                    # the screen cannot be read now: nothing to say either way
+                return {"state": "ok", "missing": [], "unexpected": []}
+            if previous is not None:
+                volatile |= read.volatile(previous, now)
+            verdict = verify.check(appears, before, now, known_frames=known_frames, volatile=volatile, answered_in=answered_in)
+            if verdict["state"] == "ok" or (verdict["state"] == "unexpected" and last == "unexpected") or time.monotonic() >= deadline:
+                return verdict
+            last, previous = verdict["state"], now
+            sleep(POST_POLL)
 
     def repair(step: dict[str, Any], selectors: list[str], want: str) -> dict[str, Any] | None:
         """Task 6.2: up to 3 look-alikes are marked in the page (nothing is pressed) and the teller says which one is meant, or none."""
@@ -223,6 +262,19 @@ def run_workflow(
         chosen = candidates[choice]
         repairs.append({"step_id": step["id"], "selectors": list(chosen["selectors"])})
         return chosen
+
+    def reresolve(step: dict[str, Any], selectors: list[str], want: str) -> dict[str, Any] | None:
+        """Task 12.3: a read step of a version 4 flow allowed to re-resolve (`adapt.reresolve`) takes the one look-alike with strong
+        enough evidence (`locate.auto_pick`), without asking and without marking the page. The screen is checked after it."""
+        if not adaptive or step["risk"] != "read" or not (step.get("adapt") or {}).get("reresolve") or not hasattr(driver, "suggest"):
+            return None
+        from rookie_agent.ie import locate
+
+        candidates = driver.suggest(selectors, want)[:3]
+        pick = locate.auto_pick(step.get("target") or {}, candidates)
+        if pick is None:
+            return None
+        return {**candidates[pick["index"]], "signals": pick["signals"]}
 
     try:
         check_workflow(workflow, inputs, sandbox, engine, versions)
@@ -356,6 +408,9 @@ def run_workflow(
             elif action == "wait_for":
                 wait_until_found(step, lambda: _require(driver.exists(sel)))
 
+        before = _look(driver) if adaptive else None
+        watch = adaptive and (bool(step.get("expect")) or action in ("click", "submit"))
+        found_again: dict[str, Any] | None = None
         try:
             try:
                 perform(selectors)
@@ -363,7 +418,14 @@ def run_workflow(
                 if isinstance(missing, NeedsHelp) and missing.code not in REPAIRABLE:
                     raise
                 want = "field" if action in ("fill", "select", "submit") else "press" if action == "click" else "any"
-                chosen = repair(step, selectors, want)
+                saw = missing.code if isinstance(missing, NeedsHelp) else "not_found"
+                found_again = reresolve(step, selectors, want)
+                chosen = found_again or repair(step, selectors, want)
+                if found_again is None and adaptive:
+                    # task 12.8: a screen change the agent did not recover by itself is still a decision (it asked, or it stopped)
+                    from rookie_agent.adaptive import classify
+
+                    decisions.append(classify.decision(step["id"], saw, "ask", "stopped" if chosen is None else "asked", risk=step.get("risk")))
                 if chosen is None:
                     raise
                 if step["risk"] != "read":
@@ -371,6 +433,26 @@ def run_workflow(
                     note(step, "needs_help", "đã nhớ ô GDV chọn, chờ Duyệt lại")
                     return result("needs_help", f"Bước {step['id']}: đã nhớ ô bạn chọn. Bước ghi dữ liệu hoặc tiền chỉ chạy sau khi bản sửa của agent được Duyệt lại.")
                 perform([chosen["src"]])
+                watch = watch or found_again is not None        # an element found again by the agent is always checked after
+            if watch and before is not None:
+                from rookie_agent.adaptive import classify
+
+                verdict = postcheck(step, before)
+                if verdict["state"] != "ok":
+                    if found_again is not None:      # the element it found is not trusted: no draft is made from it
+                        decisions.append(classify.decision(step["id"], saw, "reresolve", "postcheck_failed", {"how": "+".join(found_again["signals"])}, risk=step.get("risk")))
+                    where = (verdict["unexpected"] or verdict["missing"])[0]
+                    decisions.append(classify.decision(step["id"], verdict["state"], "ask", "stopped", where, risk=step.get("risk")))
+                    note(step, "needs_help", verdict["state"])
+                    out = result("needs_help", _post_message(step, verdict))
+                    if verdict["state"] == "unexpected":
+                        out["teach_after"] = step["id"]        # task 12.5: «Dạy lại đoạn này» starts right here
+                    return out
+            if found_again is not None:
+                from rookie_agent.adaptive import classify
+
+                repairs.append({"step_id": step["id"], "selectors": list(found_again["selectors"]), "auto": True})
+                decisions.append(classify.decision(step["id"], saw, "reresolve", "done", {"how": "+".join(found_again["signals"])}, risk=step.get("risk")))
         except _Stopped:
             note(step, "stopped", "Dừng khẩn")
             return result("stopped", f"Dừng khẩn ở bước {step['id']}.")
@@ -408,6 +490,40 @@ def run_workflow(
 
 class _Stopped(Exception):
     pass
+
+
+def _known_frames(workflow: dict[str, Any]) -> set[str]:
+    """The frames the flow was recorded in: those of its selectors and of its postconditions. A frame outside them that comes up
+    after a step is a dialog the recordings never had."""
+    frames = {"top"}
+    for step in workflow.get("steps") or []:
+        for selector in (step.get("target") or {}).get("selectors") or []:
+            if selector.startswith("frame=") and "|" in selector:
+                frames.add(selector[len("frame="):].split("|", 1)[0])
+        for item in (step.get("expect") or {}).get("appears") or []:
+            frames.add(str(item.get("frame")))
+    return frames
+
+
+def _look(driver: Any) -> list[dict[str, Any]] | None:
+    """The screen as frames (values in memory only), or None when it cannot be read right now."""
+    try:
+        return driver.look()
+    except Exception:  # noqa: BLE001  a page that is changing may not answer; the check is then skipped, never guessed
+        return None
+
+
+def _post_message(step: dict[str, Any], verdict: dict[str, Any]) -> str:
+    """In plain words, without a value: what came up, or what did not, after the step."""
+    name = step.get("intent") or (step.get("target") or {}).get("label") or step["id"]
+    if verdict["state"] == "unexpected":
+        item = verdict["unexpected"][0]
+        what = "một hộp thoại" if item["kind"] == "frame" else "một thông báo"
+        return (f"Sau bước «{name}», màn hình hiện {what} chưa từng thấy lúc học (khung «{item['frame']}»). Có thể quy trình đã đổi: "
+                "agent dừng ở đây và không bấm gì trong đó. Bạn xem màn hình; nếu đây là bước mới, hãy dạy lại đoạn này.")
+    wanted = ", ".join(f"{KIND_WORDS.get(m['kind'], m['kind'])} «{m['name']}»" if m["name"] else f"một {KIND_WORDS.get(m['kind'], m['kind'])}"
+                       for m in verdict["missing"][:3])
+    return f"Sau bước «{name}», màn hình chưa hiện {wanted} như lúc học. Agent dừng để bạn xem màn hình."
 
 
 def _require(found: bool) -> None:

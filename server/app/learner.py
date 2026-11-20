@@ -20,7 +20,7 @@ from app.schemas import validate_workflow
 
 RECOMMENDED_SESSIONS = 3
 MIN_SHARED = 0.6   # the steps every recording has must be at least this part of the longest recording: else it is not one task
-_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$|^\d{2}/\d{2}/\d{4}$|^\d{2}-\d{2}-\d{4}$")   # ISO, or the day/month/year a calendar writes
 _NUMBER = re.compile(r"^-?\d+([.,]\d+)?$")
 
 
@@ -134,6 +134,9 @@ def learn(
         return candidate
 
     optional_steps: list[str] = []
+    # task 12.1 (SADPT): recordings that say what the screen showed after each action give a version 4 flow, whose steps carry their
+    # business intent, a postcondition and an adaptation policy. Older recordings are learned exactly as before.
+    adaptive = engine == "ie" and any("shows" in event for run in runs for event in run)
     for index, cells in enumerate(columns):
         column = present(cells)
         sometimes = len(column) < len(runs)      # a step that not every recording has
@@ -185,6 +188,8 @@ def learn(
                     step["value"] = values[0] or ""
         step["risk"] = risk.level
         step["mode"] = mode_for(risk.level)
+        if adaptive:
+            _adapt_step(step, column, label)
         if sometimes:
             step["optional"] = _optional_of(first, step, risk.level, len(column), len(runs), warnings)
             optional_steps.append(step["id"])
@@ -194,7 +199,7 @@ def learn(
         raise LearnError("Không còn bước nào agent được phép thực hiện trong các phiên ghi này.")
 
     workflow = {
-        "schema_version": (3 if optional_steps else 2) if engine == "ie" else 1,
+        "schema_version": (4 if adaptive else 3 if optional_steps else 2) if engine == "ie" else 1,
         "engine": engine,
         "id": workflow_id,
         "version": version,
@@ -206,6 +211,47 @@ def learn(
         workflow["title"] = title  # the name the GDV gave this agent
     validate_workflow(workflow)
     return workflow, warnings
+
+
+def _adapt_step(step: dict[str, Any], column: list[dict[str, Any]], label: str | None) -> None:
+    """Task 12.1: the semantic part of a step (docs/design.md 15).
+
+    - `intent`: what a press does, in the words of the screen (its label).
+    - `expect`: what every recording showed right after the action (frame, kind, name; no value). What only some showed (a clock, a
+      message by chance) is not expected. A recording without `shows` says nothing either way.
+    - `adapt.reresolve`: only a read step may have its target found again by the agent when the screen changed; it is checked after.
+    """
+    if step.get("action") in ("click", "submit") and label:
+        step["intent"] = label[:80]
+    known = [event["shows"] for event in column if isinstance(event.get("shows"), list)]
+    if known:
+        key = lambda item: (item["frame"], item["kind"], item["name"])   # noqa: E731
+        common = set.intersection(*({key(item) for item in shows} for shows in known))
+        appears = [item for item in known[0] if key(item) in common]
+        if appears:
+            step["expect"] = {"appears": [{"frame": f, "kind": k, "name": n} for f, k, n in dict.fromkeys(key(i) for i in appears)][:20]}
+    step["adapt"] = {"reresolve": step["risk"] == "read"}
+
+
+def with_adaptation(workflow: dict[str, Any], sessions: list[list[dict[str, Any]]]) -> dict[str, Any]:
+    """Task 12.1: a flow built another way (by the model) gets the intent, postcondition and adaptation policy the rules learn from the
+    same recordings, step by step, matched by a selector they share. The flow's own risk and mode stay; `adapt` follows them. Recordings
+    without `shows`, or that the rules cannot line up, leave the flow as it is."""
+    if workflow.get("engine") != "ie" or not any("shows" in event for events in sessions for event in events):
+        return workflow
+    try:
+        ruled, _ = learn(sessions, workflow["id"], workflow.get("version", 1), workflow.get("title"))
+    except LearnError:
+        return workflow
+    by_selector = {selector: step for step in ruled["steps"] for selector in (step.get("target") or {}).get("selectors", [])}
+    for step in workflow["steps"]:
+        twin = next((by_selector[s] for s in (step.get("target") or {}).get("selectors", []) if s in by_selector), None)
+        if twin is not None:
+            step.update({key: twin[key] for key in ("intent", "expect") if key in twin})
+        step["adapt"] = {"reresolve": step["risk"] == "read"}
+    workflow["schema_version"] = 4
+    validate_workflow(workflow)
+    return workflow
 
 
 def _line_up(runs: list[list[dict[str, Any]]]) -> list[list[dict[str, Any] | None]]:

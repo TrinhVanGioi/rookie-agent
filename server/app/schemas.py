@@ -41,6 +41,10 @@ def validate_workflow(document: Any) -> None:
         used = [step["id"] for step in document["steps"] if "optional" in step] + [i["name"] for i in document["inputs"] if "required" in i]
         if used:
             raise SchemaError("workflow không hợp lệ: optional và required chỉ có từ schema_version 3 (" + ", ".join(used) + ")")
+    if document.get("schema_version", 0) < 4:
+        adaptive = [step["id"] for step in document["steps"] if {"intent", "expect", "adapt"} & set(step)]
+        if adaptive:
+            raise SchemaError("workflow không hợp lệ: intent, expect và adapt chỉ có từ schema_version 4 (" + ", ".join(adaptive) + ")")
     if document.get("schema_version", 0) < 3 and any(step.get("action") == "read_fields" for step in document["steps"]):
         raise SchemaError("workflow không hợp lệ: read_fields chỉ có từ schema_version 3")
     optional_inputs = {i["name"] for i in document["inputs"] if i.get("required") is False}

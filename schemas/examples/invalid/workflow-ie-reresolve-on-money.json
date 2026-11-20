@@ -1,0 +1,79 @@
+{
+  "schema_version": 4,
+  "engine": "ie",
+  "id": "tra-tai-khoan",
+  "version": 1,
+  "status": "draft",
+  "title": "Tra cứu tài khoản",
+  "inputs": [
+    {
+      "name": "so_tai_khoan",
+      "type": "string",
+      "value_class": "account_number",
+      "label": "Số tài khoản"
+    }
+  ],
+  "steps": [
+    {
+      "id": "s1_so_tai_khoan",
+      "action": "fill",
+      "target": {
+        "selectors": [
+          "frame=work|id=txtAcct"
+        ],
+        "label": "Số tài khoản",
+        "tag": "input"
+      },
+      "value": "{so_tai_khoan}",
+      "risk": "read",
+      "mode": "auto",
+      "adapt": {
+        "reresolve": true
+      }
+    },
+    {
+      "id": "s2_tra_cuu",
+      "action": "click",
+      "target": {
+        "selectors": [
+          "frame=work|id=btnFind",
+          "frame=work|label=TRA CỨU"
+        ],
+        "label": "TRA CỨU",
+        "tag": "button"
+      },
+      "risk": "read",
+      "mode": "auto",
+      "intent": "TRA CỨU",
+      "expect": {
+        "appears": [
+          {
+            "frame": "work",
+            "kind": "table",
+            "name": "tblInfo"
+          }
+        ]
+      },
+      "adapt": {
+        "reresolve": true
+      }
+    },
+    {
+      "id": "s3_luu",
+      "action": "click",
+      "target": {
+        "selectors": [
+          "frame=work|id=btnSave"
+        ],
+        "label": "LƯU",
+        "tag": "button"
+      },
+      "risk": "money",
+      "mode": "approve",
+      "intent": "LƯU",
+      "adapt": {
+        "reresolve": true
+      }
+    }
+  ]
+}

@@ -304,6 +304,7 @@
       <div class="canvas" id="canvas" hidden><div class="flowrow" id="flowrow"></div></div>
       <div id="flowDetail"></div>
       <div id="flowConfirms"></div>
+      <div id="teachBox" hidden></div>
     </section>
     <section id="updBox">
       <h2>Bản mới trên máy chủ</h2>
@@ -322,7 +323,7 @@
       <div class="row"><button class="primary" id="runSim" title="Chạy bằng những gì đã học (thao tác, request, response): gửi lại các request từ trang IE đã đăng nhập, không bấm, không điền gì trên giao diện">Chạy</button><button id="runFresh" title="Gọi lại máy chủ, không dùng kết quả đã nhớ trong phiên">Làm mới</button><button id="cacheClear" title="Quên mọi kết quả tra cứu đã nhớ trong phiên này">Xoá bộ nhớ phiên</button><button class="stop" id="runStop">Dừng khẩn</button></div>
       <div class="detail" id="cacheNote">Kết quả tra cứu được nhớ trong phiên (chỉ trên máy này, trong bộ nhớ) để không phải gọi lại cùng một khách; đóng tab IE, gặp trang đăng nhập, bấm «Xoá bộ nhớ phiên» hoặc tắt agent là xoá hết.</div>
       <details class="adv"><summary>Chạy trên giao diện Internet Explorer (agent tự bấm, tự điền trên màn hình)</summary>
-        <div class="row"><button id="runDry">Chạy thử (chỉ đọc)</button><button id="runApprove">Duyệt agent này</button><button id="runGo">Chạy trên màn hình</button></div>
+        <div class="row"><button id="runDry">Chạy thử (chỉ đọc)</button><button id="runApprove">Duyệt agent này</button><button id="runGo">Chạy trên màn hình</button><button id="runRestore" hidden>Quay về bản trước</button></div>
       </details>
       <div id="runAsk"></div>
       <div id="runSteps" class="detail"></div>
@@ -881,7 +882,13 @@ function renderRunInputs(flow) {
   }
   const fresh = !flow.approved || flow.repair_pending;
   $("runApprove").disabled = !fresh; $("runApprove").textContent = flow.repair_pending ? "Duyệt bản sửa" : flow.approved ? "Agent đã duyệt" : "Duyệt agent này";
-  if (flow.repair_pending) { $("runMsg").textContent = ""; $("runMsg").append(el("div", "Agent có bản sửa (ô GDV đã chỉ lại) đang chờ Duyệt. Trước khi Duyệt, chỉ các bước chỉ xem được chạy.", "msg bad")); }
+  if (flow.repair_pending) {
+    const why = { teach: "Có bản mới (bạn vừa dạy lại một đoạn) đang chờ Duyệt.", restore: "Có bản quay về bản trước đang chờ Duyệt." }[flow.repair_kind]
+      || "Agent có bản sửa (ô đã được tìm lại hoặc GDV đã chỉ lại) đang chờ Duyệt.";
+    $("runMsg").textContent = ""; $("runMsg").append(el("div", why + " Trước khi Duyệt, chỉ các bước chỉ xem được chạy.", "msg bad"));
+  }
+  $("runRestore").hidden = !flow.has_previous;
+  renderTeach(flow);
   $("runBox").hidden = !flow || flow.engine !== "ie";
   const note = $("simNote"); note.textContent = "";   // what «Chạy» will use: the requests learned with this flow
   if (flow && flow.engine === "ie") {
@@ -1059,10 +1066,43 @@ async function pollRun(ids = RUN_IDS) {
     if (status.result) {
       clearInterval(runTimer); runTimer = null;
       $(ids.msg).textContent = ""; $(ids.msg).append(el("div", status.result.message, status.result.status === "finished" ? "msg ok" : "msg bad"));
+      if (status.result.teach_after && currentFlow) $(ids.msg).append(teachCard(currentFlow.title, status.result.teach_after, ids.msg));
     }
   };
   runTimer = setInterval(tick, 500); tick();
 }
+// task 12.5 (SADPT): the run stopped at something new on the screen: the teller teaches only that part; the agent puts it into the
+// flow as a new version that waits for Duyệt (the version in use does not change until then)
+function teachCard(title, afterStep, msgId) {
+  const card = el("div", undefined, "msg"), go = el("button", "Dạy lại đoạn này", "primary"), done = el("button", "Xong đoạn này");
+  done.hidden = true;
+  card.append(el("div", "Nếu đây là bước mới của quy trình, bạn chỉ cần làm đúng phần mới này một lần: agent ghép nó vào việc đã học, các bước khác giữ nguyên."));
+  go.onclick = async () => {
+    try {
+      await api("POST", "/api/teach/start", { title, after_step: afterStep, window: $("runWindow").value });
+      go.hidden = true; done.hidden = false;
+      card.append(el("div", "Đang ghi đoạn mới: làm phần mới trên màn hình (ví dụ bấm nút ở hộp thoại mới), rồi bấm «Xong đoạn này».", "detail"));
+    } catch (e) { card.append(el("div", e.message, "msg bad")); }
+  };
+  done.onclick = async () => {
+    try {
+      const r = await api("POST", "/api/teach/stop", {});
+      done.hidden = true;
+      card.append(el("div", "Đã tạo bản " + r.version + " (thêm: " + ((r.added || []).join(", ") || "không có") + "). Bản này chờ Duyệt; trước đó việc vẫn chạy như cũ.", "msg ok"));
+      await loadFlows();
+    } catch (e) { card.append(el("div", e.message, "msg bad")); }
+  };
+  const row = el("div", undefined, "row"); row.append(go, done); card.append(row);
+  return card;
+}
+$("runRestore").onclick = async () => {
+  if (!currentFlow) return;
+  try {
+    const r = await api("POST", "/api/flow/restore", { title: currentFlow.title });
+    $("runMsg").textContent = ""; $("runMsg").append(el("div", "Đã tạo bản " + r.version + " giống bản " + r.to + ". Bản này chờ Duyệt rồi mới dùng.", "msg ok"));
+    await loadFlows();
+  } catch (e) { $("runMsg").append(el("div", e.message, "msg bad")); }
+};
 // the canvas follows the run: the step running pulses, done ones turn green, a stop or a question turns red or amber
 const LIVE_WORDS = { running: "▶ đang chạy", done: "✓ xong", skipped: "↷ bỏ qua", waiting_approval: "⏸ chờ Duyệt", waiting_review: "⏸ chờ bạn", needs_help: "? cần bạn giúp", stopped: "■ đã dừng", rejected: "✕ không duyệt", refused: "✕ bị từ chối", failed: "✕ lỗi", auto_approved: "✓ tự duyệt (thử)" };
 // task 7.5: what one step of a simulated run did: the action, the requests sent, what came back, the time and the state
@@ -1221,6 +1261,42 @@ function drawNodes(row, nodes, onPick) {
 function showNodeLines(box, node) {
   box.textContent = ""; const d = el("div", undefined, "msg ok");
   d.append(el("strong", node.n + ": " + node.t)); node.lines.forEach((l) => d.append(el("div", l, "detail"))); box.append(d);
+}
+function renderTeach(flow) {
+  const box = $("teachBox");
+  box.textContent = "";
+  if (!flow || flow.engine !== "ie" || !flow.workflow_id || !(flow.teach_steps || []).length) { box.hidden = true; return; }
+  box.hidden = false;
+  box.append(el("div", "Dạy lại đúng đoạn đổi, bắt đầu sau một bước còn khớp. Bản đang dùng không đổi cho tới khi Duyệt.", "sub"));
+  const row = el("div", undefined, "row");
+  const sel = el("select");
+  for (const step of flow.teach_steps) { const o = el("option", step.label || step.id); o.value = step.id; sel.append(o); }
+  const go = el("button", "Dạy lại đoạn này"), done = el("button", "Xong đoạn này");
+  done.hidden = true;
+  const say = (text, kind) => { const old = box.querySelector(".msg"); if (old) old.remove(); if (text) box.append(el("div", text, "msg" + (kind ? " " + kind : ""))); };
+  go.onclick = async () => {
+    say("");
+    try {
+      await api("POST", "/api/teach/start", { title: flow.title, after_step: sel.value, window: $("runWindow").value });
+      go.hidden = true; sel.disabled = true; done.hidden = false;
+      say("Đang ghi đoạn mới. Làm đúng phần đổi trên màn hình, rồi bấm «Xong đoạn này».", "ok");
+    } catch (e) { say(e.message, "bad"); }
+  };
+  done.onclick = async () => {
+    try {
+      const r = await api("POST", "/api/teach/stop", {});
+      done.hidden = true;
+      say("Đã tạo bản " + r.version + " (thêm: " + ((r.added || []).join(", ") || "không có") + "). Chạy thử trên bản sao, rồi nhờ người khác Duyệt.", "ok");
+      await loadFlows();
+    } catch (e) { say(e.message, "bad"); }
+  };
+  row.append(sel, go, done);
+  if (flow.repair_pending && flow.repair_kind === "teach" && flow.repair_version) {
+    const trial = el("button", "Chạy thử trên bản sao");
+    trial.onclick = () => tryUpdate({ title: flow.title, version: flow.repair_version }, box);
+    row.append(trial);
+  }
+  box.append(row);
 }
 function drawFlow(flow) {
   renderRunInputs(flow); loadRunWindows();

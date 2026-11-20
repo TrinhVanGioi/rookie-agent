@@ -300,3 +300,21 @@ def test_without_traces_or_without_a_builder_the_old_way_is_unchanged(tmp_path):
     assert body["method"] == "rule" and "fallback_reason" not in body
     body = client.post("/workflows/learn", json={"title": "Dang nhap 2", "session_ids": ids, "traces": [{"x": 1}]}).json()
     assert body["method"] == "rule" and "chưa bật" in body["fallback_reason"]
+
+
+def test_an_ie_recording_that_says_what_the_screen_showed_is_taken_and_learned_as_version_4(client):
+    """Task 12.1: schema 4 sessions (events with `shows`) go in and give a flow whose steps carry a postcondition."""
+    from tests.test_learner import lookup_run
+
+    ids = []
+    for name in ("v4-a", "v4-b"):
+        events = [{**e, "session_id": name} for e in lookup_run(name)]
+        body = {"schema_version": 4, "engine": "ie", "session_id": name, "events": events}
+        assert client.post("/sessions", json=body).status_code == 201, client.post("/sessions", json=body).text
+        ids.append(name)
+    reply = client.post("/workflows/learn", json={"title": "Tra cứu tài khoản", "session_ids": ids})
+    assert reply.status_code == 201, reply.text
+    workflow = reply.json()["workflow"]
+    assert workflow["schema_version"] == 4 and workflow["steps"][1]["expect"]["appears"][0]["name"] == "tblInfo"
+    shown = dict(body, schema_version=4, session_id="v4-x", events=[{**e, "session_id": "v4-x", "shows": [{"frame": "w", "kind": "value", "name": "1"}]} for e in events])
+    assert client.post("/sessions", json=shown).status_code == 422                       # what the screen showed is names only, by kind

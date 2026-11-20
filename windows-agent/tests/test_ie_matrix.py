@@ -259,6 +259,9 @@ def test_statement_slips_printed_in_a_dialog_recorded_twice_with_a_mistake_learn
             print("\nNODES\n" + names)
         assert not any("dlgMessageBox" in n["url"] for n in flow["api"]), names          # the message box is not learned
         assert any(n["kind"] == "file" for n in flow["api"]), names                      # the PDF of the dialog is
+        steps = flow["workflow"]["steps"]                                                # task 12.1: what the screen showed, as postconditions
+        assert flow["workflow"]["schema_version"] == 4 and any(s.get("expect") for s in steps), steps
+        assert any({"kind": "table", "name": "tblInfo"}.items() <= a.items() for s in steps for a in (s.get("expect") or {}).get("appears", [])), steps
         values = {"acct": "9988776655", "from": "03/11/2026", "to": "18/11/2026"}
         inputs = inputs_for(flow, values)
         assert set(inputs.values()) == set(values.values()), (flow["workflow"]["inputs"], inputs)
@@ -417,3 +420,147 @@ def test_a_transfer_is_learned_as_money_never_sent_by_request_and_on_the_screen_
     assert risks[-1] == "money", risks                                                     # the run stopped at the money step for a person
     assert state["result"]["status"] in ("rejected", "stopped"), state["result"]
     assert not [s for s in tp.seen if s.startswith("TransferService")], tp.seen           # no order without the person's yes
+
+
+# ---- Gate 12 (SADPT): the application changes, Rookie keeps working within what it may do ----------------------------------------
+
+def lookup(acct, start, end):
+    find_account(acct)
+    history(start, end)
+
+
+def run_to_end(core, tab, title, inputs, answer=None, seconds=90):
+    """A run on the screen; `answer(ask)` decides each question (none expected when it is None: the test fails on the first one)."""
+    status, reply = core.dispatch("POST", "/api/run/start", {"title": title, "window": f"ie-tab:{tab['id']}", "inputs": inputs})
+    assert status == 200, reply
+    asked = []
+    end = time.monotonic() + seconds
+    while time.monotonic() < end:
+        state = core.dispatch("GET", "/api/run/status", {})[1]
+        if state.get("result"):
+            return state, asked
+        if state.get("ask"):
+            asked.append(state["ask"])
+            assert answer is not None, state["ask"]
+            reply = answer(state["ask"])
+            if reply is None:
+                core.dispatch("POST", "/api/run/stop", {})
+            else:
+                core.dispatch("POST", "/api/run/decide", {"ask_id": state["ask"]["id"], **reply})
+        time.sleep(0.3)
+    raise AssertionError(core.dispatch("GET", "/api/run/status", {})[1])
+
+
+def open_screen(menu, element):
+    drive("fr-click", frame="menu", id=menu)
+    wait_for("work", f"document.getElementById('{element}') != null")
+
+
+def test_sadpt_a_new_look_of_the_screen_is_found_again_without_recording_again_checked_and_kept_as_a_draft(tmp_path):
+    from fastapi.testclient import TestClient
+
+    title = "Tra cứu lịch sử"
+    with TestClient(server_app(tmp_path)) as server, touchpoint_ie() as (bridge, tp):
+        core = core_with(tmp_path, bridge, server)
+        tab = tab_of(bridge)
+        open_screen("mnuAcct", "txtAcct")
+        ids = [record(core, tab, "tra cuu 1", lambda: lookup("0123456789", "01/11/2026", "15/11/2026")),
+               record(core, tab, "tra cuu 2", lambda: lookup("5566778899", "02/11/2026", "20/11/2026"))]
+        assert core.dispatch("POST", "/api/learn", {"ids": ids, "title": title})[0] == 200
+        flow = core.store.get("flows")[0]
+        assert flow["workflow"]["schema_version"] == 4, flow["workflow"]
+        assert core.dispatch("POST", "/api/flow/approve", {"title": title})[0] == 200
+        inputs = inputs_for(flow, {"acct": "9988776655", "from": "03/11/2026", "to": "18/11/2026"})
+        open_screen("mnuAcct", "txtAcct")
+        first, _ = run_to_end(core, tab, title, inputs)                       # version 1 on the old look: as learned
+        assert first["result"]["status"] == "finished", first["result"]
+        tp.ui = 2                                                              # the bank changes the screen: new ids, the button moved
+        open_screen("mnuAcct", "txtAccountNo")
+        tp.seen.clear()
+        state, asked = run_to_end(core, tab, title, inputs)                   # no question: the agent finds the button again itself
+        result = state["result"]
+        assert result["status"] == "finished", result
+        assert "AcctService.find(9988776655)" in tp.seen and "HistoryService.list(9988776655,03/11/2026,18/11/2026)" in tp.seen, tp.seen
+        again = [d for d in result.get("decisions") or [] if d["action"] == "reresolve"]
+        assert again and all(d["outcome"] == "done" and d["change"] == "technical" for d in again), result.get("decisions")
+        kept = core.store.get("flows")[0]
+        assert kept["workflow"]["status"] == "approved" and kept["repair"]["workflow"]["status"] == "draft"    # nothing published by itself
+        assert any("btnSearchAccount" in sel for s in kept["repair"]["workflow"]["steps"] for sel in (s.get("target") or {}).get("selectors", []))
+        audit = (core.store.home / "audit.jsonl").read_text(encoding="utf-8")
+        assert '"by": "agent"' in audit and '"reresolve"' in audit and "9988776655" not in audit
+        _quit_new_windows = base()._quit_windows_of_this_site
+        _quit_new_windows(bridge.test_port)
+
+
+def test_sadpt_a_new_look_of_a_money_screen_is_never_found_again_by_the_agent_it_asks(tmp_path):
+    from fastapi.testclient import TestClient
+
+    title = "Lập lệnh chuyển tiền"
+    with TestClient(server_app(tmp_path)) as server, touchpoint_ie() as (bridge, tp):
+        core = core_with(tmp_path, bridge, server)
+        tab = tab_of(bridge)
+        ids = [record(core, tab, "lap lenh 1", lambda: transfer("0123456789", "0987654321", "1500000")),
+               record(core, tab, "lap lenh 2", lambda: transfer("5566778899", "1122334455", "2700000"))]
+        assert core.dispatch("POST", "/api/learn", {"ids": ids, "title": title})[0] == 200
+        flow = core.store.get("flows")[0]
+        assert flow["workflow"]["steps"][-1]["adapt"] == {"reresolve": False}, flow["workflow"]["steps"][-1]
+        assert core.dispatch("POST", "/api/flow/approve", {"title": title})[0] == 200
+        by_label = {"Tài khoản chuyển": "9988776655", "Tài khoản nhận": "1231231231", "Số tiền": "500000", "Nội dung": "Chuyen tien thu"}
+        inputs = {i["name"]: by_label[i["label"]] for i in flow["workflow"]["inputs"] if i.get("label") in by_label}
+        tp.ui = 2
+        open_screen("mnuTransfer", "btnSendForApproval")
+        tp.seen.clear()
+        kinds = []
+
+        def answer(ask):
+            kinds.append(ask.get("kind") or ask.get("type"))
+            return {"approve": True} if not ask.get("candidates") else None    # the approval yes; the pick: the person stops here
+        state, asked = run_to_end(core, tab, title, inputs, answer=answer)
+        assert any(a.get("candidates") for a in asked), asked                  # the money button was put to the person, never taken
+        assert not [s for s in tp.seen if s.startswith("TransferService")], tp.seen
+        assert not any(d.get("action") == "reresolve" for d in state["result"].get("decisions") or []), state["result"]
+
+
+def test_sadpt_a_business_change_stops_at_the_new_box_the_teller_teaches_only_that_part_and_version_2_runs_after_duyet(tmp_path):
+    from fastapi.testclient import TestClient
+
+    title = "Tra cứu lịch sử"
+    with TestClient(server_app(tmp_path)) as server, touchpoint_ie() as (bridge, tp):
+        core = core_with(tmp_path, bridge, server)
+        tab = tab_of(bridge)
+        open_screen("mnuAcct", "txtAcct")
+        ids = [record(core, tab, "tra cuu 1", lambda: lookup("0123456789", "01/11/2026", "15/11/2026")),
+               record(core, tab, "tra cuu 2", lambda: lookup("5566778899", "02/11/2026", "20/11/2026"))]
+        assert core.dispatch("POST", "/api/learn", {"ids": ids, "title": title})[0] == 200
+        assert core.dispatch("POST", "/api/flow/approve", {"title": title})[0] == 200
+        flow = core.store.get("flows")[0]
+        inputs = inputs_for(flow, {"acct": "9988776655", "from": "03/11/2026", "to": "18/11/2026"})
+        tp.biz = 2                                                             # a new rule: a confirmation box after the search
+        open_screen("mnuAcct", "txtAcct")
+        tp.seen.clear()
+        state, _ = run_to_end(core, tab, title, inputs)
+        stopped = state["result"]
+        assert stopped["status"] == "needs_help" and "chưa từng thấy" in stopped["message"] and stopped.get("teach_after"), stopped
+        assert not [s for s in tp.seen if s.startswith("HistoryService")], tp.seen       # it stopped at the safe point, before going on
+        assert any(d["change"] == "business" for d in stopped["decisions"]), stopped["decisions"]
+        # the box is on the screen: the teller teaches only that part
+        status, reply = core.dispatch("POST", "/api/teach/start", {"title": title, "after_step": stopped["teach_after"], "window": f"ie-tab:{tab['id']}"})
+        assert status == 200, reply
+        time.sleep(1.0)
+        drive("fr-click", frame="work/dlg", id="btnOK")
+        time.sleep(1.0)
+        status, made = core.dispatch("POST", "/api/teach/stop", {})
+        assert status == 200 and made["version"] == 2 and made["added"], made
+        kept = core.store.get("flows")[0]
+        assert kept["workflow"]["version"] == 1 and kept["repair"]["kind"] == "teach"             # version 1 stays in use until Duyệt
+        assert core.dispatch("POST", "/api/flow/approve", {"title": title})[0] == 200
+        kept = core.store.get("flows")[0]
+        assert kept["workflow"]["version"] == 2 and kept["previous"][-1]["version"] == 1           # version 1 kept to go back to
+        open_screen("mnuAcct", "txtAcct")
+        tp.seen.clear()
+        state, asked = run_to_end(core, tab, title, inputs, answer=lambda ask: {"approve": True})   # the new press waits for Duyệt
+        assert state["result"]["status"] == "finished", state["result"]
+        assert "HistoryService.list(9988776655,03/11/2026,18/11/2026)" in tp.seen, tp.seen
+        assert asked and all(a.get("kind") == "approve" for a in asked), asked
+        _quit_new_windows = base()._quit_windows_of_this_site
+        _quit_new_windows(bridge.test_port)

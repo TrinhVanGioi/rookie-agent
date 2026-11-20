@@ -9,6 +9,8 @@ Standard library only, so the same pages are served by the mock site (FastAPI, f
 - an account looked up with Enter or with the button; the transaction history between two dates; rows ticked with check boxes;
 - «IN BÁO NỢ/CÓ» opens a dialog (`showModalDialog`) whose form posts into a frame and gets a PDF; «XUẤT SAO KÊ» opens a PDF with
   `window.open`; «TẢI EXCEL» posts a form into a hidden frame and gets a file (attachment);
+- a date is chosen the way TouchPoint's `monthCalendar` does it: the icon beside the field, then a day number in the month grid
+  (the two presses are one date; `?ro=1` makes «Từ ngày» read-only so a run stops and asks);
 - the page's own message box (`/tp/utilities/dlgMessageBox.jsp`) after a mistaken press (a date in the wrong format, nothing ticked);
 - the page asks the server by itself every few seconds (`keepalive`);
 - a transfer screen (money: «GỬI DUYỆT») and the checker's approval screen («DUYỆT», a person's own press).
@@ -163,7 +165,7 @@ def _doc(title: str, body: str, script: str = "", onload: str = "") -> bytes:
     return (head + f"<body{' onload=\"' + onload + '\"' if onload else ''}>{body}</body></html>").encode("utf-8")
 
 
-LOGIN_BODY = """<h3>TouchPoint (giả lập) – Đăng nhập</h3><form method="post" action="/tp/login"><table>
+LOGIN_BODY = """<h3>Quầy mẫu – Đăng nhập</h3><form method="post" action="/tp/login"><table>
 <tr><td>Tên đăng nhập</td><td><input type="text" id="txtUser" name="txtUser"></td></tr>
 <tr><td>Mật khẩu</td><td><input type="password" id="txtPw" name="txtPw"></td></tr></table>
 <input type="submit" class="b" id="btnLogin" value="ĐĂNG NHẬP"> <span class="err">%s</span></form>
@@ -174,9 +176,11 @@ ACCT_BODY = """<h3>Tra cứu tài khoản</h3>
 <td><input type="button" class="b" id="btnFind" value="TRA CỨU" onclick="findAcct()"></td></tr></table>
 <div id="info"></div>
 <div id="hist" style="display:none;margin-top:10px">
-<table><tr><td>Từ ngày</td><td><input type="text" id="txtFrom" name="txtFrom" size="10"></td>
-<td>Đến ngày</td><td><input type="text" id="txtTo" name="txtTo" size="10"></td>
+<table><tr><td>Từ ngày</td><td><input type="text" id="txtFrom" name="txtFrom" size="10"> <input type="button" class="cal" id="btnCalFrom" name="cal-txtFrom" value="Lịch" title="Chọn ngày" onclick="openCal('txtFrom')"></td>
+<td>Đến ngày</td><td><input type="text" id="txtTo" name="txtTo" size="10"> <input type="button" class="cal" id="btnCalTo" name="cal-txtTo" value="Lịch" title="Chọn ngày" onclick="openCal('txtTo')"></td>
 <td><input type="button" class="b" id="btnHistory" value="XEM LỊCH SỬ" onclick="showHistory()"></td></tr></table>
+<div id="calBox" style="display:none;margin-top:6px;padding:4px;border:1px solid #234;background:#fff"><div>Tháng 11 năm 2026</div>%s
+<input type="button" id="calClose" value="Đóng" onclick="closeCal()"></div>
 <div id="rows"></div>
 <p><input type="button" class="b" id="btnPrint" value="IN BÁO NỢ/CÓ" onclick="printSlips()">
 <input type="button" class="b" id="btnPrintData" value="XEM BÁO NỢ/CÓ" onclick="printData()">
@@ -197,6 +201,7 @@ function findAcct() {
     $("info").innerHTML = '<table class="g" id="tblInfo"><tr><th>Số TK</th><th>Chủ tài khoản</th><th>Chi nhánh</th><th>Số dư</th></tr><tr><td>'
       + data[0] + '</td><td>' + data[1] + '</td><td>' + data[2] + '</td><td>' + money(data[3]) + ' ' + data[4] + '</td></tr></table>';
     $("hist").style.display = "block"; $("rows").innerHTML = "";
+    if (BIZ > 1) { msgBox("Theo quy định mới: xác nhận khách hàng đã xuất trình giấy tờ tuỳ thân trước khi xem lịch sử."); }
   });
 }
 function showHistory() {
@@ -240,6 +245,28 @@ function excel() {
   $("frmExcel").submit();
 }
 window.setInterval(keepAlive, 4000);
+var calFor = "";
+function openCal(id) {
+  var input = $(id);
+  if (!input) { return; }
+  if (input.readOnly) { msgBox("Ô ngày chỉ đọc, không chọn được."); return; }
+  calFor = id;
+  $("calBox").style.display = "block";
+}
+function closeCal() { $("calBox").style.display = "none"; calFor = ""; }
+function pickDay(btn) {
+  var input = $(calFor);
+  if (!input) { return; }
+  if (input.readOnly) { msgBox("Ô ngày chỉ đọc, không nhập được."); closeCal(); return; }
+  input.value = btn.name;
+  try { input.fireEvent("onchange"); } catch (e) {}
+  try {
+    if (input.dispatchEvent && document.createEvent) {
+      var ev = document.createEvent("HTMLEvents"); ev.initEvent("change", true, true); input.dispatchEvent(ev);
+    }
+  } catch (e2) {}
+  closeCal();
+}
 """
 
 TRANSFER_BODY = """<h3>Lập lệnh chuyển tiền</h3><table>
@@ -302,6 +329,32 @@ function fillAdvice() {
 }
 """
 
+def _month_days() -> str:
+    """One month grid, the way TouchPoint's monthCalendar lays days out: a button per day, its name the date it writes."""
+    return "".join(
+        f'<input type="button" class="day" id="calD{n}" name="{n:02d}/11/2026" value="{n}" onclick="pickDay(this)">'
+        for n in range(1, 32)
+    )
+
+
+def acct_body(ui: int = 1) -> str:
+    """The account screen. Look 2 (Gate 12 demo): the same words, but new ids and the search button before the field."""
+    if ui < 2:
+        return ACCT_BODY % _month_days()
+    moved = ACCT_BODY.replace(
+        '<table><tr><td>Số tài khoản</td><td><input type="text" id="txtAcct" name="txtAcct" onkeydown="if (event.keyCode == 13) { findAcct(); return false; }"></td>\n'
+        '<td><input type="button" class="b" id="btnFind" value="TRA CỨU" onclick="findAcct()"></td></tr></table>',
+        '<table><tr><td><input type="button" class="b" id="btnFind" value="TRA CỨU" onclick="findAcct()"></td>\n'
+        '<td>Số tài khoản</td><td><input type="text" id="txtAcct" name="txtAcct" onkeydown="if (event.keyCode == 13) { findAcct(); return false; }"></td></tr></table>')
+    assert moved != ACCT_BODY
+    return (moved % _month_days()).replace("txtAcct", "txtAccountNo").replace("btnFind", "btnSearchAccount")
+
+
+def acct_js(ui: int = 1, biz: int = 1) -> str:
+    script = f"var BIZ = {int(biz)};" + ACCT_JS
+    return script.replace("txtAcct", "txtAccountNo") if ui >= 2 else script
+
+
 MSGBOX_BODY ="""<h3>Thông báo</h3><p class="err" id="msgText">%s</p><input type="button" class="b" id="btnOK" value="ĐỒNG Ý" onclick="closeMe()">"""
 
 
@@ -314,6 +367,29 @@ class TouchPoint:
         self.transfers: list[dict[str, Any]] = []
         self.seen: list[str] = []          # what the services were asked (for tests): service.method(args)
         self.lock = threading.Lock()
+        # Gate 12 (SADPT demo): ui 2 is a new look of the account screen (ids renamed, the search button moved, same words); biz 2 is
+        # a business change (a new confirmation box after the search). A test sets them here; a person uses /tp/?ui=2 or /tp/?biz=2.
+        self.ui, self.biz, self.ro = 1, 1, False
+
+    def _variant(self, headers: dict[str, str]) -> tuple[int, int]:
+        cookie = SimpleCookie()
+        try:
+            cookie.load(headers.get("cookie", ""))
+        except Exception:  # noqa: BLE001
+            pass
+        pick = lambda name, own: max(own, int(cookie[name].value) if name in cookie and cookie[name].value in ("1", "2") else 1)   # noqa: E731
+        return pick("TPUI", self.ui), pick("TPBIZ", self.biz)
+
+    def _readonly_dates(self, headers: dict[str, str]) -> bool:
+        """`?ro=1` (cookie TPRO): «Từ ngày» cannot be typed, so a run that fills it stops and asks."""
+        if self.ro:
+            return True
+        cookie = SimpleCookie()
+        try:
+            cookie.load(headers.get("cookie", ""))
+        except Exception:  # noqa: BLE001
+            return False
+        return "TPRO" in cookie and cookie["TPRO"].value == "1"
 
     # ---- helpers ---------------------------------------------------------------------------------------------------------
 
@@ -371,11 +447,16 @@ class TouchPoint:
         parts = urlsplit(target)
         path, query = parts.path, {k: v[0] for k, v in parse_qs(parts.query).items()}
         form = {k: v[0] for k, v in parse_qs(body.decode("utf-8", "replace")).items()} if method == "POST" and b"|" not in body[:4] else {}
-        title = self.prefix + "TouchPoint (giả lập)"
+        title = self.prefix + "Quầy mẫu"
 
         if path in ("/tp", "/tp/", "/tp/login") and method == "GET":
             extra = [("Set-Cookie", "TPDLG=inline; path=/")] if query.get("dlg") == "inline" else (
                 [("Set-Cookie", "TPDLG=modal; path=/")] if query.get("dlg") == "modal" else [])
+            for key, name in (("ui", "TPUI"), ("biz", "TPBIZ")):     # Gate 12 demo: /tp/?ui=2 or /tp/?biz=2 (1 goes back)
+                if query.get(key) in ("1", "2"):
+                    extra.append(("Set-Cookie", f"{name}={query[key]}; path=/"))
+            if query.get("ro") in ("0", "1"):                         # task 12.6: /tp/?ro=1 makes the from-date read-only
+                extra.append(("Set-Cookie", f"TPRO={query['ro']}; path=/"))
             return self._html(_doc(title + " – Đăng nhập", LOGIN_BODY % "", onload="document.getElementById('txtUser').focus()"), extra)
         if path == "/tp/login" and method == "POST":
             user = USERS.get(form.get("txtUser", ""))
@@ -404,7 +485,7 @@ class TouchPoint:
                       '<frame name="rhidden" src="/tp/blank"></frameset>')
             return self._html(f"<html><head><title>{title}</title></head>{frames}</html>".encode("utf-8"))
         if path == "/tp/toolbar":
-            return self._html(_doc("toolbar", f"<b>TouchPoint (giả lập)</b> · {session['name']} · "
+            return self._html(_doc("toolbar", f"<b>Quầy mẫu</b> · {session['name']} · "
                                               "<a id='lnkLogout' href='/tp/logout' target='_top'>Đăng xuất</a>"))
         if path == "/tp/menu":
             links = [("mnuAcct", "/tp/acct", "Tra cứu tài khoản"), ("mnuTransfer", "/tp/transfer", "Lập lệnh chuyển tiền")]
@@ -415,9 +496,18 @@ class TouchPoint:
         if path == "/tp/home":
             return self._html(_doc("Trang chủ", "<h3>Trang chủ</h3><p>Chọn chức năng ở bên trái.</p>"))
         if path == "/tp/acct":
-            return self._html(_doc("Tra cứu tài khoản", ACCT_BODY, ACCT_JS))
+            ui, biz = self._variant(headers)
+            body_html = acct_body(ui)
+            if self._readonly_dates(headers):
+                body_html = body_html.replace('id="txtFrom" name="txtFrom"', 'id="txtFrom" name="txtFrom" readonly', 1)
+            return self._html(_doc("Tra cứu tài khoản", body_html, acct_js(ui, biz)))
         if path == "/tp/transfer":
-            return self._html(_doc("Chuyển tiền", TRANSFER_BODY, TRANSFER_JS))
+            body_html = TRANSFER_BODY
+            if self._variant(headers)[0] >= 2:   # look 2: the money button renamed, with a new button before it (same words)
+                body_html = body_html.replace('<input type="button" class="b" id="btnSubmit"',
+                                              '<input type="button" class="b" id="btnClear" value="NHẬP LẠI" onclick="location.reload()"> '
+                                              '<input type="button" class="b" id="btnSendForApproval"')
+            return self._html(_doc("Chuyển tiền", body_html, TRANSFER_JS))
         if path == "/tp/approve":
             return self._html(_doc("Phê duyệt", APPROVE_BODY, APPROVE_JS))
         if path == "/tp/logout":

@@ -12,12 +12,12 @@ from pathlib import Path
 from typing import Any, Callable, Literal
 
 from fastapi import FastAPI, HTTPException, Request
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app import api_nodes
 from app.auth import require, user as caller
 from app.auth.access import NO_OWNER, can_change, can_see, can_share, sees_session
-from app.learner import LearnError, learn, slug
+from app.learner import LearnError, learn, slug, with_adaptation
 from app.schemas import SchemaError, validate_event, validate_workflow
 from app.storage import Storage
 
@@ -31,7 +31,7 @@ class SessionIn(BaseModel):
     """A recording. Unknown fields are refused, so nothing that identifies a person can ride along."""
 
     model_config = ConfigDict(extra="forbid")
-    schema_version: Literal[1, 2, 3]
+    schema_version: Literal[1, 2, 3, 4]
     engine: Literal["web", "java", "ie"]
     session_id: str = Field(min_length=1, max_length=64)
     events: list[dict[str, Any]] = Field(min_length=1)
@@ -47,6 +47,13 @@ class LearnIn(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=80)
     session_ids: list[str] = Field(min_length=1)
     traces: list[dict[str, Any]] | None = None   # the masked traces of the same recordings (trace.schema.json): the model builds from these
+
+
+class TeachIn(BaseModel):
+    """Task 12.5: the step after which the part taught again goes, and the recording of that part."""
+
+    after_step: str = Field(min_length=1, max_length=64)
+    session_id: str = Field(min_length=1, max_length=64)
 
 
 class ReviseIn(BaseModel):
@@ -82,6 +89,25 @@ class DecisionIn(BaseModel):
     approved: bool | None = None
 
 
+class AdaptationIn(BaseModel):
+    """One adaptation decision (task 12.8): names and states only. A run of digits is a value and is refused."""
+
+    model_config = ConfigDict(extra="forbid")
+    step_id: str = Field(min_length=1, max_length=80)
+    saw: str = Field(pattern=_WORD)
+    change: Literal["technical", "business", "unknown"]
+    action: Literal["reresolve", "ask"]
+    outcome: str = Field(pattern=_WORD)
+    risk: Literal["read", "write", "money"] | None = None
+
+    @field_validator("step_id", "saw", "outcome")
+    @classmethod
+    def no_value(cls, value: str) -> str:
+        if re.search(r"\d{4,}", value):
+            raise ValueError("quyết định thích nghi không được chứa giá trị")
+        return value
+
+
 class RunIn(BaseModel):
     """A run as the PC's audit.jsonl has it, task 10.5: names and states only. Who ran it is the login, not a field."""
 
@@ -96,6 +122,7 @@ class RunIn(BaseModel):
     seconds: float = Field(default=0, ge=0)
     steps: list[StepRunIn] = Field(default=[], max_length=500)
     decisions: list[DecisionIn] = Field(default=[], max_length=200)
+    adaptations: list[AdaptationIn] = Field(default=[], max_length=200)
     via: str | None = Field(default=None, pattern=r"^[a-z_]{0,24}$")
     input_names: list[str] = Field(default=[], max_length=50)
 
@@ -252,6 +279,7 @@ def create_app(db_path: str | Path | None = None, auth_mode: str | None = None, 
             else:
                 try:
                     built = model.build(body.traces, workflow_id, version, body.title)
+                    built.workflow = with_adaptation(built.workflow, sessions)     # task 12.1: the same postconditions as the rules learn
                     storage.add_workflow(built.workflow, built.warnings)
                     storage.add_learn_sources(workflow_id, version, body.session_ids)
                     own(request, workflow_id)
@@ -390,6 +418,45 @@ def create_app(db_path: str | Path | None = None, auth_mode: str | None = None, 
         storage.add_edit(workflow_id, edited["version"], version, caller(request).name, body.ops)
         return workflow_reply(edited, warnings)
 
+    @app.post("/workflows/{workflow_id}/versions/{version}/teach", status_code=201)
+    def teach_part(workflow_id: str, version: int, body: TeachIn, request: Request) -> dict[str, Any]:
+        """Task 12.5 (Delta Learning): the part the teller taught again goes in after `after_step`, as a new draft version; the other
+        steps and the version it was made from stay as they were."""
+        from app import delta
+
+        changeable(request, workflow_id)
+        workflow, warnings = load(workflow_id, version)
+        session = storage.get_session(body.session_id)
+        if session is None or not sees_session(caller(request), session):
+            raise HTTPException(404, f"Không tìm thấy phiên ghi {body.session_id}")
+        new_version = storage.next_version(workflow_id)
+        try:
+            taught, change = delta.splice(workflow, body.after_step, [session["events"]], new_version)
+        except delta.DeltaError as error:
+            raise HTTPException(422, str(error)) from error
+        storage.add_workflow(taught, warnings)
+        api = storage.get_api(workflow_id, version)
+        if api is not None:
+            storage.set_api(workflow_id, new_version, api)     # the calls of the steps that stayed; the new part runs on the screen
+        storage.add_edit(workflow_id, new_version, version, caller(request).name, [change])
+        storage.add_learn_sources(workflow_id, new_version, [body.session_id])
+        return {**workflow_reply(taught, warnings), "change": change}
+
+    @app.post("/workflows/{workflow_id}/versions/{version}/restore", status_code=201)
+    def restore_version(workflow_id: str, version: int, request: Request) -> dict[str, Any]:
+        """Task 12.5: «Quay về bản này»: an older version comes back as a new draft (it is approved again before it is used)."""
+        changeable(request, workflow_id)
+        workflow, warnings = load(workflow_id, version)
+        back = copy.deepcopy(workflow)
+        back["version"], back["status"] = storage.next_version(workflow_id), "draft"
+        validate_workflow(back)
+        storage.add_workflow(back, warnings)
+        api = storage.get_api(workflow_id, version)
+        if api is not None:
+            storage.set_api(workflow_id, back["version"], api)
+        storage.add_edit(workflow_id, back["version"], version, caller(request).name, [{"op": "restore", "to": version}])
+        return workflow_reply(back, warnings)
+
     @app.post("/workflows/{workflow_id}/versions/{version}/edit/preview")
     def edit_preview(workflow_id: str, version: int, body: EditIn, request: Request) -> dict[str, Any]:
         """The flow as it would be after the edits, checked by the same rules; nothing is kept (the canvas shows the server's truth)."""
@@ -440,10 +507,33 @@ def create_app(db_path: str | Path | None = None, auth_mode: str | None = None, 
                 known += 1
         return {"kept": kept, "known": known, "skipped": skipped}
 
+    def _sadpt(workflow_id: str) -> dict[str, Any]:
+        """Task 12.8 (Knowledge): the four SADPT numbers of one flow, from the runs sent up and the parts taught again."""
+        from app.sadpt import measure
+
+        rows: list[dict[str, Any]] = []
+        risks: dict[tuple[Any, Any], dict[str, str]] = {}
+        for run in storage.runs_of(workflow_id, limit=1000):
+            key = (workflow_id, run.get("version"))
+            if key not in risks:
+                found = storage.get_workflow(workflow_id, run.get("version")) if run.get("version") else None
+                steps = (found[0].get("steps") or []) if found else []
+                risks[key] = {step["id"]: step.get("risk") for step in steps if step.get("id")}
+            known = risks[key]
+            for row in run.get("adaptations") or []:
+                stored = known.get(row.get("step_id"))
+                rows.append({**row, "risk": stored if stored in ("read", "write", "money") else row.get("risk")})
+        taught = 0
+        for edit in storage.edits_of(workflow_id):
+            for op in edit.get("ops") or []:
+                if op.get("op") == "teach":
+                    taught += len([step for step in op.get("added") or [] if isinstance(step, str)])
+        return measure(rows, taught)
+
     @app.get("/workflows/{workflow_id}/runs")
     def workflow_runs(workflow_id: str, request: Request) -> dict[str, Any]:
         visible(request, workflow_id)
-        return {"runs": storage.runs_of(workflow_id)}
+        return {"runs": storage.runs_of(workflow_id), "sadpt": _sadpt(workflow_id)}
 
     def _savings(workflow_id: str) -> dict[str, Any]:
         """Task 11.8: by hand (the recordings it was learned from, first action to last) against the finished runs; medians, 3 of each at least."""
@@ -473,7 +563,8 @@ def create_app(db_path: str | Path | None = None, auth_mode: str | None = None, 
     @app.get("/runs/summary")
     def run_summary(request: Request) -> dict[str, Any]:
         who = caller(request)
-        return {"flows": {wid: {**row, **_savings(wid)} for wid, row in storage.run_summary().items() if can_see(who, storage.meta(wid))}}
+        return {"flows": {wid: {**row, **_savings(wid), "sadpt": _sadpt(wid)}
+                          for wid, row in storage.run_summary().items() if can_see(who, storage.meta(wid))}}
 
     # ---- sharing, cloning, owners (task 10.2) ---------------------------------------------------------------------
 

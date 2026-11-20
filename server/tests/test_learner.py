@@ -166,6 +166,19 @@ def ie_event(seq, kind, element, label=None, value=None, value_class=None, sessi
     }
 
 
+def test_a_day_chosen_on_a_calendar_is_a_date_parameter_named_from_the_field():
+    runs = []
+    for session, start, end in (("a", "01/11/2026", "15/11/2026"), ("b", "03/11/2026", "20/11/2026")):
+        runs.append([ie_event(0, "input", "txtFrom", "Từ ngày", value=start, session=session),
+                     ie_event(1, "input", "txtTo", "Đến ngày", value=end, session=session),
+                     ie_event(2, "click", "btnHistory", "XEM LỊCH SỬ", session=session)])
+    workflow, _ = learn(runs, "sao-ke")
+    by_label = {item["label"]: item for item in workflow["inputs"]}
+    assert by_label["Từ ngày"] == {"name": "tu_ngay", "type": "date", "label": "Từ ngày"}
+    assert by_label["Đến ngày"]["name"] == "den_ngay" and by_label["Đến ngày"]["type"] == "date"
+    assert workflow["steps"][0]["value"] == "{tu_ngay}" and workflow["steps"][1]["value"] == "{den_ngay}"
+
+
 def test_a_field_typed_twice_with_another_field_between_is_one_step_with_the_last_value():
     events = [ie_event(0, "input", "txtUser", "User Account", value_class="username"),
               ie_event(1, "input", "txtBranch", "Chi nhanh", value="HN01"),
@@ -245,3 +258,56 @@ def test_recordings_with_too_little_in_common_are_not_one_task():
     with pytest.raises(LearnError) as error:
         learn([a, b], "wf-different")
     assert "cùng một việc" in str(error.value)
+
+
+# ---- task 12.1 (SADPT): what the screen showed after each action becomes the step's postcondition, never a value ----
+
+def shown(event, *items):
+    """The event as the agent sends it from schema 4: with what the screen showed right after it (frame, kind, name)."""
+    return {**event, "schema_version": 4, "shows": [{"frame": f, "kind": k, "name": n} for f, k, n in items]}
+
+
+def lookup_run(session, acct_class="account_number", extra=None):
+    table = [("work", "table", "tblInfo")] + ([extra] if extra else [])
+    return [shown(ie_event(0, "input", "txtAcct", "Số tài khoản", value_class=acct_class, session=session)),
+            shown(ie_event(1, "click", "btnFind", "TRA CỨU", session=session), *table),
+            shown(ie_event(2, "click", "btnSave", "LƯU", session=session), ("work", "message", ""))]
+
+
+def test_recordings_with_what_the_screen_showed_give_a_version_4_flow_with_intent_postcondition_and_adapt_policy():
+    workflow, _ = learn([lookup_run("a", extra=("top", "field", "Giờ")), lookup_run("b"), lookup_run("c")], "wf-lookup")
+    validate_workflow(workflow)
+    assert workflow["schema_version"] == 4
+    fill, find, save = workflow["steps"]
+    assert find["intent"] == "TRA CỨU" and save["intent"] == "LƯU" and "intent" not in fill
+    assert find["expect"] == {"appears": [{"frame": "work", "kind": "table", "name": "tblInfo"}]}    # only what every recording showed
+    assert "expect" not in fill
+    assert [s["adapt"]["reresolve"] for s in workflow["steps"]] == [True, True, False]               # a write step never re-resolves itself
+    assert save["risk"] == "write" and save["mode"] == "approve"
+
+
+def test_a_postcondition_holds_no_value_and_old_recordings_still_learn_the_old_way():
+    workflow, _ = learn([lookup_run("a"), lookup_run("b")], "wf-lookup")
+    assert "0123456789" not in json.dumps(workflow)
+    plain = [[{k: v for k, v in e.items() if k != "shows"} | {"schema_version": 2} for e in run] for run in ([lookup_run("a"), lookup_run("b")])]
+    old, _ = learn(plain, "wf-old")
+    assert old["schema_version"] == 2 and all({"intent", "expect", "adapt"}.isdisjoint(s) for s in old["steps"])
+
+
+def test_a_flow_the_model_built_gets_the_same_postconditions_matched_by_element_and_keeps_its_own_risk():
+    from app.learner import with_adaptation
+
+    runs = [lookup_run("a"), lookup_run("b")]
+    ruled, _ = learn(runs, "wf-lookup")
+    model = json.loads(json.dumps(ruled))
+    model["schema_version"] = 2
+    for step in model["steps"]:
+        for key in ("intent", "expect", "adapt"):
+            step.pop(key, None)
+    model["steps"][1]["risk"], model["steps"][1]["mode"] = "write", "approve"          # the model judged it more risky: that stays
+    plain = json.loads(json.dumps(model))
+    adapted = with_adaptation(model, runs)
+    validate_workflow(adapted)
+    assert adapted["schema_version"] == 4
+    assert adapted["steps"][1]["expect"] == ruled["steps"][1]["expect"] and adapted["steps"][1]["adapt"] == {"reresolve": False}
+    assert with_adaptation(plain, [[{k: v for k, v in e.items() if k != "shows"} for e in r] for r in runs])["schema_version"] == 2

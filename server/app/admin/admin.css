@@ -77,6 +77,12 @@ h2 { font-size: 15px; margin: 20px 0 8px; }
 .legend { display: flex; gap: 12px; flex-wrap: wrap; font-size: 12px; color: var(--sub); margin-top: 8px; align-items: center; }
 .legend .dash { color: var(--accent); }
 
+.sadpt { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 8px; margin-bottom: 12px; }
+.sadpt .card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+.sadpt .k { color: var(--sub); font-size: 12px; }
+.sadpt .n { font-size: 18px; font-weight: 600; margin-top: 2px; }
+.sadpt .card.bad { border-color: var(--bad); } .sadpt .card.bad .n { color: var(--bad); }
+
 .grid { width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; }
 .grid th, .grid td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--line); font-size: 13px; vertical-align: top; }
 .grid th { color: var(--sub); font-weight: 600; background: #fafbfc; }

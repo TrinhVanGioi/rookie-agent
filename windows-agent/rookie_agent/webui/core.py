@@ -353,6 +353,12 @@ class Core:
             if trace_path:
                 hint += f" Bản ghi thô đã che để xem: {trace_path}"
             raise UserError("Chưa ghi được thao tác nào. Hãy thao tác trên ứng dụng sau khi bấm Bắt đầu ghi, rồi mới Dừng." + hint)
+        try:    # task 12.1 (SADPT): what the screen showed after each action, names only; it becomes the steps' postconditions
+            from rookie_agent.adaptive import expect
+
+            events = expect.attach_shows(events, list(getattr(session, "seen", []) or []))
+        except Exception:  # noqa: BLE001  the recording is saved whatever happens here
+            pass
         document = self.store.save(session.session_id, events, name, engine="ie")
         kept = 0
         try:   # Gate 7: the page's requests as templates, on this PC only (what was typed is a mark, never a value)
@@ -681,7 +687,10 @@ class Core:
 
         def listed(flow: dict[str, Any]) -> dict[str, Any]:
             workflow = flow.get("workflow") or {}
-            return {k: v for k, v in flow.items() if k not in ("workflow", "requests", "api", "read_confirmed")} | {
+            return {k: v for k, v in flow.items() if k not in ("workflow", "requests", "api", "read_confirmed", "previous")} | {
+                # task 12.5: what the draft waiting for Duyệt is (a step pointed at again, a part taught again, an old version back)
+                "repair_kind": (flow.get("repair") or {}).get("kind") or ("pick" if flow.get("repair") else None),
+                "has_previous": bool(flow.get("previous")),
                 "savings": savings.summary(list(flow.get("manual_seconds") or []), savings.run_seconds(self.store.home / "audit.jsonl", str(flow.get("title")))),
                 # the nodes the canvas draws (task 8.5): one per step, with the calls it fires; never a template's body
                 "api_nodes": api_nodes(flow.get("api") or [], flow),
@@ -690,6 +699,10 @@ class Core:
                 "step_count": len(workflow.get("steps", [])),
                 "repair_pending": bool(flow.get("repair")), "repair": None, "fingerprint": None,
                 "step_ids": [step.get("id", "") for step in workflow.get("steps", [])],   # the canvas lights the node of the step running
+                # task 12.5: «Dạy lại đoạn này» on the flow card starts after one of these steps; the draft's version is what a twin trial runs
+                "teach_steps": [{"id": step["id"], "label": (step.get("target") or {}).get("label") or step.get("intent") or step["id"]}
+                                for step in workflow.get("steps") or [] if step.get("id")],
+                "repair_version": ((flow.get("repair") or {}).get("workflow") or {}).get("version"),
                 "input_fields": [{"name": i["name"], "label": i.get("label") or i["name"]} for i in workflow.get("inputs", [])]}
 
         return {"flows": [listed(flow) for flow in self.store.get("flows", [])]}
@@ -711,12 +724,99 @@ class Core:
             raise UserError("Không thấy luồng này. Hãy Học lại rồi duyệt.")
         repaired = flow.pop("repair", None)
         if repaired:                      # the corrected version is what the person approves now (task 6.3)
+            # task 12.5: the version it replaces is kept (the last few) so that it can be brought back, approved again
+            flow["previous"] = (list(flow.get("previous") or []) + [flow["workflow"]])[-3:]
             flow["workflow"] = repaired["workflow"]
             self._audit_line({"time": time.strftime("%Y-%m-%d %H:%M:%S"), "title": title, "mode": "repair", "status": "approved",
                               "version": flow["workflow"].get("version"), "steps": [{"id": s, "status": "selectors_changed", "detail": ""} for s in repaired.get("steps", [])]})
         flow["workflow"]["status"] = "approved"
         self.store.put("flows", flows)
         return {"approved": True}
+
+    # ---- task 12.5 (SADPT, Delta Learning): teach again only the part that changed --------------------------------------------
+
+    def _flow_named(self, title: str) -> dict[str, Any]:
+        flow = next((f for f in self.store.get("flows", []) if f.get("title") == title), None)
+        if flow is None or not flow.get("workflow"):
+            raise UserError("Không thấy việc này trên máy. Hãy Học lại.")
+        return flow
+
+    def teach_start(self, body: dict[str, Any]) -> dict[str, Any]:
+        """«Dạy lại đoạn này»: record only the new part, from the step where the run stopped."""
+        title, after = str(body.get("title") or ""), str(body.get("after_step") or "")
+        flow = self._flow_named(title)
+        if not after or after not in {s["id"] for s in flow["workflow"]["steps"]}:
+            raise UserError("Cần biết dạy lại từ bước nào: bấm «Dạy lại đoạn này» ngay ở chỗ việc vừa dừng.")
+        if not flow["workflow"].get("id"):
+            raise UserError("Việc này chưa có trên máy chủ nên chưa dạy lại từng đoạn được. Hãy Học lại khi có máy chủ.")
+        started = self._record_start_ie(str(body.get("window") or ""), requests=True)
+        self._teach = {"title": title, "after_step": after}
+        return {**started, "teaching": True, "after_step": after}
+
+    def teach_stop(self, body: dict[str, Any]) -> dict[str, Any]:
+        teach = getattr(self, "_teach", None)
+        if not teach or self._ie_session is None:
+            raise UserError("Chưa bắt đầu dạy lại đoạn nào.")
+        self._teach = None
+        saved = self._record_stop_ie(f"Dạy lại «{teach['title']}»")
+        made = self._teach_finish(teach["title"], teach["after_step"], saved["id"])
+        return {**saved, **made}
+
+    def _teach_finish(self, title: str, after_step: str, session_id: str) -> dict[str, Any]:
+        """The recorded part to the server, which puts it in after `after_step`; the answer is kept as a draft of this flow, waiting for
+        a person's Duyệt (`flow_approve`). The version in use does not change until then."""
+        from rookie_agent.ie import clean
+
+        flow = self._flow_named(title)
+        workflow = flow["workflow"]
+        document = clean.clean([self.store.load(session_id)])[0]
+        client = self._server()
+        try:
+            try:
+                client.post_session(session_id, "ie", self._events_for_server(document), **self._process_fields(document))
+            except ServerError as error:
+                if getattr(error, "status", None) != 409:
+                    raise
+            reply = client.teach(workflow["id"], int(workflow.get("version") or 1), after_step, session_id)
+        except ServerError as error:
+            raise UserError(str(error)) from error
+        draft = reply["workflow"]
+        added = list((reply.get("change") or {}).get("added") or [])
+        flows = self.store.get("flows", [])
+        for one in flows:
+            if one.get("title") == title:
+                one["repair"] = {"workflow": draft, "steps": added, "time": time.strftime("%Y-%m-%d %H:%M:%S"), "kind": "teach"}
+        self.store.put("flows", flows)
+        self._audit_line({"time": time.strftime("%Y-%m-%d %H:%M:%S"), "title": title, "mode": "teach", "status": "waiting_approval",
+                          "version": draft.get("version"), "after": after_step, "steps": [{"id": s, "status": "added", "detail": ""} for s in added]})
+        by_id = {s["id"]: s for s in draft.get("steps") or []}
+        return {"version": draft.get("version"), "added": [friendly_step(by_id[s]["action"], (by_id[s].get("target") or {}).get("label")) for s in added if s in by_id],
+                "warnings": list(reply.get("warnings") or [])}
+
+    def flow_restore(self, body: dict[str, Any]) -> dict[str, Any]:
+        """«Quay về bản trước»: the version before comes back as a new draft; it is approved again before it is used."""
+        title = str(body.get("title") or "")
+        flow = self._flow_named(title)
+        previous = list(flow.get("previous") or [])
+        if not previous:
+            raise UserError("Chưa có bản trước để quay về.")
+        before = previous[-1]
+        draft = None
+        if before.get("id"):
+            try:
+                draft = self._server().restore(before["id"], int(before.get("version") or 1))["workflow"]
+            except ServerError:
+                draft = None             # no server now: the draft is made here, the same way
+        if draft is None:
+            draft = {**json.loads(json.dumps(before)), "version": int(flow["workflow"].get("version") or 1) + 1, "status": "draft"}
+        flows = self.store.get("flows", [])
+        for one in flows:
+            if one.get("title") == title:
+                one["repair"] = {"workflow": draft, "steps": [], "time": time.strftime("%Y-%m-%d %H:%M:%S"), "kind": "restore"}
+        self.store.put("flows", flows)
+        self._audit_line({"time": time.strftime("%Y-%m-%d %H:%M:%S"), "title": title, "mode": "restore", "status": "waiting_approval",
+                          "version": draft.get("version"), "to": before.get("version"), "steps": []})
+        return {"version": draft.get("version"), "to": before.get("version")}
 
     def _read_confirm(self, title: str, step_id: str) -> None:
         """The teller said this step only looks: kept on the flow saved on this PC, per step (the time only; no value, no name)."""
@@ -975,7 +1075,10 @@ class Core:
             now_print = []
         before = flow.get("fingerprint") or []
         changed = bool(now_print and before and locate.screen_similarity(before, now_print) < locate.SAME_SCREEN)
-        if changed and mode == "run" and not body.get("confirm_changed"):
+        # task 12.3 (SADPT): a version 4 flow that only reads checks every step itself (postconditions, finding an element again), so
+        # a changed screen is no reason to refuse it; a flow with a write or money step is still stopped here first
+        self_checking = int(workflow.get("schema_version") or 0) >= 4 and all(s["risk"] == "read" for s in workflow["steps"])
+        if changed and mode == "run" and not body.get("confirm_changed") and not self_checking:
             try:
                 bridge.unbind()
             except Exception:  # noqa: BLE001
@@ -995,7 +1098,7 @@ class Core:
         def work() -> None:
             try:
                 driver = IeDriver(bridge, tab["id"])
-                result = run_workflow(workflow, inputs, driver, controller, stop, values=shared, engine="ie", versions=(2, 3),
+                result = run_workflow(workflow, inputs, driver, controller, stop, values=shared, engine="ie", versions=(2, 3, 4),
                                       allow_write_on_real=bool(self.store.get("ie_allow_write_on_real", False)),
                                       download_steps={n["step_id"]: str(n.get("label") or n["step_id"]).split(" → ")[0] for n in flow.get("api") or []
                                                       if n.get("kind") == "file" and n.get("step_id")})
@@ -1010,6 +1113,8 @@ class Core:
                     pass
             if changed and mode == "dry":
                 result["message"] = "Màn hình đã đổi so với lần chạy trước. " + str(result.get("message") or "")
+            elif changed and self_checking:
+                result["message"] = "Màn hình đã đổi so với lần chạy trước; agent đã tự kiểm từng bước. " + str(result.get("message") or "")
             state["result"] = result
             if result["status"] == "finished" and mode == "run" and now_print:
                 self._keep_fingerprint(flow["title"], now_print)
@@ -1130,6 +1235,8 @@ class Core:
             elif "đăng nhập" in str(result.get("message")):
                 self._cache_clear(tab["id"])      # the session of this tab has ended: what it gave is not kept
             state["result"] = result
+            if result.get("contract_changed"):
+                self._mark_contract(flow["title"], list(result["contract_changed"]))
             self._audit(state, result)        # step ids and states only: no request, no answer
 
         state["thread"] = threading.Thread(target=work, name="ie-simulate", daemon=True)
@@ -1239,7 +1346,20 @@ class Core:
         flow["repair"] = {"workflow": fixed, "steps": steps, "time": time.strftime("%Y-%m-%d %H:%M:%S")}
         self.store.put("flows", flows)
         self._audit_line({"time": flow["repair"]["time"], "title": title, "mode": "repair", "status": "waiting_approval",
-                          "version": fixed["version"], "steps": [{"id": s, "status": "selectors_changed", "detail": ""} for s in sorted(changed)]})
+                          "version": fixed["version"], "steps": [{"id": s, "status": "selectors_changed", "detail": ""} for s in sorted(changed)],
+                          # task 12.3: found again by the agent (strong evidence, checked after) or pointed at by the teller
+                          "by": "agent" if all(r.get("auto") for r in repairs) else "teller"})
+
+    def _mark_contract(self, title: str, node_ids: list[str]) -> None:
+        """Task 12.4: the calls whose answer came in another form are marked «cần xác minh» on the flow; a run by request then stops
+        before sending anything (`replay.run_api`) until the flow is learned again or someone checks the call on the admin page."""
+        flows = self.store.get("flows", [])
+        for flow in flows:
+            if flow.get("title") == title:
+                for node in flow.get("api") or []:
+                    if node.get("id") in node_ids:
+                        node["needs_check"] = True
+        self.store.put("flows", flows)
 
     def _keep_fingerprint(self, title: str, lines: list[str]) -> None:
         flows = self.store.get("flows", [])
@@ -1263,6 +1383,8 @@ class Core:
                 "steps": [{"id": s["id"], "status": s["status"], "detail": s["detail"]} for s in controller.steps]}
         if state.get("via"):
             line["via"], line["input_names"] = state["via"], state.get("input_names", [])
+        if result.get("decisions"):      # task 12.2: the adaptation log (what was seen, how sorted, what done, how it ended): names only
+            line["adaptations"] = list(result["decisions"])
         flow = next((f for f in self.store.get("flows", []) if f.get("title") == state["title"]), None)
         workflow = state.get("workflow_ref") or (flow or {}).get("workflow") or {}
         if workflow.get("id"):           # task 10.5: which flow and version ran, so the server can show the run under it
@@ -1295,6 +1417,17 @@ class Core:
                 continue
             if not line.get("run_id") or not line.get("workflow_id"):
                 continue
+            adaptations = []
+            for row in line.get("adaptations") or []:   # task 12.8: the decision only (where it was can hold a value, so it stays on this PC)
+                saw, action, outcome = (str(row.get(k) or "") for k in ("saw", "action", "outcome"))
+                change, risk = row.get("change"), row.get("risk")
+                step_id = str(row.get("step_id") or "")[:80]
+                if not step_id or change not in ("technical", "business", "unknown") or action not in ("reresolve", "ask"):
+                    continue
+                if not all(word.match(part) for part in (saw, action, outcome)) or re.search(r"\d{4,}", step_id + saw + outcome):
+                    continue
+                adaptations.append({"step_id": step_id, "saw": saw, "change": change, "action": action, "outcome": outcome,
+                                    **({"risk": risk} if risk in ("read", "write", "money") else {})})
             runs.append({
                 "run_id": line["run_id"], "time": line["time"], "workflow_id": line["workflow_id"], "version": line.get("version"),
                 "title": str(line.get("title") or "")[:80], "mode": str(line.get("mode") or "run"),
@@ -1303,6 +1436,7 @@ class Core:
                           for s in line.get("steps") or []],
                 "decisions": [{k: d.get(k) for k in ("step_id", "kind", "risk", "approved")} for d in line.get("decisions") or []],
                 **({"via": line["via"]} if line.get("via") else {}), "input_names": list(line.get("input_names") or []),
+                **({"adaptations": adaptations} if adaptations else {}),
             })
         consumed = min(len(lines), done + 200)
         if not runs:
@@ -1682,8 +1816,10 @@ class Core:
                 continue
             calls.setdefault(int(seq), []).append({"method": str(request.get("method") or "GET").upper(), "path": self._path_template(str(request.get("url") or "")),
                                                    "status": status, "ms": max(0, int(request.get("ms") or 0))})
-        # Every event of the session carries the session's schema_version (3: api_calls with timings are allowed for ie).
-        return [{**e, "schema_version": 3, **({"api_calls": calls[int(e["seq"])][:20]} if int(e.get("seq", -1)) in calls else {})} for e in events]
+        # Every event of the session carries the session's schema_version (3: api_calls with timings are allowed for ie; 4: some events
+        # say what the screen showed after them, task 12.1).
+        version = 4 if any("shows" in e for e in events) else 3
+        return [{**e, "schema_version": version, **({"api_calls": calls[int(e["seq"])][:20]} if int(e.get("seq", -1)) in calls else {})} for e in events]
 
     def twin_settings(self, _: dict[str, Any]) -> dict[str, Any]:
         return {"role": self._role(), "unit_key": self._unit_key(), "case_regex": self._case_regex(),
@@ -1850,7 +1986,7 @@ class Core:
         "GET /api/flows/shared": "flows_shared", "POST /api/flows/import": "flow_import", "POST /api/flows/bind": "flow_bind",
         "GET /api/flows/updates": "flow_updates", "POST /api/flows/update/take": "flow_update_take", "POST /api/flows/update/try": "flow_update_try", "POST /api/learn": "learn",
         "POST /api/diagnostics": "diagnostics", "GET /api/flows": "flows",
-        "GET /api/codie": "codie_status", "POST /api/codie/test": "codie_test", "GET /api/calls": "calls", "GET /api/seen": "seen", "GET /api/requests": "requests", "GET /api/live": "live", "GET /api/screen": "screen", "POST /api/ie/inspect": "ie_inspect", "POST /api/flow/approve": "flow_approve", "POST /api/flow/read-withdraw": "flow_read_withdraw","POST /api/run/start": "run_start", "GET /api/run/status": "run_status", "POST /api/run/decide": "run_decide", "POST /api/run/stop": "run_stop", "POST /api/assistant/plan": "assistant_plan", "POST /api/assistant/answer": "assistant_answer", "POST /api/assistant/run": "assistant_run", "GET /api/assistant/habits": "assistant_habits", "GET /api/library": "library", "POST /api/library/n8n": "library_n8n", "GET /api/trace/last": "last_trace",
+        "GET /api/codie": "codie_status", "POST /api/codie/test": "codie_test", "GET /api/calls": "calls", "GET /api/seen": "seen", "GET /api/requests": "requests", "GET /api/live": "live", "GET /api/screen": "screen", "POST /api/ie/inspect": "ie_inspect", "POST /api/flow/approve": "flow_approve", "POST /api/flow/restore": "flow_restore", "POST /api/teach/start": "teach_start", "POST /api/teach/stop": "teach_stop","POST /api/flow/read-withdraw": "flow_read_withdraw","POST /api/run/start": "run_start", "GET /api/run/status": "run_status", "POST /api/run/decide": "run_decide", "POST /api/run/stop": "run_stop", "POST /api/assistant/plan": "assistant_plan", "POST /api/assistant/answer": "assistant_answer", "POST /api/assistant/run": "assistant_run", "GET /api/assistant/habits": "assistant_habits", "GET /api/library": "library", "POST /api/library/n8n": "library_n8n", "GET /api/trace/last": "last_trace",
         "POST /api/voucher/read": "voucher_read", "POST /api/voucher/confirm": "voucher_confirm", "POST /api/voucher/run": "voucher_run",
         "GET /api/twin/settings": "twin_settings", "POST /api/twin/settings": "twin_settings_save",
         "GET /api/twin/processes": "twin_processes", "POST /api/twin/processes": "twin_process_save",

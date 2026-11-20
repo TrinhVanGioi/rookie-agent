@@ -31,6 +31,18 @@ def exchanges() -> list[dict[str, Any]]:
         return list(reversed(EXCHANGES))
 
 
+def session_body(session_id: str, engine: str, events: list[dict[str, Any]], role: str | None = None, case_key: str | None = None) -> dict[str, Any]:
+    """The body of `POST /sessions`. An ie session is schema 3 (api_calls with timings), or 4 when its events say what the screen
+    showed after them (task 12.1); the session's version is the one its events carry."""
+    version = max([3] + [int(e.get("schema_version") or 0) for e in events]) if engine == "ie" else 1
+    body: dict[str, Any] = {"schema_version": version, "engine": engine, "session_id": session_id, "events": events}
+    if role:
+        body["role"] = role
+    if case_key:
+        body["case_key"] = case_key
+    return body
+
+
 class ServerError(RuntimeError):
     """The server could not be reached or refused the request. The message is safe to show the GDV."""
 
@@ -112,12 +124,7 @@ class ServerClient:
                      case_key: str | None = None) -> dict[str, Any]:
         """`role` ("maker" or "checker") and `case_key` (a keyed hash of the case id, never the id) are for the process log (Gate 9);
         events of an ie session may carry `api_calls` ({method, path (template, no query), status, ms}), which is schema 3."""
-        body: dict[str, Any] = {"schema_version": 3 if engine == "ie" else 1, "engine": engine, "session_id": session_id, "events": events}
-        if role:
-            body["role"] = role
-        if case_key:
-            body["case_key"] = case_key
-        return self._call("POST", "/sessions", body)
+        return self._call("POST", "/sessions", session_body(session_id, engine, events, role, case_key))
 
     # ---- Gate 9: the process twin on the server (the body of a reply is passed on as it is) -------------------------------------
 
@@ -188,6 +195,15 @@ class ServerClient:
     def put_api(self, workflow_id: str, version: int, api: list[dict[str, Any]]) -> dict[str, Any]:
         """Task 10.3: the API nodes of a version, already masked by `ie.api_share.for_server`."""
         return self._call("PUT", f"/workflows/{workflow_id}/versions/{version}/api", {"api": api})
+
+    def teach(self, workflow_id: str, version: int, after_step: str, session_id: str) -> dict[str, Any]:
+        """Task 12.5: the part taught again (a recording already sent) goes in after `after_step`; the server answers the new draft."""
+        return self._call("POST", f"/workflows/{urllib.parse.quote(workflow_id, safe='')}/versions/{int(version)}/teach",
+                          {"after_step": after_step, "session_id": session_id})
+
+    def restore(self, workflow_id: str, version: int) -> dict[str, Any]:
+        """Task 12.5: an older version back, as a new draft to approve."""
+        return self._call("POST", f"/workflows/{urllib.parse.quote(workflow_id, safe='')}/versions/{int(version)}/restore", {})
 
     def post_runs(self, runs: list[dict[str, Any]]) -> dict[str, Any]:
         """Task 10.5: runs of this PC, names and states only (built by `Core._send_runs`)."""

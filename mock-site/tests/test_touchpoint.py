@@ -43,7 +43,7 @@ def test_a_wrong_password_stays_on_the_sign_in_page_and_nothing_works_without_si
 
 def test_the_main_page_is_a_frameset_with_the_work_frame(tp):
     page = tp.handle("GET", "/tp/main", signed_in(tp), b"")[2].decode()
-    assert '<frame name="work"' in page and '<frame name="menu"' in page and "TouchPoint (giả lập)" in page
+    assert '<frame name="work"' in page and '<frame name="menu"' in page and "Quầy mẫu" in page
 
 
 def test_a_call_needs_the_newest_token_as_a_bearer(tp):
@@ -112,3 +112,36 @@ def test_the_mock_site_serves_the_look_alike():
         reply = client.post("/tp/login", data={"txtUser": "gdv01", "txtPw": "demo-only-1234"}, follow_redirects=False)
         assert reply.status_code == 302 and reply.headers["location"] == "/tp/main"
         assert 'name="work"' in client.get("/tp/main").text
+
+
+def test_gate_12_a_new_look_keeps_the_words_but_not_the_ids_and_a_business_change_adds_a_box(tp):
+    """The SADPT demo: ui 2 renames the ids and moves the search button (same words); biz 2 adds a confirmation box after the search."""
+    auth = signed_in(tp)
+    page = tp.handle("GET", "/tp/acct", auth, b"")[2].decode()
+    assert 'id="btnFind"' in page and 'id="txtAcct"' in page and "var BIZ = 1;" in page
+    tp.ui = 2
+    page = tp.handle("GET", "/tp/acct", auth, b"")[2].decode()
+    assert 'id="btnFind"' not in page and 'id="txtAcct"' not in page and 'value="TRA CỨU"' in page and "Số tài khoản" in page
+    assert page.index('id="btnSearchAccount"') < page.index('id="txtAccountNo"') and '$("txtAccountNo")' in page
+    transfer = tp.handle("GET", "/tp/transfer", auth, b"")[2].decode()
+    assert 'id="btnSubmit"' not in transfer and transfer.index('id="btnClear"') < transfer.index('id="btnSendForApproval"') and "GỬI DUYỆT" in transfer
+    tp.ui, tp.biz = 1, 2
+    assert "var BIZ = 2;" in tp.handle("GET", "/tp/acct", auth, b"")[2].decode()
+    fresh = touchpoint.TouchPoint()
+    assert ("Set-Cookie", "TPUI=2; path=/") in fresh.handle("GET", "/tp/?ui=2", {}, b"")[1]
+
+
+def test_a_date_is_chosen_from_a_month_grid_and_a_read_only_field_is_marked(tp):
+    """TouchPoint's monthCalendar: an icon beside the field, then a day number whose name is the date it writes."""
+    auth = signed_in(tp)
+    page = tp.handle("GET", "/tp/acct", auth, b"")[2].decode()
+    assert 'id="btnCalFrom" name="cal-txtFrom"' in page and 'id="btnCalTo" name="cal-txtTo"' in page
+    assert 'id="calD15" name="15/11/2026" value="15"' in page and "Tháng 11 năm 2026" in page and "function pickDay" in page
+    assert "readonly" not in page.split('id="txtFrom"')[1][:40]
+    fresh = touchpoint.TouchPoint()
+    assert ("Set-Cookie", "TPRO=1; path=/") in fresh.handle("GET", "/tp/?ro=1", {}, b"")[1]
+    cookie = signed_in(fresh)["Cookie"] + "; TPRO=1"
+    locked = fresh.handle("GET", "/tp/acct", {"Cookie": cookie}, b"")[2].decode()
+    assert 'id="txtFrom" name="txtFrom" readonly' in locked
+    cookie = signed_in(fresh)["Cookie"] + "; TPUI=2"
+    assert 'id="btnSearchAccount"' in fresh.handle("GET", "/tp/acct", {"Cookie": cookie}, b"")[2].decode()

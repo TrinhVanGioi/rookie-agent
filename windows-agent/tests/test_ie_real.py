@@ -886,12 +886,9 @@ class _InProcessServer:
         return {"ok": True}
 
     def post_session(self, session_id, engine, events, role=None, case_key=None):
-        # Same body as ServerClient.post_session: ie events carry api_calls with timings since schema 3 (Gate 9).
-        body = {"schema_version": 3 if engine == "ie" else 1, "engine": engine, "session_id": session_id, "events": events}
-        if role:
-            body["role"] = role
-        if case_key:
-            body["case_key"] = case_key
+        from rookie_agent.server_client import session_body
+
+        body = session_body(session_id, engine, events, role, case_key)      # the same body as ServerClient.post_session
         reply = self._client.post("/sessions", json=body)
         assert reply.status_code == 201, reply.text
 

@@ -67,6 +67,64 @@ class Result:
 
 
 SAME_SCREEN = 0.8   # task 6.4: below this share of common fields and buttons the screen counts as changed
+AUTO_MIN = 3        # task 12.3: independent signals a look-alike needs before the agent takes it by itself (read steps only)
+FIELD_TAGS = frozenset({"input", "select", "textarea"})
+
+
+def _plain(text: str | None) -> str:
+    return " ".join(re.sub(r"[^\w]+", " ", str(text or "").casefold()).split())
+
+
+def _parts(selectors: list[str]) -> dict[str, str]:
+    """frame, id, name, label and position (`tag[n]`) of a list of selectors, the first of each."""
+    out: dict[str, str] = {}
+    for selector in selectors:
+        parsed = parse_selector(selector)
+        if parsed is None:
+            continue
+        kind, frame, value, n = parsed
+        if frame and "frame" not in out:
+            out["frame"] = frame
+        key = "position" if kind == "pos" else kind
+        out.setdefault(key, f"{value}[{n}]" if kind == "pos" else value)
+    return out
+
+
+def _category(tag: str | None) -> str:
+    t = str(tag or "").lower()
+    return "field" if t in FIELD_TAGS else "link" if t in ("a", "link") else "press"
+
+
+def evidence(target: dict, candidate: dict) -> list[str]:
+    """The independent signals that a look-alike is the learned element: same frame, same label, same name, same place among the
+    same tags, same kind (field, link, press). Never a value."""
+    learned, found = _parts(target.get("selectors") or []), _parts(candidate.get("selectors") or [])
+    signals = []
+    if learned.get("frame") and learned.get("frame") == found.get("frame"):
+        signals.append("frame")
+    label = _plain(target.get("label") or learned.get("label"))
+    if label and label == _plain(candidate.get("label") or found.get("label")):
+        signals.append("label")
+    if learned.get("name") and learned.get("name") == found.get("name"):
+        signals.append("name")
+    if learned.get("position") and learned.get("position") == found.get("position"):
+        signals.append("position")
+    if _category(target.get("tag")) == _category(candidate.get("tag")):
+        signals.append("kind")
+    return signals
+
+
+def auto_pick(target: dict, candidates: list[dict]) -> dict | None:
+    """Task 12.3: the one look-alike the agent may take without asking: in the learned frame, with the learned label or name, at
+    least `AUTO_MIN` signals, and ahead of every other one by at least one signal. Anything less is the teller's to decide."""
+    scored = [(evidence(target, c), i) for i, c in enumerate(candidates)]
+    good = [(s, i) for s, i in scored if "frame" in s and ("label" in s or "name" in s) and len(s) >= AUTO_MIN]
+    if not good:
+        return None
+    best, index = max(good, key=lambda item: len(item[0]))
+    if any(j != index and len(s) >= len(best) for s, j in scored):
+        return None
+    return {"index": index, "signals": best}
 
 
 def screen_similarity(before: list[str], now: list[str]) -> float:
