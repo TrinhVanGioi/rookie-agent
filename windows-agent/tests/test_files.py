@@ -106,7 +106,7 @@ def saver(folder, title="Xuất báo cáo giao dịch", when=None):
     made = []
 
     def save(data, ctype, disposition):
-        path = files.save(folder, files.file_name(title, ctype, disposition, when or datetime(2026, 11, 19, 10, 15, 30)), data)
+        path = files.save(folder, files.file_name(title, ctype, disposition, when or datetime(2026, 11, 19, 10, 15, 30), data=data), data)
         made.append(path)
         return {"name": path.name, "path": str(path)}
 
@@ -127,6 +127,127 @@ def run_export(tmp_path, send, nodes=None, **kw):
     shown = Shown()
     result = replay.run_api(flow(), nodes, {"cif": "1"}, send, shown, threading.Event(), save_file=save, **kw)
     return result, shown, made
+
+
+def _zip_with(*names):
+    import io
+    import zipfile
+
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        for name in names:
+            archive.writestr(name, "x")
+    return buffer.getvalue()
+
+
+@pytest.mark.parametrize("data, kind", [
+    (PDF_BYTES, "pdf"), (b"\x89PNG\r\n\x1a\n\x00\x00", "png"), (b"\xff\xd8\xff\xe0abc", "jpg"), (b"GIF89a....", "gif"), (b"{\\rtf1\\ansi x}", "rtf"),
+    (b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1" + b"\x00" * 20, "ole"),
+    (_zip_with("[Content_Types].xml", "xl/workbook.xml"), "xlsx"), (_zip_with("word/document.xml"), "docx"), (_zip_with("a.txt"), "zip"),
+    (b"<!DOCTYPE html><html><body>Het phien</body></html>", "html"), (b"  <HTML><head>", "html"),
+    (b'<?xml version="1.0"?><IFX><Status>0</Status></IFX>', "xml"), (b'{"status": "ok"}', "json"), ("Ma GD,Ngay\n1,2\n".encode("utf-8"), "text"),
+    ("Báo cáo giao dịch".encode("utf-8"), "text"), (b"\x00\x01\x02\x03\x04\x05" * 50, ""), (b"", ""),
+])
+def test_a_file_is_known_by_its_first_bytes_whatever_the_server_called_it(data, kind):
+    assert files.sniff(data) == kind
+
+
+def test_the_extension_follows_what_the_bytes_are_and_never_makes_text_a_pdf():
+    octet = "application/octet-stream"
+    assert files.extension(octet, "", PDF_BYTES) == "pdf"                                  # the server gave no name and a general type
+    assert files.extension("application/pdf", 'attachment; filename="x.bin"', PDF_BYTES) == "pdf"
+    assert files.extension(octet, "", _zip_with("xl/a.xml")) == "xlsx"
+    assert files.extension(octet, "", b'<?xml version="1.0"?><a/>') == "xml"                 # data as XML is kept as it came
+    assert files.extension(octet, "", b'{"status": "ok"}') == "txt"
+    assert files.extension("application/pdf", 'attachment; filename="x.pdf"', b'{"error": "no"}') == "txt"     # text called a PDF would not open
+    assert files.extension("text/csv", "", b"a,b\n1,2\n") == "csv"
+    assert files.extension("application/vnd.ms-excel", "", b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1" + b"\x00" * 9) == "xls"   # an old Office file: the type decides
+    assert files.extension(octet, "", b"\x00\x01\x02\x03" * 20) == "bin"                    # nothing known: still bin
+    assert files.extension(octet, "") == "bin" and files.extension("application/pdf", "") == "pdf"      # no bytes: as before
+
+
+def test_a_pdf_a_server_called_octet_stream_is_saved_as_a_pdf_and_says_so(tmp_path):
+    result, shown, made = run_export(tmp_path, file_send(ctype="application/octet-stream", disposition=""))
+    assert result["status"] == "finished" and made[0].suffix == ".pdf"
+    sent = shown.details["g3"]["requests"][0]["file"]
+    assert (sent["kind"], sent["kind_text"], sent["warn"]) == ("pdf", "PDF", "")
+
+
+def test_a_file_that_is_only_text_is_saved_as_text_and_the_teller_is_told_it_is_not_a_report(tmp_path):
+    result, shown, made = run_export(tmp_path, file_send(data=b'{"status": "NOT-A-REPORT"}', ctype="application/octet-stream", disposition=""))
+    assert result["status"] == "finished" and made[0].suffix == ".txt"
+    sent = shown.details["g3"]["requests"][0]["file"]
+    assert sent["kind"] == "json" and "không phải PDF" in sent["warn"] and "NOT-A-REPORT" not in json.dumps(sent)       # said in words, never the content
+
+
+IFX = ('<?xml version="1.0" encoding="UTF-8"?><IFX xmlns="http://ifx.example/x"><Status><StatusCode>0</StatusCode><Severity>Success</Severity></Status>'
+       '<DepAcctTrnRs><Customer><Title>Customer Title 1</Title><Account>116000002248</Account></Customer>'
+       '<Trn><Amt>10944</Amt><Cur>EUR</Cur></Trn><Trn><Amt>2714</Amt><Cur>EUR</Cur></Trn>'
+       '<Memo>Một nghìn euro &lt;script&gt;alert(1)&lt;/script&gt;</Memo></DepAcctTrnRs></IFX>').encode("utf-8")
+
+
+def test_xml_rows_read_the_tree_number_repeated_names_and_refuse_what_is_unsafe():
+    rows = files.xml_rows(IFX)
+    names = [(depth, name, leaf) for depth, name, _, leaf in rows]
+    assert (0, "IFX", False) in names and (1, "Status", False) in names and (3, "Account", True) in names
+    assert (2, "Trn (1)", False) in names and (2, "Trn (2)", False) in names and (3, "Amt", True) in names       # a name repeated among siblings is numbered
+    pairs = files.xml_pairs(rows)
+    assert ["Account", "116000002248"] in pairs and ["Cur", "EUR"] in pairs and not any(v == "" for _, v in pairs)
+    for bad in (b'<?xml version="1.0"?><!DOCTYPE x [<!ENTITY a "aaaa">]><x>&a;</x>', b"<a><b></a>", b"", b"<a>" + b"x" * (files.XML_MAX + 1) + b"</a>"):
+        assert files.xml_rows(bad) is None
+
+
+def test_the_report_of_an_xml_is_a_page_of_ours_with_every_text_escaped_and_no_script():
+    page = files.xml_report_html("Sao kê <b>", files.xml_rows(IFX), datetime(2026, 11, 20, 14, 5))
+    assert page.startswith(files.REPORT_MARK) and "20/11/2026 14:05" in page
+    assert "<script" not in page.lower() and "&lt;script&gt;" in page and "Sao kê &lt;b&gt;" in page      # the value that was a script is only text
+    assert "Customer Title 1" in page and "116000002248" in page and "http://" not in page and "src=" not in page and "href=" not in page
+
+
+def test_xml_data_is_saved_as_xml_with_a_readable_report_beside_it_and_its_values_are_in_the_result(tmp_path, monkeypatch):
+    core = export_core(tmp_path, monkeypatch, {"ok": True, "status": 200, "ms": 5, "text": "", "file": {"data": IFX, "ctype": "application/octet-stream", "disposition": ""}})
+    run = run_to_end(core)
+    assert run["result"]["status"] == "finished", run
+    folder = tmp_path / "profile" / "Downloads" / "Rookie"
+    raw = list(folder.glob("*.xml"))
+    pages = list(folder.glob("*(bản đọc).html"))
+    assert len(raw) == 1 and raw[0].read_bytes() == IFX and len(pages) == 1 and not list(folder.glob("*.bin"))
+    assert files.is_report(pages[0]) and raw[0].stem in pages[0].name
+    request = next(r for d in run["details"].values() for r in d["requests"] if r.get("file"))
+    assert request["file"]["kind"] == "xml" and request["file"]["warn"] == "" and request["file"]["report"]["path"] == str(pages[0])
+    assert ["Account", "116000002248"] in request["view"]["pairs"]                       # the values are in the result, as any data answer
+    audit = (core.store.home / "audit.jsonl").read_text(encoding="utf-8")
+    assert "116000002248" not in audit and "Customer Title" not in audit                  # never in the log
+    # the page opens and prints the report; a page of anyone else's, or the raw XML, is not opened from here
+    opened = []
+    core._open_path = lambda path: opened.append(Path(path))
+    core._print_path = lambda path: opened.append(("print", Path(path))) or True
+    assert core.dispatch("POST", "/api/file/open", {"path": str(pages[0])})[0] == 200
+    assert core.dispatch("POST", "/api/file/open", {"path": str(pages[0]), "print": True})[1]["printed"] is True
+    assert opened == [pages[0], ("print", pages[0])]
+    stranger = folder / "stranger.html"
+    stranger.write_text("<html><script>alert(1)</script></html>", encoding="utf-8")
+    assert core.dispatch("POST", "/api/file/open", {"path": str(stranger)})[0] == 400
+    assert core.dispatch("POST", "/api/file/open", {"path": str(raw[0])})[0] == 400
+
+
+def test_xml_answered_with_the_headers_of_a_page_is_still_taken_as_the_data_of_a_file_node(tmp_path):
+    def send(node, url, headers, body):
+        if node["kind"] == "file":
+            return {"ok": True, "status": 200, "ms": 7, "text": IFX.decode("utf-8")}            # text/xml: no sign of a file in its headers
+        return {"ok": True, "status": 200, "ms": 1, "text": "{}"}
+
+    result, shown, made = run_export(tmp_path, send)
+    assert result["status"] == "finished" and made[0].suffix == ".xml" and made[0].read_bytes() == IFX
+    assert shown.details["g3"]["requests"][0]["file"]["kind"] == "xml"
+    html_answer = lambda node, url, headers, body: {"ok": True, "status": 200, "ms": 7, "text": "<html><body>Het phien</body></html>"}   # noqa: E731
+    assert run_export(tmp_path / "b", html_answer)[0]["status"] == "needs_help"                  # a page is still no file
+
+
+def test_a_page_a_server_called_a_file_is_not_saved_and_the_run_stops(tmp_path):
+    result, shown, made = run_export(tmp_path, file_send(data=b"<html><body>Phien lam viec het han</body></html>", ctype="application/octet-stream", disposition=""))
+    assert result["status"] == "needs_help" and made == [] and "trang web" in result["message"]
+    assert "het han" not in json.dumps(shown.details, ensure_ascii=False)
 
 
 def test_a_run_saves_the_exact_bytes_and_names_the_file_after_the_flow_and_the_time(tmp_path):
@@ -301,7 +422,7 @@ def test_the_page_run_saves_the_pdf_in_downloads_rookie_audits_no_name_or_byte_a
 
 
 def test_the_configured_folder_is_used_when_there_is_one(tmp_path, monkeypatch):
-    core = export_core(tmp_path, monkeypatch, {"ok": True, "status": 200, "ms": 5, "text": "", "file": {"data": b"x", "ctype": "application/pdf", "disposition": ""}})
+    core = export_core(tmp_path, monkeypatch, {"ok": True, "status": 200, "ms": 5, "text": "", "file": {"data": PDF_BYTES, "ctype": "application/pdf", "disposition": ""}})
     core.store.put("download_folder", str(tmp_path / "mine"))
     run_to_end(core)
     assert len(list((tmp_path / "mine").glob("*.pdf"))) == 1

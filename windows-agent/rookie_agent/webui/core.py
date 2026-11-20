@@ -1087,8 +1087,14 @@ class Core:
                 def save_file(data: bytes, ctype: str, disposition: str) -> dict[str, Any]:
                     # the file answer of a call: written here, on this PC, and nowhere else (docs/design.md 6.4)
                     folder = self._download_dir()
-                    path = files.save(folder, files.file_name(flow["title"], ctype, disposition), data)
-                    return {"name": path.name, "path": str(path)}
+                    path = files.save(folder, files.file_name(flow["title"], ctype, disposition, data=data), data)
+                    made: dict[str, Any] = {"name": path.name, "path": str(path)}
+                    if files.sniff(data) == "xml":       # data sent as XML: a readable, printable page is made beside the file as it came
+                        rows = files.xml_rows(data)
+                        if rows:
+                            page = files.save(folder, f"{path.stem} (bản đọc).html", files.xml_report_html(flow["title"], rows).encode("utf-8"))
+                            made["report"] = {"name": page.name, "path": str(page)}
+                    return made
 
                 result = replay.run_api(workflow, api, inputs, send, controller, stop, peek=peek, peek_urls=peek_urls, read_rules=read_rules.load(),
                                         confirmed=flow.get("read_confirmed") or {},
@@ -1179,7 +1185,7 @@ class Core:
             return {"opened": "folder"}
         if not target.is_file():
             raise UserError("Không còn file này (đã bị xoá hoặc dời đi).")
-        if target.suffix.lstrip(".").lower() not in files.OPENABLE:
+        if target.suffix.lstrip(".").lower() not in files.OPENABLE and not files.is_report(target):      # a report this agent made is the one page it opens
             raise UserError("Không mở loại file này từ đây. Mở thư mục để xem.")
         if body.get("print"):             # «In»: the same file inside the Rookie folder, sent to the printer; opened for the teller when it cannot be
             if self._print_path(target):

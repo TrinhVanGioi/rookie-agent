@@ -673,6 +673,13 @@ def run_api(workflow: dict[str, Any], nodes: list[dict[str, Any]], values: dict[
                 note(group, "failed", f"{ref}: {sent['error']}", shown)
                 return end("failed", f"«{label}», lời gọi {ref}: {sent['error']}.")
             received = answer.get("file")
+            if received is None and node.get("kind") == "file" and not node.get("dialog") and not twin:
+                # a node learned as a file whose answer is XML with a page's headers (text/xml) is data the report is made from, taken as a
+                # file; a page that is XML too (a message box: a button and a line) holds no data, so it is not: three values at least
+                guess = str(answer.get("text") or "").encode("utf-8")
+                rows = files.xml_rows(guess) if files.sniff(guess) == "xml" else None
+                if rows and sum(1 for _, _, value, leaf in rows if leaf and value) >= 3:
+                    received = {"data": guess, "ctype": "text/xml", "disposition": ""}
             if received is not None:
                 # The answer is a file (a report as PDF): kept on this PC only, never read as text, never shown, never linked from.
                 size = len(received.get("data") or b"")
@@ -680,6 +687,13 @@ def run_api(workflow: dict[str, Any], nodes: list[dict[str, Any]], values: dict[
                     sent["error"] = f"file lớn hơn {files.MAX_MB} MB, không lưu"
                     note(group, "failed", f"{ref}: {sent['error']}", shown)
                     return end("failed", f"«{label}», lời gọi {ref}: {sent['error']}.")
+                kind = "" if twin else files.sniff(received.get("data"))
+                if kind == "html":
+                    # a page a server called a file (a sign-in page, an error page): it is no report; nothing of it is saved or shown
+                    why = "máy chủ trả về một trang web chứ không phải file (có thể hết phiên hoặc sai tiêu chí). Mở lại màn hình rồi chạy lại"
+                    sent["error"] = why
+                    note(group, "needs_help", f"{ref}: {why}", shown)
+                    return end("needs_help", f"«{label}», lời gọi {ref}: {why}. Agent dừng, không thử đoán.")
                 if twin:
                     sent["file"] = {"name": "BẢN SAO – file giả, không lưu", "size": size, "size_text": files.size_text(size), "saved": False, "twin": True}
                 else:
@@ -692,7 +706,14 @@ def run_api(workflow: dict[str, Any], nodes: list[dict[str, Any]], values: dict[
                         sent["error"] = sent.get("error") or "không có chỗ lưu file"
                         note(group, "failed", f"{ref}: {sent['error']}", shown)
                         return end("failed", f"«{label}», lời gọi {ref}: {sent['error']}.")
-                    sent["file"] = {"name": saved["name"], "path": saved["path"], "size": size, "size_text": files.size_text(size), "saved": True}
+                    sent["file"] = {"name": saved["name"], "path": saved["path"], "size": size, "size_text": files.size_text(size), "saved": True,
+                                    "kind": kind, "kind_text": files.KIND_WORDS.get(kind, ""), "warn": files.warning_for(kind)}
+                    if saved.get("report"):
+                        sent["file"]["report"] = saved["report"]            # the readable page made from the XML: «Mở» and «In» use it
+                    if kind == "xml":
+                        rows = files.xml_rows(received["data"])             # the values, for the result of the run (in memory, like any answer shown)
+                        if rows:
+                            sent["view"] = {"kind": "xml", "pairs": files.xml_pairs(rows), "rows": [], "lines": [], "size": size}
                 answers[node["id"]] = ""
                 continue
             text = str(answer.get("text") or "")

@@ -1077,16 +1077,21 @@ function renderDetail(stepId) {
 function fileRow(r, onError) {
   const row = el("div", undefined, "detail");
   if (r.file.saved) {
+    // data that came as XML has a readable page made from it: «Mở» and «In» use that page; the file as it came stays beside it
+    const shown = r.file.report || r.file;
     row.append(el("strong", "Đã lưu file: " + r.file.name + " (" + r.file.size_text + ") "));
-    const openIt = (folder) => async () => { try { await api("POST", "/api/file/open", { path: r.file.path, folder }); } catch (e) { onError(e.message); } };
-    const file = el("button", "Mở file"), dir = el("button", "Mở thư mục"), print = el("button", "In"), note = el("span", "", "detail");
+    if (r.file.report) row.append(el("span", "Bản dễ đọc và in: " + r.file.report.name + ". ", "detail"));
+    const openIt = (folder) => async () => { try { await api("POST", "/api/file/open", { path: shown.path, folder }); } catch (e) { onError(e.message); } };
+    const file = el("button", r.file.report ? "Xem bản dễ đọc" : "Mở file"), dir = el("button", "Mở thư mục"), print = el("button", "In"), note = el("span", "", "detail");
     file.onclick = openIt(false); dir.onclick = openIt(true);
     print.onclick = async () => {
-      try { const done = await api("POST", "/api/file/open", { path: r.file.path, print: true });
+      try { const done = await api("POST", "/api/file/open", { path: shown.path, print: true });
         note.textContent = done.printed ? " Đã gửi lệnh in." : " Máy chưa có chương trình in cho loại file này, đã mở file để bạn in."; }
       catch (e) { onError(e.message); }
     };
     row.append(file, print, dir, note);
+    if (r.file.warn) row.append(el("div", "⚠ " + r.file.warn, "msg bad"));      // a file that is not a document: said in words, never its content
+    else if (r.file.kind_text) row.append(el("span", " Loại: " + r.file.kind_text + ".", "detail"));
   } else row.append(el("span", r.file.name + " (" + r.file.size_text + ")"));
   return row;
 }

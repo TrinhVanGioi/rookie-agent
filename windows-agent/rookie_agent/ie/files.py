@@ -7,11 +7,15 @@ file: its content type, its size and a pattern of its name (digits and words mas
 
 from __future__ import annotations
 
+import html as html_lib
 import os
 import re
 import urllib.parse
+import xml.etree.ElementTree as ET
+from collections import Counter
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 MAX_BYTES = 50 * 1024 * 1024
 MAX_MB = 50
@@ -58,10 +62,69 @@ def disposition_name(disposition: str) -> str:
     return found.group(1).strip() if found else ""
 
 
-def extension(ctype: str, disposition: str = "") -> str:
-    """From the proposed name when its extension is a safe one, else from the content type, else `bin`."""
+_MAGIC = ((b"%PDF-", "pdf"), (b"\x89PNG\r\n\x1a\n", "png"), (b"\xff\xd8\xff", "jpg"), (b"GIF87a", "gif"), (b"GIF89a", "gif"),
+          (b"II*\x00", "tif"), (b"MM\x00*", "tif"), (b"{\\rtf", "rtf"), (b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1", "ole"))
+OFFICE_ZIP = {"xl/": "xlsx", "word/": "docx"}
+DOCUMENT_KINDS = frozenset({"pdf", "png", "jpg", "gif", "tif", "zip", "xlsx", "docx", "rtf", "ole"})
+KIND_WORDS = {"pdf": "PDF", "png": "ảnh", "jpg": "ảnh", "gif": "ảnh", "tif": "ảnh", "zip": "file nén", "xlsx": "Excel", "docx": "Word", "rtf": "văn bản Word",
+              "ole": "file Office cũ", "html": "trang web", "xml": "văn bản XML", "json": "văn bản JSON", "text": "văn bản", "": "không nhận ra"}
+
+
+def sniff(data: bytes | None) -> str:
+    """What the bytes really are, from their first bytes (a server may call a PDF `application/octet-stream` and give no name):
+    one of the keys of KIND_WORDS. Reads at most the first 64 KB; nothing of it is kept or shown."""
+    head = bytes(data or b"")[:65536]
+    if not head:
+        return ""
+    for magic, kind in _MAGIC:
+        if head.startswith(magic):
+            return kind
+    if head.startswith(b"PK\x03\x04"):
+        try:
+            import io
+            import zipfile
+
+            with zipfile.ZipFile(io.BytesIO(bytes(data)), "r") as archive:
+                names = archive.namelist()
+            for prefix, kind in OFFICE_ZIP.items():
+                if any(n.startswith(prefix) for n in names):
+                    return kind
+        except Exception:  # noqa: BLE001  not a readable archive: a zip all the same
+            pass
+        return "zip"
+    if b"\x00" in head[:4096] and not head.startswith((b"\xff\xfe", b"\xfe\xff")):
+        return ""
+    text = ""
+    for encoding in ("utf-8-sig", "utf-16", "cp1258"):
+        try:
+            text = head.decode(encoding)
+            break
+        except (UnicodeDecodeError, UnicodeError):
+            continue
+    if not text or sum(ch.isprintable() or ch in "\r\n\t" for ch in text[:2000]) < 0.95 * len(text[:2000]):
+        return ""
+    lead = text.lstrip().lower()
+    if lead.startswith(("<!doctype html", "<html", "<head", "<body", "<script", "<?php")):
+        return "html"
+    if lead.startswith("<?xml") or lead.startswith("<"):
+        return "xml"
+    if lead.startswith(("{", "[")):
+        return "json"
+    return "text"
+
+
+def extension(ctype: str, disposition: str = "", data: bytes | None = None) -> str:
+    """From the bytes when they say what they are (a PDF is a `.pdf` whatever the server called it), else from the proposed name when its
+    extension is a safe one, else from the content type, else `bin`. Text a server called a file is `.txt` (never `.pdf`: it would not open)."""
+    kind = sniff(data)
+    if kind in DOCUMENT_KINDS and kind != "ole":
+        return kind
     name = disposition_name(disposition)
     ext = name.rsplit(".", 1)[-1].lower() if "." in name else ""
+    if kind == "xml":
+        return "xml"                                  # data the server sent as XML (a statement as IFX): kept as it came, read through its report
+    if kind in ("json", "text", "html"):
+        return ext if ext in ("txt", "csv") else ("csv" if split_type(ctype) == "text/csv" else "txt")
     if ext in SAFE_EXT:
         return ext
     return _TYPE_EXT.get(split_type(ctype), "bin")
@@ -73,10 +136,95 @@ def clean_title(title: str) -> str:
     return "_" + text if _RESERVED.match(text) else text
 
 
-def file_name(flow_title: str, ctype: str, disposition: str = "", now: datetime | None = None) -> str:
-    """`<flow name>-<yyyyMMdd-HHmmss>.<ext>`."""
+def file_name(flow_title: str, ctype: str, disposition: str = "", now: datetime | None = None, data: bytes | None = None) -> str:
+    """`<flow name>-<yyyyMMdd-HHmmss>.<ext>`; `data` (the bytes) lets the extension follow what the file really is."""
     moment = now or datetime.now()
-    return f"{clean_title(flow_title)}-{moment.strftime('%Y%m%d-%H%M%S')}.{extension(ctype, disposition)}"
+    return f"{clean_title(flow_title)}-{moment.strftime('%Y%m%d-%H%M%S')}.{extension(ctype, disposition, data)}"
+
+
+def warning_for(kind: str) -> str:
+    """A plain sentence when what was saved is not a document the teller can print as a report; "" when it is (or when it is XML, which
+    has a readable report of its own)."""
+    if kind in DOCUMENT_KINDS or kind in ("html", "xml"):
+        return ""
+    if kind in ("json", "text"):
+        return f"File này chỉ là {KIND_WORDS[kind]}, không phải PDF hay Excel nên không in được như báo cáo."
+    return "Chưa nhận ra loại file này. Nếu mở không được, báo nhóm phát triển (đừng gửi nội dung file)."
+
+
+# ---- XML sent as the answer (a statement as IFX): kept as it came, and read through a report made here ---------------------------------
+# The report is a page of ours: every text escaped, no script, no link, no style from outside. It carries REPORT_MARK on its first line, which
+# is the only reason the page may open or print it (a page from a server never is). Both files stay on this PC like any file of the teller's.
+
+REPORT_MARK = "<!--rookie-report-->"
+XML_MAX = 2 * 1024 * 1024
+XML_ROWS = 2000
+
+
+def xml_rows(data: bytes) -> list[tuple[int, str, str, bool]] | None:
+    """The XML as `(depth, name, value, leaf)` rows, in order. A name repeated among siblings gets its number (`Row (2)`). None when it is not
+    XML that is safe to read here: too large, a DOCTYPE or an entity (expansion tricks), or broken."""
+    raw = bytes(data or b"")
+    if not raw or len(raw) > XML_MAX or re.search(rb"<!\s*(DOCTYPE|ENTITY)", raw, re.IGNORECASE):
+        return None
+    try:
+        root = ET.fromstring(raw)
+    except (ET.ParseError, ValueError, UnicodeError):
+        return None
+    rows: list[tuple[int, str, str, bool]] = []
+
+    def local(tag: Any) -> str:
+        return str(tag).rsplit("}", 1)[-1]
+
+    def walk(element: ET.Element, depth: int, label: str) -> None:
+        if len(rows) >= XML_ROWS:
+            return
+        children = list(element)
+        text = (element.text or "").strip()
+        rows.append((depth, label, text, not children))
+        count, seen = Counter(local(c.tag) for c in children), Counter()
+        for child in children:
+            name = local(child.tag)
+            seen[name] += 1
+            walk(child, depth + 1, f"{name} ({seen[name]})" if count[name] > 1 else name)
+
+    walk(root, 0, local(root.tag))
+    return rows
+
+
+def xml_pairs(rows: list[tuple[int, str, str, bool]], limit: int = 80) -> list[list[str]]:
+    """The values of the XML (`[name, value]`, the ones that hold something), for the result of a run."""
+    return [[name, value[:200]] for _, name, value, leaf in rows if leaf and value][:limit]
+
+
+def xml_report_html(title: str, rows: list[tuple[int, str, str, bool]], when: datetime | None = None) -> str:
+    """A readable and printable page of the XML: sections for the elements that hold others, one row for each value."""
+    esc = html_lib.escape
+    moment = (when or datetime.now()).strftime("%d/%m/%Y %H:%M")
+    body = []
+    for depth, name, value, leaf in rows:
+        pad = f"padding-left:{8 + depth * 18}px"
+        if leaf:
+            body.append(f'<tr><td style="{pad}">{esc(name)}</td><td>{esc(value)}</td></tr>')
+        else:
+            body.append(f'<tr class="h"><th colspan="2" style="{pad}">{esc(name)}</th></tr>')
+    return (f"{REPORT_MARK}\n<!DOCTYPE html>\n<html lang=\"vi\"><head><meta charset=\"utf-8\"><title>{esc(title)}</title>\n"
+            "<style>body{font:14px Arial,sans-serif;margin:24px;color:#111}h1{font-size:20px;margin:0 0 4px}p{margin:0 0 14px;color:#555}"
+            "table{border-collapse:collapse;width:100%}td,th{border:1px solid #bbb;padding:4px 8px;text-align:left;vertical-align:top}"
+            "tr.h th{background:#e8edf4}td:first-child{width:34%;color:#333}@media print{body{margin:8mm}}</style></head><body>\n"
+            f"<h1>{esc(title)}</h1><p>Bản đọc từ dữ liệu XML, lập lúc {esc(moment)}. File gốc nằm cạnh file này.</p>\n"
+            f"<table>\n{chr(10).join(body)}\n</table></body></html>\n")
+
+
+def is_report(path: Path) -> bool:
+    """A page this agent made (its first line is REPORT_MARK): the only `.html` the page may open or print."""
+    try:
+        if path.suffix.lower() != ".html":
+            return False
+        with open(path, "rb") as handle:
+            return handle.read(len(REPORT_MARK)) == REPORT_MARK.encode("ascii")
+    except OSError:
+        return False
 
 
 def downloads_dir(override: str | None = None) -> Path:
