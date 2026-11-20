@@ -13,6 +13,8 @@ Standard library only, so the same pages are served by the mock site (FastAPI, f
   on this same site (`/tp/rpt/file.pdf?key=…`); the page then opens that address. A wrong or missing key is not a file;
 - «IN SAO KÊ ĐỘT XUẤT» (`/tp/stmt`, `statement_flow.py`) is the print flow: a dialog, an XML post per step (fee, transactions,
   build the report, a local note), and the answer names a PDF on this site which the page then opens;
+- the walk a teller records (`/tp/role`, then `/tp/desk`): choose a role, the account tab, click the account, the transaction tab,
+  a date range, tick one row, In, then In again in the dialog. The dialog is the same print flow; the file address is a query key;
 - a date is chosen the way TouchPoint's `monthCalendar` does it: the icon beside the field, then a day number in the month grid
   (the two presses are one date; `?ro=1` makes «Từ ngày» read-only so a run stops and asks);
 - the page's own message box (`/tp/utilities/dlgMessageBox.jsp`) after a mistaken press (a date in the wrong format, nothing ticked);
@@ -174,6 +176,14 @@ LOGIN_BODY = """<h3>Quầy mẫu – Đăng nhập</h3><form method="post" actio
 <tr><td>Mật khẩu</td><td><input type="password" id="txtPw" name="txtPw"></td></tr></table>
 <input type="submit" class="b" id="btnLogin" value="ĐĂNG NHẬP"> <span class="err">%s</span></form>
 <p style="color:#678">Hệ thống giả lập, dữ liệu tự sinh. Tài khoản thử: gdv01 / demo-only-1234 (GDV), ksv01 / demo-only-5678 (KSV).</p>"""
+
+ROLE_BODY = """<h3>Chọn vai trò</h3>
+<p>Đăng nhập xong, chọn đúng vai trò của tài khoản rồi vào quầy.</p>
+<form method="post" action="/tp/role" style="display:inline"><input type="hidden" name="role" value="maker">
+<input type="submit" class="b" id="btnRoleMaker" value="GIAO DỊCH VIÊN"></form>
+<form method="post" action="/tp/role" style="display:inline"><input type="hidden" name="role" value="checker">
+<input type="submit" class="b" id="btnRoleChecker" value="KIỂM SOÁT VIÊN"></form>
+<p class="err">%s</p>"""
 
 ACCT_BODY = """<h3>Tra cứu tài khoản</h3>
 <table><tr><td>Số tài khoản</td><td><input type="text" id="txtAcct" name="txtAcct" onkeydown="if (event.keyCode == 13) { findAcct(); return false; }"></td>
@@ -514,7 +524,7 @@ class TouchPoint:
             sid = secrets.token_hex(12)
             with self.lock:
                 self.sessions[sid] = {"user": form["txtUser"], "name": user[1], "role": user[2], "token": "", "tokens": 0}
-            return 302, [("Location", "/tp/main"), ("Set-Cookie", f"TPSESS={sid}; path=/")], b""
+            return 302, [("Location", "/tp/role"), ("Set-Cookie", f"TPSESS={sid}; path=/")], b""
         if path == "/tp/tp.js":
             return self._text(TP_JS.replace('"STRONG"', json.dumps(STRONG)), "application/javascript; charset=utf-8")
         if path == "/tp/blank":
@@ -534,9 +544,15 @@ class TouchPoint:
                 return self._text("Phiên đã hết hạn", status=401)
             return self._html(_doc(title + " – Đăng nhập", LOGIN_BODY % "Phiên đã hết hạn, đăng nhập lại."))
 
+        if path == "/tp/role" and method == "GET":
+            return self._html(_doc(title + " – Vai trò", ROLE_BODY % ""))
+        if path == "/tp/role" and method == "POST":
+            if form.get("role") != session["role"]:
+                return self._html(_doc(title + " – Vai trò", ROLE_BODY % "Tài khoản này không có vai trò đó."))
+            return 302, [("Location", "/tp/main")], b""
         if path == "/tp/main":
             frames = ('<frameset rows="34,*,0"><frame name="toolbar" src="/tp/toolbar" scrolling="no">'
-                      '<frameset cols="210,*"><frame name="menu" src="/tp/menu"><frame name="work" src="/tp/home"></frameset>'
+                      '<frameset cols="210,*"><frame name="menu" src="/tp/menu"><frame name="work" src="/tp/desk"></frameset>'
                       '<frame name="rhidden" src="/tp/blank"></frameset>')
             return self._html(f"<html><head><title>{title}</title></head>{frames}</html>".encode("utf-8"))
         if path == "/tp/toolbar":

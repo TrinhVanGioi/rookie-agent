@@ -102,6 +102,24 @@ def test_an_export_returns_a_code_and_the_file_is_at_the_address_inside_that_cod
     assert "id='mnuReport'" in tp.handle("GET", "/tp/menu", auth, b"")[2].decode()
 
 
+def test_the_recorded_walk_is_role_then_account_tab_then_a_transaction_then_the_print_dialog(tp):
+    """Login lands on the role page. The work frame is the account tab and the transaction tab. Print opens the same dialog."""
+    auth = signed_in(tp)
+    role = tp.handle("GET", "/tp/role", auth, b"")[2].decode()
+    assert 'id="btnRoleMaker" value="GIAO DỊCH VIÊN"' in role and 'id="btnRoleChecker"' in role
+    status, headers, _ = tp.handle("POST", "/tp/role", auth, b"role=maker")
+    assert status == 302 and dict(headers)["Location"] == "/tp/main"
+    refused = tp.handle("POST", "/tp/role", auth, b"role=checker")[2].decode()
+    assert "không có vai trò" in refused
+    main = tp.handle("GET", "/tp/main", auth, b"")[2].decode()
+    assert 'src="/tp/desk"' in main
+    desk = tp.handle("GET", "/tp/desk", auth, b"")[2].decode()
+    assert 'id="tabAcct" value="TÀI KHOẢN"' in desk and 'id="tabTxn" value="GIAO DỊCH"' in desk
+    assert 'id="txtAcct"' in desk and 'id="btnFind"' in desk and 'id="btnTxn"' in desk and 'id="btnPrintTxn" value="IN"' in desk
+    dialog = tp.handle("GET", "/tp/print/dlgStatement.jsp?acct=0123456789&from=01/11/2026&to=15/11/2026", auth, b"")[2].decode()
+    assert 'id="btnPrint" value="IN SAO KÊ"' in dialog and "param(" in dialog
+
+
 def test_printing_a_statement_returns_a_code_and_the_pdf_is_at_that_address(tp):
     """Fee, then the transactions, then a report code. The code is a path on this site. The PDF is only that path, in this session."""
     auth = signed_in(tp)
@@ -123,12 +141,12 @@ def test_printing_a_statement_returns_a_code_and_the_pdf_is_at_that_address(tp):
                 "<ACCT_NUM>0123456789</ACCT_NUM><TRN_FROM_DATE>01/11/2026</TRN_FROM_DATE><TRN_TO_DATE>15/11/2026</TRN_TO_DATE>"
                 "</FORM_DETAIL></FORM_DETAILS></REMOTE>")
     text = made[2].decode()
-    assert "<FILE_PATH>/tp/rpt/saoKe" in text and ".pdf</FILE_PATH>" in text
+    assert "<FILE_PATH>/tp/rpt/saoKe.pdf?key=" in text and "</FILE_PATH>" in text
     path = text.split("<FILE_PATH>")[1].split("</FILE_PATH>")[0]
-    assert "0123456789" not in path and path.endswith(".pdf")
+    assert "0123456789" not in path and path.startswith("/tp/rpt/saoKe.pdf?key=")
     status, headers, pdf = tp.handle("GET", path, auth, b"")
     assert status == 200 and dict(headers)["Content-Type"] == "application/pdf" and pdf.startswith(b"%PDF") and b"0123456789" in pdf
-    assert tp.handle("GET", "/tp/rpt/saoKenope.pdf", auth, b"")[0] == 404
+    assert tp.handle("GET", "/tp/rpt/saoKe.pdf?key=nope", auth, b"")[0] == 404
     bad = post('<REMOTE><CALLS><SERVICE name="StmtHistoryRq"><PARAM name="ACCT_NBR">0123456789</PARAM>'
                '<PARAM name="START_DATE">15/11/2026</PARAM><PARAM name="END_DATE">01/11/2026</PARAM></SERVICE></CALLS></REMOTE>')
     assert b"<Message>" in bad[2]
@@ -161,8 +179,10 @@ def test_the_mock_site_serves_the_look_alike():
     with TestClient(app) as client:
         assert "ĐĂNG NHẬP" in client.get("/tp/").text
         reply = client.post("/tp/login", data={"txtUser": "gdv01", "txtPw": "demo-only-1234"}, follow_redirects=False)
-        assert reply.status_code == 302 and reply.headers["location"] == "/tp/main"
-        assert 'name="work"' in client.get("/tp/main").text
+        assert reply.status_code == 302 and reply.headers["location"] == "/tp/role"
+        role = client.post("/tp/role", data={"role": "maker"}, follow_redirects=False)
+        assert role.status_code == 302 and role.headers["location"] == "/tp/main"
+        assert 'name="work" src="/tp/desk"' in client.get("/tp/main").text
 
 
 def test_gate_12_a_new_look_keeps_the_words_but_not_the_ids_and_a_business_change_adds_a_box(tp):

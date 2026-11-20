@@ -20,6 +20,9 @@ VAT_RATE = 10
 def dispatch(tp: touchpoint.TouchPoint, method: str, path: str, query: dict[str, str], body: bytes,
              session: dict[str, Any]) -> tuple[int, list[tuple[str, str]], bytes] | None:
     """The statement pages and their posts. None when the path is not part of this flow."""
+    if path == "/tp/desk":
+        page = DESK_BODY.replace("__DAYS__", touchpoint._month_days())
+        return tp._html(touchpoint._doc("Tài khoản và giao dịch", page, DESK_JS))
     if path == "/tp/stmt":
         return tp._html(touchpoint._doc("In sao kê đột xuất", STMT_BODY, STMT_JS))
     if path == "/tp/print/dlgStatement.jsp":
@@ -29,18 +32,17 @@ def dispatch(tp: touchpoint.TouchPoint, method: str, path: str, query: dict[str,
         return _facade(tp, session, body)
     if path == "/tp/stmt/note" and method == "POST":
         return _xml(ET.Element("OK"))
-    held = _held(session, path)
+    held = _held(session, path, query)
     if held is not None:
         return _pdf(tp, held)
     return None
 
 
-def _held(session: dict[str, Any], path: str) -> dict[str, Any] | None:
+def _held(session: dict[str, Any], path: str, query: dict[str, str]) -> dict[str, Any] | None:
     name = path.rsplit("/", 1)[-1]
-    for prefix in ("saoKe", "bienLai"):
-        if name.startswith(prefix) and name.endswith(".pdf"):
-            key = name[len(prefix):-4]
-            return (session.get("statements") or {}).get(key)
+    key = query.get("key", "")
+    if name in ("saoKe.pdf", "bienLai.pdf") and key:
+        return (session.get("statements") or {}).get(key)
     return None
 
 
@@ -126,7 +128,7 @@ def _issue(tp: touchpoint.TouchPoint, session: dict[str, Any], params: dict[str,
     key = secrets.token_hex(8)
     with tp.lock:
         session.setdefault("statements", {})[key] = {"acct": account["number"], "from": start_text, "to": end_text, "kind": kind}
-    path = f"/tp/rpt/{prefix}{key}.pdf"
+    path = f"/tp/rpt/{prefix}.pdf?key={key}"
     tp.seen.append(f"generate({kind},{account['number']})")
     out = ET.Element("REPORT")
     ET.SubElement(out, "FILE_PATH").text = path
@@ -167,6 +169,76 @@ function openStmt() {
   if (!/^\\d{6,14}$/.test(v)) { msgBox("Nhập số tài khoản (6 đến 14 chữ số)."); return; }
   openDialog("/tp/print/dlgStatement.jsp?acct=" + encodeURIComponent(v));
 }
+"""
+
+DESK_BODY = """<h3>Quầy</h3>
+<p><input type="button" class="b" id="tabAcct" value="TÀI KHOẢN" onclick="showTab('acct')">
+<input type="button" class="b" id="tabTxn" value="GIAO DỊCH" onclick="showTab('txn')"></p>
+<div id="paneAcct">
+<table><tr><td>Số tài khoản</td><td><input type="text" id="txtAcct" name="txtAcct" onkeydown="if (event.keyCode == 13) { findAcct(); return false; }"></td>
+<td><input type="button" class="b" id="btnFind" value="TRA CỨU" onclick="findAcct()"></td></tr></table>
+<div id="acctBox"></div>
+<p id="picked"></p>
+</div>
+<div id="paneTxn" style="display:none">
+<table><tr><td>Từ ngày</td><td><input type="text" id="txtFrom" name="txtFrom" size="10"> <input type="button" class="cal" id="btnCalFrom" name="cal-txtFrom" value="Lịch" onclick="openCal('txtFrom')"></td>
+<td>Đến ngày</td><td><input type="text" id="txtTo" name="txtTo" size="10"> <input type="button" class="cal" id="btnCalTo" name="cal-txtTo" value="Lịch" onclick="openCal('txtTo')"></td>
+<td><input type="button" class="b" id="btnTxn" value="XEM GIAO DỊCH" onclick="loadTxn()"></td></tr></table>
+<div id="calBox" style="display:none;margin-top:6px;padding:4px;border:1px solid #234;background:#fff"><div>Tháng 11 năm 2026</div>__DAYS__
+<input type="button" id="calClose" value="Đóng" onclick="closeCal()"></div>
+<div id="txnRows"></div>
+<p><input type="button" class="b" id="btnPrintTxn" value="IN" onclick="printTxn()"> <span id="txnStatus"></span></p>
+</div>"""
+
+DESK_JS = r"""
+var picked = "", calFor = "";
+function showTab(which) {
+  $("paneAcct").style.display = which === "acct" ? "block" : "none";
+  $("paneTxn").style.display = which === "txn" ? "block" : "none";
+}
+function findAcct() {
+  var v = $("txtAcct").value.replace(/\s/g, "");
+  $("acctBox").innerHTML = "Đang tra cứu...";
+  call("AcctService", "find", [v], function (data, err) {
+    if (err) { $("acctBox").innerHTML = '<span class="err">' + err + '</span>'; picked = ""; return; }
+    $("acctBox").innerHTML = '<table class="g" id="tblAcct"><tr><th>Số TK</th><th>Chủ tài khoản</th><th>Chi nhánh</th><th></th></tr><tr id="rowAcct0"><td id="acctNbr">'
+      + data[0] + '</td><td>' + data[1] + '</td><td>' + data[2] + '</td><td><input type="button" id="btnPickAcct" value="'
+      + data[0] + '" onclick="pickAcct()"></td></tr></table>';
+  });
+}
+function pickAcct() {
+  picked = $("acctNbr") ? $("acctNbr").innerHTML : "";
+  $("picked").innerHTML = picked ? "Đã chọn tài khoản. Mở tab Giao dịch." : "";
+}
+function loadTxn() {
+  if (!picked) { msgBox("Chọn tài khoản ở tab Tài khoản."); return; }
+  var a = $("txtFrom").value, b = $("txtTo").value;
+  if (!isDay(a) || !isDay(b)) { msgBox("Sai định dạng ngày. Nhập theo dd/mm/yyyy."); return; }
+  call("HistoryService", "list", [picked, a, b], function (data, err) {
+    if (err) { $("txnRows").innerHTML = '<span class="err">' + err + '</span>'; return; }
+    var h = ['<table class="g" id="tblTxn"><tr><th></th><th>Mã GD</th><th>Ngày</th><th>Nội dung</th></tr>'], i, r, n = parseInt(data[0], 10);
+    for (i = 0; i < n; i++) {
+      r = data.slice(1 + i * 6, 7 + i * 6);
+      h.push('<tr id="rowTxn' + i + '"><td><input type="checkbox" id="chkTxn' + i + '" value="' + r[0] + '"></td><td>' + r[0] + '</td><td>' + r[1] + '</td><td>' + r[2] + '</td></tr>');
+    }
+    h.push('</table>');
+    $("txnRows").innerHTML = n ? h.join("") : "Không có giao dịch trong khoảng này.";
+  });
+}
+function ticked() { var out = [], i, c; for (i = 0; i < 40; i++) { c = $("chkTxn" + i); if (c && c.checked) { out.push(c.value); } } return out; }
+function printTxn() {
+  var ids = ticked();
+  if (!picked) { msgBox("Chọn tài khoản ở tab Tài khoản."); return; }
+  if (!isDay($("txtFrom").value) || !isDay($("txtTo").value)) { msgBox("Sai định dạng ngày. Nhập theo dd/mm/yyyy."); return; }
+  if (!ids.length) { msgBox("Chọn ít nhất một giao dịch để in."); return; }
+  $("txnStatus").innerHTML = "Đang mở hộp thoại in...";
+  openDialog("/tp/print/dlgStatement.jsp?acct=" + encodeURIComponent(picked) + "&from=" + encodeURIComponent($("txtFrom").value)
+    + "&to=" + encodeURIComponent($("txtTo").value) + "&row=" + encodeURIComponent(ids[0]));
+}
+function openCal(id) { calFor = id; $("calBox").style.display = "block"; }
+function closeCal() { $("calBox").style.display = "none"; calFor = ""; }
+function pickDay(btn) { var input = $(calFor); if (!input) { return; } input.value = btn.name; closeCal(); }
+window.setInterval(keepAlive, 4000);
 """
 
 DLG_BODY = """<h3>In sao kê đột xuất</h3>
@@ -238,8 +310,15 @@ function chargeFee() {
   if (!file) { msgBox(tag(xml, "Message") || "Không thu được phí."); return; }
   window.open(file, "_blank");
 }
+function param(name) {
+  var m = new RegExp("[?&]" + name + "=([^&]*)").exec(String(window.location.search));
+  return m ? decodeURIComponent(m[1]) : "";
+}
 function start() {
   acct = queryAcct(); $("vAcct").innerHTML = acct; $("acct0").innerHTML = acct;
+  if (param("from")) { $("dtFrom").value = param("from"); }
+  if (param("to")) { $("dtTo").value = param("to"); }
+  $("chkAcct0").checked = !!acct;
   fillFee();
 }
 """
