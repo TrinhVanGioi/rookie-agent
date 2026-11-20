@@ -714,6 +714,7 @@ async function serverCheck() {
   try {
     const r = await api("POST", "/api/server/check", { url: $("server").value });
     say("servermsg", r.message, r.ok ? "ok" : "bad"); $("serverStart").hidden = r.ok;
+    if (r.ok && r.login === false) { $("serverLoginRow").hidden = true; $("serverWhoRow").hidden = true; }   // a server without logins: nothing to sign in to
   } catch (e) { say("servermsg", e.message, "bad"); }
 }
 $("serverCheck").onclick = serverCheck;

@@ -464,6 +464,8 @@ class Core:
         try:
             reply = client.login(name, password)
         except ServerError as error:
+            if getattr(error, "status", None) == 409:
+                raise UserError("Máy chủ này không cần đăng nhập: cứ dùng bình thường.") from error
             raise UserError(str(error).split(": ", 1)[-1] if getattr(error, "status", None) in (401, 429) else str(error)) from error
         self.store.put("server_token", reply["token"])
         self.store.put("server_user", reply["user"])
@@ -500,11 +502,20 @@ class Core:
         if not url.startswith(("http://", "https://")):
             raise UserError("Địa chỉ máy chủ phải bắt đầu bằng http://")
         self.store.put("server_url", url)
+        client = self._server_client(url)
         try:
-            self._server_client(url).health()
+            client.health()
         except ServerError as error:
             return {"ok": False, "url": url, "message": str(error)}
-        return {"ok": True, "url": url, "message": "Kết nối được máy chủ."}
+        login = True
+        try:      # a server with logins off (ROOKIE_AUTH=off, the bundled one) needs none: the page hides the login row
+            login = (client._call("GET", "/auth/me").get("mode") or "off") != "off"
+        except ServerError as error:
+            login = getattr(error, "status", None) == 401       # 401: logins are on and this PC is not signed in; 404: a server before Gate 10
+        except Exception:  # noqa: BLE001
+            login = False
+        return {"ok": True, "url": url, "login": login,
+                "message": "Kết nối được máy chủ." + ("" if login else " Máy chủ này không cần đăng nhập.")}
 
     def server_start(self, _: dict[str, Any]) -> dict[str, Any]:
         if self._server_starter is None:
