@@ -15,7 +15,7 @@
 | Screen | `websource/printing/dlgAdhocStatement.jsp` + `dlgAdhocStatement.js` (53 KB) |
 | Data source | Vendor core via **IFX 1.5** service `DepAcctTrnInqRq` (deposits) / `LoanAcctTrnInqRq` (loans) |
 | Layout engine | **JasperReports 5.6.1** template `websource/Reporting/Template/adhocAccountStatement.jrxml` |
-| Output | `UploadedFiles/adhocAccountStatement<CONTEXT_KEY>.pdf` served by the web app |
+| Output | `reports/adhocAccountStatement<CONTEXT_KEY>.pdf` served by the web app |
 | Preview / physical print | `<object type="application/pdf">` (Adobe Reader ActiveX) + `idPdf.Print()` in `dlgReportPreviewFile.js` |
 | Side effects | Fee/VAT charge (`XferAddRq`), VAT receipt voucher PDF, audit POST `/saoke/add` |
 
@@ -67,11 +67,11 @@ sequenceDiagram
         FS->>RG: generateReport(AppDataObject)
         RG->>RG: DOMServiceImpl -> TemplateGenaratorFactory<br/>-> AdhocStatementBeanList
         RG->>JR: fill + export (jrxml -> jasper -> PDF)
-        JR-->>RG: UploadedFiles/adhocAccountStatement<key>.pdf
+        JR-->>RG: reports/adhocAccountStatement<key>.pdf
         RG-->>JS: <GENERATED_FILE>
         JS->>REST: accountStatement() (URD-6100 audit)
         JS->>PV: launchReportPreviewOpening(url)
-        PV->>AR: <object type="application/pdf" data="/app/UploadedFiles/...">
+        PV->>AR: <object type="application/pdf" data="/app/reports/...">
         T->>AR: click Print -> idPdf.Print()
     end
 ```
@@ -282,7 +282,7 @@ var objTickets = appXMLHandler.callServer("accountStatementInq", "AccountStateme
 
 `source/com/vendor/tp/desktop/servlet/AccountStatementInqScripts.java` maps these into `StamentHistoryTransactionRq` (note the typo in the class name — it is real) from `source/com/bank/model/accountstatement/`, then calls `RestService.postNEW("/saoke/add", ...)`. DTOs: `AccountStatementCustInfo`, `AccountStatementAcctInfo`, `AccountStatementHistInfo`.
 
-> Quirk: this class obtains the Spring bean named `"efastSaleService"` where the rest of the codebase uses `restService`. Worth checking before copying.
+> Quirk: this class obtains the Spring bean named `"<bean khác>"` where the rest of the codebase uses `restService`. Worth checking before copying.
 
 ### 3.9 Server: JasperReports pipeline
 
@@ -312,7 +312,7 @@ Constants (`source/com/vendor/appgt/AppConstants.java:72-78`):
 | Constant | Value |
 |---|---|
 | `JASPER_TEMPLATE_PATH` | `Reporting/Template/` |
-| `JASPER_REPORT_PATH` | `UploadedFiles/` |
+| `JASPER_REPORT_PATH` | `reports/` |
 | `FILE_TEMP_EXT` / `FILE_JR_EXT` | `jrxml` / `jasper` |
 | `GENERATE_PDF` / `GENERATE_EXCEL` / `GENERATE_CSV` | `PDF` / `XLS` / `CSV` |
 
@@ -350,7 +350,7 @@ function LoadAndPrint(url) {
     + 'data="' + url + '?#view=Fit&scrollbar=0&toolbar=0&navpanes=0">'
     + '<span>PDF plugin is not available.</span></object>';
 }
-function loadPDF() { ... LoadAndPrint("/app/UploadedFiles/" + strLocation); }
+function loadPDF() { ... LoadAndPrint("/app/reports/" + strLocation); }
 
 function PrintPdf() {
   if (... objParam.formName == "Receipt Voucher") { updateRepId(objFormData); }
@@ -426,23 +426,13 @@ appXMLHandler.callServer("PrintgeneratedReport",
 | Audit | REST + OAuth2 to a sidecar service | `AccountStatementInqScripts` → `RestService.postNEW("/saoke/add")` |
 | DI / config | Spring 2.5.6 XML beans | `conf/appbeans_app.xml`, `conf/appbeans_forms.xml` |
 | Logging | Log4j + `APPLogFormatter` MDC | `source/appLog4j.xml`, `FacadeServlet:159` |
-| Security | Session token, JWT filter, ESAPI, supervisor override | `FacadeServlet:185`, `conf/appbeans_sso.xml`, `openSupervisorOverrideDialog` |
-| File handoff | PDF written under the web root, fetched by URL | `AppConstants.JASPER_REPORT_PATH = "UploadedFiles/"` |
+| File handoff | PDF written under the web root, fetched by URL | `AppConstants.JASPER_REPORT_PATH = "reports/"` |
 
 ---
 
 ## 6. Known weaknesses to avoid in a clone
 
-1. **Balance math in the browser.** `ACCT_INITIAL_BALANCE` is derived by `eval(trnBal) + eval(debitAmt) - eval(creditAmt)` (`:553-559`). `eval` on money = float rounding + an injection surface, and the opening balance is *reconstructed*, not read from the core.
-2. **`if(!isLoanProduct)`** at `:463` tests the function object, not the call result — always `false`, so `ACCT_TITLE` always comes from `TITLE`. A latent bug.
-3. **Duplicate `BANK_ID` PARAMs** appended three times (`:327`, `:353`, `:359`) in `buildDepAcctTranInqRq`.
-4. **Static mutable state in the facade.** `ReportGeneratorFacade.TEMPLATE_NAMES / EXPORT_TYPE / CONTEXT / CONTEXT_KEY` are `static` and set per request → cross-request bleed under concurrency.
-5. **Filename uniqueness via `objRequest.hashCode()`**, and `groupPDFReport` literally concatenates a `ServletContext` into the path (`"statement" + CONTEXT + ".pdf"`, `ReportFactory:366`) — fragile and unguessable.
-6. **`UploadedFiles/` is inside the web root and unauthenticated by filename** → any generated statement PDF is enumerable/guessable. A real data-leak risk.
-7. **Synchronous XHR per account** in a `for` loop → N blocking round-trips and N modal preview windows for N accounts.
-8. **No idempotency** on the fee charge: `btnReceiptVoucherClick` → `addFundsTransfer` → `generateAdhocDialogBoxReportData` is not transactional; a failed PDF leaves a posted fee.
-9. **Hard-coded test values** shipped to production: `TRANS_AMT=20000`, `CUR_CODE="USD"`, `REF_ID="111"`, `RefId="123456789"` in the fee request.
-10. **IE-only primitives** (`showModalDialog`, `Microsoft.XMLDOM`, ActiveX `idPdf.Print()`) make the flow unrunnable on any supported browser today.
+Đã lược bỏ khỏi tài liệu này (thông tin lỗi của hệ thống thật không đưa lên nơi công khai).
 
 ---
 
@@ -472,7 +462,7 @@ flowchart LR
 | Amount formatting | `currencySupport.getFormattedCurrency` in JS | Format **once on the server** with `DecimalFormat`/`NumberFormat` per locale; send both raw and formatted values |
 | Balances | computed in browser | computed by the report service or read from the core |
 | Preview/print | Adobe ActiveX `<object>` + `idPdf.Print()` | stream the PDF and render with **PDF.js**; print via `window.print()` on a print stylesheet, or `pdfjs-dist` → `PrintService` |
-| File storage | `UploadedFiles/` under web root | store in object storage / temp dir, serve via **authenticated, short-lived signed URL** (or don't store at all — stream it) |
+| File storage | `reports/` under web root | store in object storage / temp dir, serve via **authenticated, short-lived signed URL** (or don't store at all — stream it) |
 | Fee + VAT | `XferAddRq` IFX from the browser | a `POST /statements/:id/charge` command with an idempotency key + saga |
 | Supervisor override | `openSupervisorOverrideDialog` | step-up auth / second-factor approval in the BFF |
 | Audit | `POST /saoke/add` | an `event_history` table write in the same DB transaction, or an outbox event |
@@ -521,7 +511,7 @@ Send **numbers as numbers** and let the report layer format them — the opposit
 2. Add `net.sf.jasperreports:jasperreports:6.21.x` (or 7.x) + a Groovy or Java expression compiler.
 3. Register the fonts: copy `websource/Fonts/*` and `jasperreports_extension.properties` — this is what makes `ị ẹ ả ã ơ ư` render.
 4. Replace `AdhocStatementBeanList`'s DOM parsing with Jackson JSON binding; keep the `Map<String,Object> parameters` + `JRBeanCollectionDataSource` contract unchanged.
-5. `JasperExportManager.exportReportToPdfStream(jasperPrint, response.getOutputStream())` — no temp file, no `UploadedFiles/`.
+5. `JasperExportManager.exportReportToPdfStream(jasperPrint, response.getOutputStream())` — no temp file, no `reports/`.
 
 That single change (Jasper + embedded TTF + streamed PDF) reproduces ~90 % of the visual output of APP statement printing with a fraction of the machinery.
 

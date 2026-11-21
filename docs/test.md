@@ -129,20 +129,7 @@ using ~600 `.xsl` files in `websource/XSL/` (`ifxaccountdetail.xsl` alone is 60 
 
 ### 2.4 Security & identity
 
-| Layer | Implementation |
-|---|---|
-| Web SSO | SAML 2.0 with ADFS — `com.bank.sso.*`, `conf/sso_idp_metadata.xml`, `conf/appbeans_sso.xml:15` |
-| Directory auth | LDAP / Oracle OVD — `LDAPLoginServlet.java`, `appbeans_app.xml:95` |
-| Legacy auth | RBAC (Vendor Roles & Permissions) username/password in APPDB |
-| Authorization | RBAC RBAC: user -> role -> LOB -> applet/feature permission with min/max limits |
-| API token | Short-lived JWT filter on RPC endpoints (`web.xml:302`, `app.properties:86`) |
-| Filter chain | `SSOFilter` -> `JWTTokenValidateFilter` -> `GZIPRequestFilter` -> `ThreadLocalFilter` -> `LoginFilter` |
-| Input validation | ESAPI `validator().getValidInput(...)` in JSPs |
-| Session | `session-timeout 260` min + client-side idle lock prompt (`web.xml:442`, `MainApp.java:38`) |
-| Crypto | AES (`AppEncryptionAlgorithm=AESF`), BouncyCastle, `SPSignDoc` for digital signatures |
-| Service allow-list | `NOT_ALLOWED_SERVICES` blacklist in `app.properties:93` |
-
-Auth types are switchable via one property: `SSO` | `LDAP` | `OVD` | `RBAC` (`conf/appbeans_sso.xml:10`).
+Đăng nhập tập trung và phân quyền theo vai trò. Chi tiết cấu hình bảo mật đã được lược bỏ khỏi tài liệu này.
 
 ---
 
@@ -178,7 +165,7 @@ flowchart LR
     CORE["Vendor CoreGW/CORE adapter<br/>/coregw/services/esl/action/{Service}<br/>/coregw/services/ifx15/raw<br/>SOAP IFXService2Port"]
     COREAPP["Vendor Profile / Premier core (ESL + IFX XML)"]
     DB[("Oracle jdbc/APPDB")]
-    REST["Satellite REST/OAuth2 apps<br/>ITS, ACH, CPM, EFAST, Kiosk, Register, ECM"]
+    REST["Satellite REST/OAuth2 apps"]
     IDP["ADFS / LDAP / OVD"]
   end
 
@@ -327,23 +314,9 @@ Reference: `.vsdp-specs/_text/vsdp_docs_DacTaAPP.docx.md:338`.
 - GWT: locale property `en`/`vi` with `en` fallback
 - Encoding: `defaultCharEncoding=utf-8`
 
-### 3.7 Integrations (from `source/app.properties`)
+### 3.7 Integrations
 
-| System | URL property |
-|---|---|
-| WebCSR (customer service) | `PDURL` |
-| WebAdmin | `WEBDURL` |
-| Reconciliation | `RCURL` |
-| TP Form server | `APPFURL` |
-| ECM (document mgmt) | `EcmDirectUrl` |
-| Digital Banking (ITS) | `DigitalBankUrl` |
-| Internet Banking registration | `IBRegistrationUrl*`, `RegisterAppUrl` |
-| Saleskit | `SaleskitUrl` |
-| ACH | `ACHUrl` |
-| EFAST | `EFASTUrl` |
-| CPM | `CPMUrl` |
-| Core (CORE/CoreGW) | `coreUrl` in `appbeans_app.xml:36` |
-| LDAP/OVD | `appbeans_app.xml:95`, `appbeans_sso.xml:16` |
+Ứng dụng nối với lõi ngân hàng (SOAP/IFX) và một số hệ thống nội bộ khác. Danh sách cụ thể đã được lược bỏ.
 
 ---
 
@@ -460,8 +433,6 @@ app-clone/
 - XML as the UI transport
 - Java 6 / Spring 2.5 / Struts 1 / Servlet 2.4
 - Log4j 1.2
-- Plaintext credentials in properties files
-  (`source/app.properties:79`, `conf/appbeans_sso.xml:20` — use a secret store)
 
 ### 4.7 Effort estimate
 
